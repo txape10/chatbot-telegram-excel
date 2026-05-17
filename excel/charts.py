@@ -1,8 +1,11 @@
 import io
+import logging
 import matplotlib
 matplotlib.use("Agg")  # backend sin pantalla
 import matplotlib.pyplot as plt
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def generar_grafico(df: pd.DataFrame, nombre_archivo: str) -> io.BytesIO | None:
@@ -16,7 +19,9 @@ def generar_grafico(df: pd.DataFrame, nombre_archivo: str) -> io.BytesIO | None:
             df[col] = convertida
 
     columnas_numericas = df.select_dtypes(include="number").columns.tolist()
+    logger.info("Columnas numéricas detectadas en '%s': %s", nombre_archivo, columnas_numericas)
     if not columnas_numericas:
+        logger.info("Tipos de columnas: %s", df.dtypes.to_dict())
         return None
 
     # Usar la primera columna no numérica como eje X (etiquetas), si existe
