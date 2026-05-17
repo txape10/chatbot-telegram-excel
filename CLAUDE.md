@@ -7,11 +7,17 @@ Crear un asistente personal en Telegram que resuelva dudas sobre Microsoft Excel
 ## WHAT — Qué hace
 
 Un bot de Telegram que:
-- Responde preguntas sobre Excel en español
-- Proporciona ejemplos prácticos con datos reales
+- Responde preguntas sobre Excel en español con ejemplos prácticos
 - Cubre fórmulas, tablas dinámicas, formato condicional, gráficos, macros/VBA, Power Query, etc.
-- Mantiene contexto de la conversación (historial)
-- Analiza archivos Excel y CSV subidos por el usuario
+- Mantiene contexto de la conversación (historial por usuario en SQLite)
+- Analiza archivos Excel y CSV subidos por el usuario (resumen, calidad, gráfico automático)
+- Consulta datos con lenguaje natural (motor DSL: filtrar, agrupar, sumar, ordenar…)
+- Modifica archivos Excel a petición (añadir columnas, ordenar, eliminar duplicados, colorear…)
+- Crea archivos Excel desde descripción en lenguaje natural
+- Genera resúmenes estadísticos y mapas de correlaciones
+- Genera archivos de tabla dinámica (Excel Table + resúmenes estáticos)
+- Explica fórmulas paso a paso si el mensaje empieza por `=`
+- Analiza capturas de pantalla de Excel con visión IA
 - Es accesible desde cualquier dispositivo con Telegram instalado
 
 ## HOW — Stack técnico y decisiones tomadas
@@ -68,10 +74,11 @@ pillow==11.2.1
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer .xlsx (multi-hoja) y .csv con detección de separador
-│   ├── analyzer.py         ← resumen, detección de errores de fórmula, analizar_calidad(), multi-hoja
+│   ├── analyzer.py         ← resumen, errores de fórmula, analizar_calidad(), análisis estadístico, correlaciones
 │   ├── query_engine.py     ← motor DSL: filtrar/contar/suma/promedio/max/min/agrupar/ordenar/top_n
+│   ├── editor.py           ← modificación de archivos: 8 operaciones + exportar_xlsx con estilos
 │   ├── charts.py           ← gráficos PNG (barras / líneas / sectores) con matplotlib
-│   └── exporter.py         ← ejemplos de funciones + 4 plantillas listas (presupuesto, gastos, KPIs, inventario)
+│   └── exporter.py         ← ejemplos, plantillas, crear_desde_descripcion(), crear_tabla_dinamica()
 ├── utils/
 │   ├── __init__.py
 │   ├── history.py          ← historial de conversación en SQLite
@@ -82,15 +89,17 @@ pillow==11.2.1
 │   ├── auth.py             ← decorador @solo_autorizados (whitelist por user_id)
 │   ├── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
 │   ├── file_meta.py        ← metadata del último archivo subido por usuario (SQLite)
-│   └── df_context.py       ← DataFrame activo por usuario (en memoria, para motor DSL)
+│   └── df_context.py       ← DataFrame activo por usuario (en memoria, para motor DSL y editor)
 ├── prompts/
 │   ├── __init__.py
-│   └── excel.py            ← todas las plantillas de texto del bot (SYSTEM_BASE, EJEMPLO_FUNCION, etc.)
+│   └── excel.py            ← todas las plantillas de texto del bot (SYSTEM_BASE, DSL, editor, creación)
 ├── tests/
 │   ├── test_analyzer.py    ← 12 tests para resumir, construir_contexto, analizar_calidad
 │   ├── test_exporter.py    ← 11 tests para crear_ejemplo y crear_plantilla
 │   ├── test_reader.py      ← 8 tests para leer_excel, leer_excel_hojas, leer_csv
-│   └── test_query_engine.py ← 24 tests para el motor DSL (todas las operaciones y errores)
+│   ├── test_query_engine.py ← 24 tests para el motor DSL (todas las operaciones y errores)
+│   ├── test_editor.py      ← 23 tests para el editor (8 operaciones, EditorError, exportar_xlsx)
+│   └── test_b1_c1.py       ← 16 tests para crear_desde_descripcion, análisis estadístico y correlaciones
 ├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 └── data/
     ├── historial.db        ← SQLite: historial + preferencias de usuario
@@ -115,6 +124,10 @@ AUTHORIZED_USERS=id1,id2
 | `asyncio.to_thread()` para pandas y matplotlib | Evita bloquear el event loop async de python-telegram-bot en operaciones pesadas |
 | Magic bytes para validar Excel | La extensión puede ser falsa; se leen los primeros bytes para confirmar el tipo real |
 | Límites MAX_FILAS / MAX_COLUMNAS / MAX_HOJAS | Un Excel de 5 MB puede tener 500k filas y colapsar el proceso |
+| DSL cerrada para consultas y ediciones | El LLM extrae un JSON estructurado (no código Python libre) → sin riesgo de inyección |
+| `RESPUESTA_LIBRE` como centinela del LLM | Si la pregunta no es una operación de datos, el LLM responde exactamente ese literal y el bot cae al flujo normal |
+| Excel Table en lugar de TD nativa | openpyxl no puede crear PivotTable interactivas; la Excel Table permite que el usuario cree la TD en 2 clicks desde Excel. Pendiente: evaluar xlwings para TD nativas (solo local, no válido en cloud) |
+| Orden de detección en messages.py | Fórmulas → Edición → Crear Excel → Tabla dinámica → Estadísticas → DSL → LLM. Cada check es un regex O(1) antes de llamar a la API |
 
 ## Comandos del bot
 
@@ -125,14 +138,27 @@ AUTHORIZED_USERS=id1,id2
 | `/ejemplo` | Explicación de una función: `/ejemplo BUSCARV` (aleatorio si no se especifica) |
 | `/generar` | Genera un .xlsx de ejemplo: `/generar BUSCARV` |
 | `/plantilla` | Plantillas .xlsx listas: presupuesto, gastos, KPIs, inventario |
+| `/pivote` | Genera archivo con Excel Table + resúmenes estáticos para crear tabla dinámica |
 | `/version` | Configura la versión de Excel del usuario (365, 2021, 2019, 2016) |
 | `/limpiar` | Borra historial de conversación y contexto Excel |
 
-## Funcionalidades especiales (sin comando)
+## Funcionalidades sin comando (detección automática por intención)
 
-- **Subir Excel/CSV**: resumen automático, detección de errores, gráfico, selector multi-hoja
-- **Escribir `=FORMULA(...)`**: el bot la desglosa paso a paso automáticamente
-- **Subir una captura de pantalla**: el bot la analiza con visión IA
+| Qué escribe el usuario | Qué hace el bot |
+|---|---|
+| Sube un `.xlsx` / `.csv` | Resumen, calidad de datos, gráfico automático, selector multi-hoja |
+| `=FORMULA(...)` | Explica la fórmula paso a paso |
+| Sube una captura de pantalla | Analiza el Excel con visión IA |
+| "añade una columna Margen que sea Precio×0.3" | Modifica el archivo y envía el .xlsx actualizado |
+| "ordena por Fecha descendente" | Ordena el archivo y lo envía |
+| "elimina duplicados / rellena vacíos / renombra columna…" | Aplica la operación y envía el .xlsx |
+| "colorea en rojo los valores de Ventas menores de 100" | Aplica formato condicional y envía el .xlsx |
+| "cuánto suma Ventas por Región" | Consulta DSL sobre el archivo activo, responde en texto |
+| "muéstrame el top 5 por Importe" | Consulta DSL, responde en texto |
+| "hazme un Excel con columnas Fecha, Concepto, Importe" | Genera y envía el .xlsx desde descripción |
+| "dame estadísticas del archivo" | Análisis estadístico completo (media, std, percentiles, sesgo) |
+| "correlaciones" / "mapa de calor" | Análisis de correlaciones + imagen heatmap PNG |
+| "tabla dinámica" | Genera Excel Table + resúmenes estáticos (ver nota en Decisiones técnicas) |
 
 ## Roadmap
 
@@ -171,6 +197,28 @@ AUTHORIZED_USERS=id1,id2
 - [x] `services/llm.py`: `extraer_query_dsl()` — interpreta la pregunta y devuelve JSON o RESPUESTA_LIBRE
 - [x] `handlers/messages.py`: intenta DSL antes del LLM normal si hay Excel activo; fallback transparente
 - [x] 24 tests nuevos en `tests/test_query_engine.py` — 58/58 en verde
+
+### Sprint A — Editor de archivos Excel ✅
+- [x] `excel/editor.py`: 8 operaciones (añadir_columna, ordenar, eliminar_duplicados, filtrar_exportar, rellenar_nulos, renombrar_columna, eliminar_columna, formato_condicional)
+- [x] `excel/editor.py`: `exportar_xlsx()` con cabeceras azules, filas alternas y hoja de info
+- [x] `services/llm.py`: `extraer_operacion_edicion()` — extrae JSON de operación o RESPUESTA_LIBRE
+- [x] `handlers/messages.py`: detección por regex `_RE_EDICION` → `_intentar_edicion()` → actualiza df en memoria
+- [x] 23 tests en `tests/test_editor.py` — 81/81 en verde
+
+### Sprint B1/B2 — Crear Excel desde descripción ✅
+- [x] `prompts/excel.py`: CREAR_EXCEL_SISTEMA + CREAR_EXCEL_USUARIO
+- [x] `services/llm.py`: `extraer_estructura_excel()` — extrae JSON de estructura (título, columnas, datos, totales)
+- [x] `excel/exporter.py`: `crear_desde_descripcion()` — xlsx con cabeceras, datos y fila SUMA opcional
+- [x] `handlers/messages.py`: regex `_RE_CREAR_EXCEL` → `_crear_excel_desde_descripcion()`
+
+### Sprint C1/C2 — Análisis estadístico y correlaciones ✅
+- [x] `excel/analyzer.py`: `analisis_estadistico_completo()` — media, mediana, min, max, std, P25/P75, sesgo por columna numérica
+- [x] `excel/analyzer.py`: `analisis_correlaciones()` — texto con ranking de pares + heatmap PNG (matplotlib)
+- [x] `handlers/messages.py`: regex `_RE_STATS` → `_analizar_estadisticas()` (detecta si pide correlaciones o estadísticas generales)
+- [x] 16 tests en `tests/test_b1_c1.py` — 97/97 en verde
+
+### Pendiente — decisión futura
+- [ ] Tablas dinámicas interactivas nativas: evaluar xlwings (requiere Excel en la máquina, no válido en cloud) vs XML injection con openpyxl (válido en cloud, complejo)
 
 ### Fase 7 — Despliegue
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
