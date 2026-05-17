@@ -19,7 +19,7 @@ Un bot de Telegram que:
 - **Python**
 
 ### LLM (gratuito)
-- **Google Gemini API** (1.500 peticiones/día gratis) — opción principal
+- **Google Gemini API** — modelo `gemini-2.0-flash` (tier gratuito)
 - Alternativa: **Groq** con Llama 3.3 (14.400 peticiones/día gratis)
 
 ### Librería de Telegram
