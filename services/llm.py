@@ -53,6 +53,51 @@ def obtener_respuesta(historial: list[dict], pregunta: str) -> str:
     return respuesta.choices[0].message.content
 
 
+def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
+    """Llama al LLM con el prompt de edición y parsea el JSON.
+
+    Devuelve el dict de operación o None si es RESPUESTA_LIBRE o falla el parseo.
+    """
+    from prompts.excel import EDITOR_DSL_SISTEMA, EDITOR_DSL_USUARIO
+
+    columnas = ", ".join(f"'{c}'" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    muestra  = df.head(3).to_string(index=False)
+
+    mensaje_usuario = EDITOR_DSL_USUARIO.format(
+        columnas=columnas,
+        tipos=tipos,
+        muestra=muestra,
+        pregunta=pregunta,
+    )
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": EDITOR_DSL_SISTEMA},
+                {"role": "user",   "content": mensaje_usuario},
+            ],
+            temperature=0,
+            max_tokens=400,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Respuesta editor DSL del LLM: %s", texto)
+
+        if texto == "RESPUESTA_LIBRE":
+            return None
+
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        return json.loads(texto)
+
+    except Exception as error:
+        logger.warning("Error extrayendo operación de edición: %s", error)
+        return None
+
+
 def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
     """Llama al LLM con el prompt DSL y parsea el JSON resultante.
 

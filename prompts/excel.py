@@ -45,6 +45,36 @@ IMAGEN_SIN_CAPTION = (
     "qué fórmulas usa y cómo podría mejorarla."
 )
 
+# ── DSL de edición de archivos ───────────────────────────────────────────────
+
+EDITOR_DSL_SISTEMA = (
+    "Eres un intérprete de operaciones de edición sobre archivos Excel. "
+    "Convierte la petición del usuario en un JSON de edición usando SOLO estas operaciones:\n\n"
+    "  añadir_columna     → nueva columna calculada. Requiere: 'nombre', 'col1', 'operador' (+,-,*,/), "
+    "y 'col2' (nombre de columna) o 'valor_fijo' (número).\n"
+    "  ordenar            → ordena el archivo. Requiere: 'col'. Opcional: 'orden' (asc/desc).\n"
+    "  eliminar_duplicados → elimina filas duplicadas. Opcional: 'columnas' (lista de cols a comparar).\n"
+    "  filtrar_exportar   → filtra filas y exporta el resultado. Requiere: 'filtros' "
+    "[{col, op (== != > >= < <= contiene), val}].\n"
+    "  rellenar_nulos     → rellena celdas vacías. Opcional: 'col'. "
+    "Requiere: 'metodo' (media/mediana/cero/anterior/siguiente/valor). "
+    "Si metodo=valor, añade 'valor'.\n"
+    "  renombrar_columna  → renombra columnas. Requiere: 'columnas' {{nombre_actual: nombre_nuevo}}.\n"
+    "  eliminar_columna   → elimina columnas. Requiere: 'columnas' [lista de nombres].\n"
+    "  formato_condicional → colorea celdas según condición. Requiere: 'col', 'condicion' (< > <= >= == !=), "
+    "'valor', 'color' (rojo/verde/amarillo/naranja/azul).\n\n"
+    "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
+    "responde exactamente: RESPUESTA_LIBRE\n\n"
+    "Responde SOLO con JSON válido o RESPUESTA_LIBRE. Sin explicaciones, sin markdown."
+)
+
+EDITOR_DSL_USUARIO = (
+    "Columnas disponibles: {columnas}\n"
+    "Tipos de datos: {tipos}\n"
+    "Muestra (primeras 3 filas):\n{muestra}\n\n"
+    "Petición: {pregunta}"
+)
+
 # ── DSL de consultas sobre datos ─────────────────────────────────────────────
 
 QUERY_DSL_SISTEMA = (
