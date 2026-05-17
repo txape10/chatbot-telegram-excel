@@ -12,7 +12,12 @@ AUTHORIZED_USERS = set(
     if uid.strip()
 )
 
-HISTORIAL_MAX_MENSAJES = 6   # 6 intercambios ≈ 12 mensajes; reducido para no superar TPM de Groq
+HISTORIAL_MAX_MENSAJES = 6   # reducido para no superar TPM de Groq free tier
+
+# Límites de seguridad para archivos subidos
+MAX_FILAS    = 50_000
+MAX_COLUMNAS = 100
+MAX_HOJAS    = 10
 
 _BASE_CONOCIMIENTO = cargar_base_conocimiento()
 

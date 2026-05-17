@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,25 +10,48 @@ from utils.sheet_context import guardar_hojas, obtener_hoja, listar_hojas
 from excel.reader import leer_excel_hojas, leer_csv
 from excel.analyzer import resumir, resumir_hojas, construir_contexto, detectar_errores_xlsx
 from excel.charts import generar_grafico
+from config import MAX_FILAS, MAX_COLUMNAS, MAX_HOJAS
 
 logger = logging.getLogger(__name__)
 
 TAMANIO_MAXIMO_MB = 5
-DIRECTORIO_TEMP = os.path.join(os.path.dirname(__file__), "..", "data", "temp")
+DIRECTORIO_TEMP   = os.path.join(os.path.dirname(__file__), "..", "data", "temp")
 
 _EXTENSIONES_EXCEL = (".xlsx", ".xls")
 _EXTENSIONES_CSV   = (".csv",)
+
+# Magic bytes para validar tipo real de archivo
+_MAGIC_XLSX = b"PK\x03\x04"          # ZIP — usado por .xlsx
+_MAGIC_XLS  = b"\xd0\xcf\x11\xe0"   # OLE2 — usado por .xls
+
+
+def _validar_extension_real(ruta: str, es_xlsx: bool, es_xls: bool) -> bool:
+    """Comprueba los primeros bytes del archivo para confirmar que es realmente Excel."""
+    try:
+        with open(ruta, "rb") as f:
+            cabecera = f.read(8)
+        if es_xlsx and cabecera[:4] == _MAGIC_XLSX:
+            return True
+        if es_xls and cabecera[:4] == _MAGIC_XLS:
+            return True
+        if not es_xlsx and not es_xls:
+            return True   # CSV: no hay magic bytes fiables, confiamos en la extensión
+        return False
+    except Exception:
+        return False
 
 
 @solo_autorizados
 async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     documento = update.message.document
-    user_id = update.effective_user.id
-    nombre = documento.file_name or ""
-    es_excel = nombre.lower().endswith(_EXTENSIONES_EXCEL)
-    es_csv   = nombre.lower().endswith(_EXTENSIONES_CSV)
+    user_id   = update.effective_user.id
+    nombre    = os.path.basename(documento.file_name or "archivo")   # sanitizar ruta
+    nombre_lower = nombre.lower()
+    es_xlsx = nombre_lower.endswith(".xlsx")
+    es_xls  = nombre_lower.endswith(".xls")
+    es_csv  = nombre_lower.endswith(".csv")
 
-    if not es_excel and not es_csv:
+    if not es_xlsx and not es_xls and not es_csv:
         await update.message.reply_text("⚠️ Solo acepto archivos Excel (.xlsx, .xls) o CSV (.csv).")
         return
 
@@ -44,14 +68,28 @@ async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         archivo = await documento.get_file()
         await archivo.download_to_drive(ruta)
 
+        # Validar tipo real por magic bytes
+        if not _validar_extension_real(ruta, es_xlsx, es_xls):
+            await mensaje_carga.edit_text("⚠️ El archivo no es un Excel válido aunque tenga la extensión correcta.")
+            return
+
         if es_csv:
-            await _procesar_dataframe(update, user_id, leer_csv(ruta), nombre, mensaje_carga, errores=[])
+            df = await asyncio.to_thread(leer_csv, ruta)
+            _validar_limites(df, nombre, n_hojas=1)
+            await _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errores=[])
         else:
-            sheets = leer_excel_hojas(ruta)
-            errores = detectar_errores_xlsx(ruta)
+            sheets = await asyncio.to_thread(leer_excel_hojas, ruta)
+
+            # Límite de hojas
+            if len(sheets) > MAX_HOJAS:
+                await mensaje_carga.edit_text(
+                    f"⚠️ El archivo tiene {len(sheets)} hojas. Solo proceso hasta {MAX_HOJAS}."
+                )
+                sheets = dict(list(sheets.items())[:MAX_HOJAS])
+
+            errores = await asyncio.to_thread(detectar_errores_xlsx, ruta)
 
             if len(sheets) > 1:
-                # Multi-hoja: guardar todas y mostrar selector
                 guardar_hojas(user_id, sheets)
                 resumen = resumir_hojas(sheets, nombre)
                 nombres = list(sheets.keys())
@@ -59,36 +97,51 @@ async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     InlineKeyboardButton(f"📋 {n[:20]}", callback_data=f"sheet_{i}")
                     for i, n in enumerate(nombres)
                 ]
-                # Filas de 2 botones
                 filas = [botones[i:i+2] for i in range(0, len(botones), 2)]
-                teclado = InlineKeyboardMarkup(filas)
-                await mensaje_carga.edit_text(resumen, parse_mode="Markdown", reply_markup=teclado)
+                await mensaje_carga.edit_text(resumen, parse_mode="Markdown",
+                                              reply_markup=InlineKeyboardMarkup(filas))
             else:
-                # Una sola hoja: procesar directamente
                 df = list(sheets.values())[0]
+                _validar_limites(df, nombre, n_hojas=1)
                 await _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errores)
 
+    except _LimiteExcedidoError as error:
+        logger.warning("Límite superado en archivo de user_id %s: %s", user_id, error)
+        await mensaje_carga.edit_text(f"⚠️ {error}")
     except Exception as error:
-        logger.error("Error procesando archivo para user_id %s: %s", user_id, error)
+        logger.error("Error procesando archivo para user_id %s: %s", user_id, error, exc_info=True)
         await mensaje_carga.edit_text("⚠️ No se pudo leer el archivo. Comprueba que es válido.")
     finally:
         if ruta and os.path.exists(ruta):
             os.remove(ruta)
 
 
+class _LimiteExcedidoError(Exception):
+    pass
+
+
+def _validar_limites(df, nombre: str, n_hojas: int) -> None:
+    if len(df) > MAX_FILAS:
+        raise _LimiteExcedidoError(
+            f"El archivo tiene {len(df):,} filas. El límite es {MAX_FILAS:,}."
+        )
+    if len(df.columns) > MAX_COLUMNAS:
+        raise _LimiteExcedidoError(
+            f"El archivo tiene {len(df.columns)} columnas. El límite es {MAX_COLUMNAS}."
+        )
+
+
 async def _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errores):
     """Envía resumen, guarda contexto y lanza el gráfico con botones de tipo."""
-    resumen = resumir(df, nombre, errores)
+    resumen  = resumir(df, nombre, errores)
     contexto = construir_contexto(df, nombre)
     guardar_contexto(user_id, contexto)
     await mensaje_carga.edit_text(resumen, parse_mode="Markdown")
 
-    # Guardar datos para poder regenerar el gráfico
     guardar_datos_grafico(user_id, df, nombre)
 
-    # Generar gráfico de barras por defecto
     try:
-        buffer = generar_grafico(df, nombre, tipo="barras")
+        buffer = await asyncio.to_thread(generar_grafico, df, nombre, "barras")
         if buffer:
             teclado = InlineKeyboardMarkup([[
                 InlineKeyboardButton("📈 Líneas",   callback_data="chart_lineas"),
@@ -104,11 +157,10 @@ async def _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errore
 
 
 async def callback_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Cambia la hoja activa cuando el usuario pulsa un botón de selección de hoja."""
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    indice = int(query.data.replace("sheet_", ""))
+    indice  = int(query.data.replace("sheet_", ""))
 
     resultado = obtener_hoja(user_id, indice)
     if not resultado:
@@ -117,16 +169,14 @@ async def callback_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     nombre_hoja, df = resultado
     hojas = listar_hojas(user_id)
-    nombre_archivo = f"hoja '{nombre_hoja}'"
 
-    resumen = resumir(df, nombre_archivo)
-    contexto = construir_contexto(df, nombre_archivo)
+    resumen  = resumir(df, f"hoja '{nombre_hoja}'")
+    contexto = construir_contexto(df, f"hoja '{nombre_hoja}'")
     guardar_contexto(user_id, contexto)
     guardar_datos_grafico(user_id, df, nombre_hoja)
 
     await query.edit_message_text(resumen, parse_mode="Markdown")
 
-    # Ofrecer cambiar a otra hoja si hay más
     otras = [n for i, n in enumerate(hojas) if i != indice]
     if otras:
         botones = [
@@ -134,14 +184,11 @@ async def callback_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             for n in otras
         ]
         filas = [botones[i:i+2] for i in range(0, len(botones), 2)]
-        await query.message.reply_text(
-            "¿Quieres cambiar a otra hoja?",
-            reply_markup=InlineKeyboardMarkup(filas)
-        )
+        await query.message.reply_text("¿Quieres cambiar a otra hoja?",
+                                       reply_markup=InlineKeyboardMarkup(filas))
 
-    # Gráfico de la hoja seleccionada
     try:
-        buffer = generar_grafico(df, nombre_hoja, tipo="barras")
+        buffer = await asyncio.to_thread(generar_grafico, df, nombre_hoja, "barras")
         if buffer:
             teclado = InlineKeyboardMarkup([[
                 InlineKeyboardButton("📈 Líneas",   callback_data="chart_lineas"),
@@ -158,32 +205,30 @@ async def callback_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def callback_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Regenera el gráfico con el tipo de visualización elegido."""
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    tipo = query.data.replace("chart_", "")
+    tipo    = query.data.replace("chart_", "")
 
     datos = obtener_datos_grafico(user_id)
     if not datos:
-        await query.edit_message_caption(caption="⚠️ Ya no tengo los datos del archivo. Vuelve a subirlo.")
+        await query.edit_message_caption(caption="⚠️ Ya no tengo los datos. Vuelve a subir el archivo.")
         return
 
     try:
         import pandas as pd
-        df = pd.DataFrame(datos["df"])
-        buffer = generar_grafico(df, datos["nombre"], tipo=tipo)
+        df     = pd.DataFrame(datos["df"])
+        buffer = await asyncio.to_thread(generar_grafico, df, datos["nombre"], tipo)
         if not buffer:
             await query.answer("No hay datos numéricos para graficar.", show_alert=True)
             return
 
         nombres_tipo = {"lineas": "líneas", "sectores": "sectores", "barras": "barras"}
-        otros_tipos = [t for t in ["barras", "lineas", "sectores"] if t != tipo]
+        otros_tipos  = [t for t in ["barras", "lineas", "sectores"] if t != tipo]
+        iconos       = {"barras": "📊", "lineas": "📈", "sectores": "🥧"}
         teclado = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                f"{'📊' if t == 'barras' else '📈' if t == 'lineas' else '🥧'} {nombres_tipo[t].capitalize()}",
-                callback_data=f"chart_{t}"
-            )
+            InlineKeyboardButton(f"{iconos[t]} {nombres_tipo[t].capitalize()}",
+                                 callback_data=f"chart_{t}")
             for t in otros_tipos
         ]])
         await query.message.reply_photo(
@@ -191,10 +236,7 @@ async def callback_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             caption=f"📊 Gráfico de {nombres_tipo.get(tipo, tipo)}. ¿Cambiar tipo?",
             reply_markup=teclado,
         )
-        # Quitar los botones del mensaje original
-        await query.edit_message_caption(
-            caption=f"📊 Gráfico de {nombres_tipo.get(tipo, tipo)} generado."
-        )
+        await query.edit_message_caption(caption=f"📊 Gráfico de {nombres_tipo.get(tipo, tipo)} generado.")
     except Exception as error:
-        logger.error("Error regenerando gráfico tipo '%s': %s", tipo, error)
+        logger.error("Error regenerando gráfico tipo '%s': %s", tipo, error, exc_info=True)
         await query.answer("No se pudo generar el gráfico.", show_alert=True)

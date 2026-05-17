@@ -11,18 +11,21 @@ Un bot de Telegram que:
 - Proporciona ejemplos prácticos con datos reales
 - Cubre fórmulas, tablas dinámicas, formato condicional, gráficos, macros/VBA, Power Query, etc.
 - Mantiene contexto de la conversación (historial)
+- Analiza archivos Excel y CSV subidos por el usuario
 - Es accesible desde cualquier dispositivo con Telegram instalado
 
 ## HOW — Stack técnico y decisiones tomadas
 
 ### Lenguaje
-- **Python**
+- **Python 3.11+**
 
-### LLM (gratuito)
+### LLM
 - **Groq** con modelo `llama-3.3-70b-versatile` — gratuito, sin tarjeta de crédito
+- Análisis de imágenes: `meta-llama/llama-4-scout-17b-16e-instruct` (visión)
+- Límite TPM gestionado dinámicamente: system prompt ~1.200 tokens, historial truncado automáticamente si se acerca a 9.000 tokens
 
 ### Librería de Telegram
-- `python-telegram-bot`
+- `python-telegram-bot` v21+
 
 ### Ejecución
 - **Local en PC del usuario** (sin servidor externo de momento)
@@ -31,17 +34,16 @@ Un bot de Telegram que:
 
 ### Dependencias principales
 ```
-python-telegram-bot
-groq
-python-dotenv
-pandas
-openpyxl
-numpy
-matplotlib
-pillow
+python-telegram-bot==21.10
+groq==0.13.1
+python-dotenv==1.1.0
+pandas==2.2.3
+openpyxl==3.1.5
+matplotlib==3.9.4
+pillow==11.2.1
 ```
 
-## Estructura del proyecto (objetivo final)
+## Estructura del proyecto
 
 ```
 3 - Chatbot de Telegram para Excel/
@@ -50,33 +52,39 @@ pillow
 ├── .env.example            ← plantilla sin valores reales
 ├── .gitignore
 ├── requirements.txt
+├── logging_config.py       ← logging a consola + fichero rotativo (data/logs/bot.log)
 ├── bot.py                  ← punto de entrada principal
-├── config.py               ← configuración, variables de entorno y whitelist
+├── config.py               ← configuración, variables de entorno, whitelist y límites de seguridad
 ├── handlers/
 │   ├── __init__.py
-│   ├── messages.py         ← lógica de respuesta a mensajes de texto
-│   ├── commands.py         ← comandos /start, /ayuda, /ejemplo, /generar, /limpiar + callbacks InlineKeyboard
-│   ├── documents.py        ← recepción y procesamiento de archivos .xlsx + gráfico automático
-│   └── images.py           ← análisis de capturas de pantalla de Excel (visión LLM)
+│   ├── messages.py         ← respuesta a texto; detección automática de fórmulas (=)
+│   ├── commands.py         ← /start, /ayuda, /ejemplo, /generar, /plantilla, /version, /limpiar + callbacks InlineKeyboard
+│   ├── documents.py        ← archivos .xlsx/.xls/.csv: validación, límites, multi-hoja, gráficos, asyncio.to_thread
+│   └── images.py           ← análisis de capturas de pantalla con LLM de visión
 ├── services/
 │   ├── __init__.py
 │   └── llm.py              ← Groq: obtener_respuesta (Llama 3.3) + analizar_imagen (Llama 4 Scout)
+│                              Gestión dinámica de tokens: truncado automático del historial
 ├── excel/
 │   ├── __init__.py
-│   ├── reader.py           ← leer archivos .xlsx con pandas
-│   ├── analyzer.py         ← análisis, resumen y detección de errores
-│   ├── charts.py           ← generar gráfico de barras PNG con matplotlib
-│   └── exporter.py         ← generación de archivos .xlsx con ejemplos prácticos
+│   ├── reader.py           ← leer .xlsx (multi-hoja) y .csv con detección de separador
+│   ├── analyzer.py         ← resumen, detección de errores de fórmula, multi-hoja
+│   ├── charts.py           ← gráficos PNG (barras / líneas / sectores) con matplotlib
+│   └── exporter.py         ← ejemplos de funciones + 4 plantillas listas (presupuesto, gastos, KPIs, inventario)
 ├── utils/
 │   ├── __init__.py
-│   ├── history.py          ← gestión del historial de conversación (SQLite)
-│   ├── excel_context.py    ← contexto del archivo subido (en memoria)
-│   ├── chart_context.py    ← datos para regenerar gráficos (en memoria)
+│   ├── history.py          ← historial de conversación en SQLite
+│   ├── excel_context.py    ← contexto del archivo subido (en memoria por sesión)
+│   ├── chart_context.py    ← datos para regenerar gráficos (en memoria por sesión)
 │   ├── sheet_context.py    ← hojas de Excel para selector multi-hoja (en memoria)
 │   ├── user_prefs.py       ← preferencias de usuario: versión Excel (SQLite)
-│   ├── auth.py             ← decorador @solo_autorizados (whitelist)
-│   └── knowledge.py        ← carga de archivos knowledge/*.md al arrancar
-└── knowledge/              ← base de conocimiento en Markdown (8 archivos)
+│   ├── auth.py             ← decorador @solo_autorizados (whitelist por user_id)
+│   └── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
+├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
+└── data/
+    ├── historial.db        ← SQLite: historial + preferencias de usuario
+    ├── logs/bot.log        ← log rotativo (máx. 5 MB × 3 backups)
+    └── temp/               ← archivos temporales durante el procesamiento
 ```
 
 ## Variables de entorno (.env)
@@ -87,15 +95,15 @@ GROQ_API_KEY=clave_de_groq_console
 AUTHORIZED_USERS=id1,id2
 ```
 
-## System prompt del asistente
+## Decisiones técnicas importantes
 
-El bot debe comportarse como un experto en Microsoft Excel con más de 20 años de experiencia. Ante cada pregunta debe:
-1. Dar una explicación clara y concisa
-2. Incluir un ejemplo práctico con datos reales
-3. Mostrar la fórmula o los pasos exactos
-4. Añadir consejos o variantes útiles si los hay
-
-Responde siempre en español.
+| Decisión | Motivo |
+|---|---|
+| Solo `ejemplos_respuestas.md` en el system prompt | El resto de knowledge sobrepasaba el límite de 12.000 TPM del tier gratuito de Groq |
+| Truncado dinámico del historial en `llm.py` | Evita errores 413 en conversaciones largas sin cortar el contexto del usuario bruscamente |
+| `asyncio.to_thread()` para pandas y matplotlib | Evita bloquear el event loop async de python-telegram-bot en operaciones pesadas |
+| Magic bytes para validar Excel | La extensión puede ser falsa; se leen los primeros bytes para confirmar el tipo real |
+| Límites MAX_FILAS / MAX_COLUMNAS / MAX_HOJAS | Un Excel de 5 MB puede tener 500k filas y colapsar el proceso |
 
 ## Comandos del bot
 
@@ -103,99 +111,67 @@ Responde siempre en español.
 |---|---|
 | `/start` | Bienvenida e instrucciones |
 | `/ayuda` | Categorías con botones InlineKeyboard |
-| `/ejemplo` | Explicación aleatoria o de una función concreta: `/ejemplo BUSCARV` |
-| `/generar` | Genera y envía un .xlsx de ejemplo: `/generar BUSCARV` |
-| `/plantilla` | Plantillas .xlsx listas para usar (presupuesto, gastos, KPIs, inventario) |
-| `/version` | Configura la versión de Excel del usuario |
-| `/limpiar` | Borrar el historial de conversación |
+| `/ejemplo` | Explicación de una función: `/ejemplo BUSCARV` (aleatorio si no se especifica) |
+| `/generar` | Genera un .xlsx de ejemplo: `/generar BUSCARV` |
+| `/plantilla` | Plantillas .xlsx listas: presupuesto, gastos, KPIs, inventario |
+| `/version` | Configura la versión de Excel del usuario (365, 2021, 2019, 2016) |
+| `/limpiar` | Borra historial de conversación y contexto Excel |
 
-## Funcionalidades — Roadmap
+## Funcionalidades especiales (sin comando)
 
-### Fase 1 — MVP (conversación básica) ✅
-- [x] Conexión básica bot Telegram ↔ Groq (Llama 3.3)
-- [x] Respuestas a preguntas de texto sobre Excel
-- [x] Historial de conversación en memoria por usuario (últimos 10 mensajes)
-- [x] Comandos básicos: /start, /ayuda, /limpiar
-- [x] Control de acceso: whitelist de `user_id` autorizados en `.env`
+- **Subir Excel/CSV**: resumen automático, detección de errores, gráfico, selector multi-hoja
+- **Escribir `=FORMULA(...)`**: el bot la desglosa paso a paso automáticamente
+- **Subir una captura de pantalla**: el bot la analiza con visión IA
+
+## Roadmap
+
+### Fase 1 — MVP ✅
+- [x] Conversación básica Telegram ↔ Groq (Llama 3.3)
+- [x] Historial por usuario (SQLite)
+- [x] Whitelist de acceso por user_id
 
 ### Fase 2 — Robustez ✅
-- [x] Mensajes de carga mientras el LLM procesa ("⏳ Pensando...")
-- [x] Manejo de errores con mensajes claros al usuario
-- [x] Persistencia del historial en SQLite (sobrevive reinicios)
-- [x] Comando /ejemplo con función aleatoria o concreta (/ejemplo BUSCARV)
-- [x] Comandos registrados en Telegram (menú al escribir "/")
+- [x] Mensajes de carga, manejo de errores, comandos registrados en Telegram
 
-### Fase 3 — Excel real con pandas ✅
-- [x] Carpeta `excel/` con `reader.py` y `analyzer.py`
-- [x] `handlers/documents.py`: recibir archivos `.xlsx` por Telegram (máx. 5 MB)
-- [x] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
-- [x] Responder preguntas sobre el archivo subido usando el LLM
+### Fase 3 — Excel real ✅
+- [x] Subida de archivos .xlsx, resumen automático, contexto para preguntas de seguimiento
 
 ### Fase 4 — Generación y visualización ✅
-- [x] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos (BUSCARV, BUSCARX, SUMAR.SI, CONTAR.SI, SI + genérico)
-- [x] Comando `/generar BUSCARV`: envía el .xlsx al usuario directamente por Telegram
-- [x] `excel/charts.py`: gráfico de barras automático con `matplotlib` al subir un Excel
-- [x] Menús con botones InlineKeyboard por categorías en `/ayuda`
-- [x] `handlers/images.py` + `services/llm.py` (`analizar_imagen`): análisis de capturas de pantalla de Excel usando Llama 4 Scout (visión)
+- [x] /generar (ejemplos .xlsx), gráficos automáticos, InlineKeyboard en /ayuda, análisis de imágenes
 
-### Fase 5 — Enriquecimiento del bot ✅
-- [x] Soporte CSV: `.csv` aceptado igual que Excel, con detección automática de separador
-- [x] Detección de errores de fórmula (`#REF!`, `#N/A`, etc.) al subir un archivo
-- [x] Multi-hoja: si el Excel tiene varias hojas, botones InlineKeyboard para seleccionar cuál analizar
-- [x] Tipos de gráfico: botones para cambiar entre barras, líneas y sectores tras subir un archivo
-- [x] `/plantilla`: 4 plantillas `.xlsx` listas con fórmulas (presupuesto, gastos, KPIs, inventario)
-- [x] Explicador automático de fórmulas: si el mensaje empieza por `=`, el bot la desglosa paso a paso
-- [x] `/version`: guarda la versión de Excel del usuario en SQLite; se pregunta automáticamente la primera vez
-- [x] Base de conocimiento conectada: los 8 archivos `knowledge/*.md` se cargan al arrancar e inyectan en el system prompt
+### Fase 5 — Enriquecimiento ✅
+- [x] CSV, multi-hoja, tipos de gráfico, /plantilla, explicador de fórmulas, /version, base de conocimiento
 
-### Fase 6 — Despliegue y producción
-- [ ] Base de conocimiento desde PDFs propios
+### Fase 6 — Calidad y robustez (Sprint 1) ✅
+- [x] Logging a fichero rotativo (`data/logs/bot.log`)
+- [x] Security hardening: límites de filas/columnas/hojas, validación de tipo real por magic bytes, sanitización de nombres de archivo
+- [x] `asyncio.to_thread()` en todas las operaciones bloqueantes (pandas, matplotlib, openpyxl)
+- [x] Fix error 413: system prompt reducido, historial limitado a 6, truncado dinámico de tokens
+
+### Fase 6 — Calidad y robustez (pendiente)
+- [ ] Sprint 2: tests, analista automático ampliado, metadata en SQLite, prompts a módulo
+- [ ] Sprint 3: engine de queries pandas con DSL cerrada (filtrar, agrupar, ordenar, top N...)
+
+### Fase 7 — Despliegue
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
-
-## Documentación de referencia técnica
-
-- **python-telegram-bot**: https://docs.python-telegram-bot.org (usar v21+)
-- **Groq API**: https://console.groq.com/docs
-- **openpyxl** (fase 3): https://openpyxl.readthedocs.io
-- **Python objetivo**: 3.11+
-
-## Base de conocimiento de Excel
-
-La carpeta `knowledge/` contiene archivos Markdown con contenido estructurado sobre Excel. Claude Code debe usarlos para:
-1. Construir un system prompt rico y detallado para el bot
-2. Cargarlos como contexto adicional en las respuestas cuando sea relevante
-
-```
-knowledge/
-├── formulas_basicas.md        ← SUMA, SI, BUSCARV, CONTAR.SI...
-├── formulas_avanzadas.md      ← LAMBDA, LET, ÍNDICE/COINCIDIR...
-├── tablas_dinamicas.md        ← pasos, opciones, trucos
-├── formato_condicional.md     ← reglas, fórmulas personalizadas
-├── power_query.md             ← transformaciones más usadas
-├── vba_basico.md              ← macros más útiles y frecuentes
-├── errores_comunes.md         ← #¡VALOR!, #N/A, #¡REF! y cómo resolverlos
-└── ejemplos_respuestas.md     ← tono y formato exacto que debe usar el bot
-```
 
 ## Convenciones de código
 
 - Código en español (variables, comentarios, mensajes al usuario)
-- Un archivo por responsabilidad (no mezclar lógica de Telegram con llamadas a la API)
-- Variables de entorno siempre desde `.env`, nunca hardcodeadas
+- Un archivo por responsabilidad
+- Variables de entorno siempre desde `.env`
 - Manejo de excepciones en todas las llamadas a APIs externas
-- El historial de conversación se limita a los últimos 10 mensajes para no superar el contexto
+- Operaciones de I/O y CPU-bound siempre en `asyncio.to_thread()`
 
 ## Control de versiones
 
 - **Usuario GitHub**: txape10
 - **Repositorio**: github.com/txape10/chatbot-telegram-excel
 - **Rama principal**: `main`
-- **Flujo de trabajo**: commits frecuentes con mensajes descriptivos en español
-- **Archivos que NUNCA deben subirse a GitHub**: `.env`, `__pycache__/`, `*.pyc`
+- **Archivos que NUNCA deben subirse**: `.env`, `__pycache__/`, `*.pyc`, `data/`
 
 ## Notas importantes
 
-- El archivo `.env` nunca debe subirse a git (añadirlo al `.gitignore`)
-- Para obtener el token de Telegram: buscar `@BotFather` en Telegram → `/newbot`
-- Para obtener la clave de Groq: registrarse en [console.groq.com](https://console.groq.com) (gratuito, sin tarjeta)
-- Coste: 0€ — Groq ofrece ~14.400 peticiones/día gratis en el tier gratuito
+- Para obtener el token de Telegram: `@BotFather` → `/newbot`
+- Para obtener la clave de Groq: [console.groq.com](https://console.groq.com) (gratuito, sin tarjeta)
+- Coste actual: 0 € — Groq free tier ofrece ~14.400 peticiones/día

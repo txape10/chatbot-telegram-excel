@@ -1,3 +1,6 @@
+from logging_config import configurar_logging
+configurar_logging()
+
 from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import TELEGRAM_TOKEN
