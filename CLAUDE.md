@@ -69,6 +69,7 @@ pillow==11.2.1
 │   ├── __init__.py
 │   ├── reader.py           ← leer .xlsx (multi-hoja) y .csv con detección de separador
 │   ├── analyzer.py         ← resumen, detección de errores de fórmula, analizar_calidad(), multi-hoja
+│   ├── query_engine.py     ← motor DSL: filtrar/contar/suma/promedio/max/min/agrupar/ordenar/top_n
 │   ├── charts.py           ← gráficos PNG (barras / líneas / sectores) con matplotlib
 │   └── exporter.py         ← ejemplos de funciones + 4 plantillas listas (presupuesto, gastos, KPIs, inventario)
 ├── utils/
@@ -80,14 +81,16 @@ pillow==11.2.1
 │   ├── user_prefs.py       ← preferencias de usuario: versión Excel (SQLite)
 │   ├── auth.py             ← decorador @solo_autorizados (whitelist por user_id)
 │   ├── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
-│   └── file_meta.py        ← metadata del último archivo subido por usuario (SQLite)
+│   ├── file_meta.py        ← metadata del último archivo subido por usuario (SQLite)
+│   └── df_context.py       ← DataFrame activo por usuario (en memoria, para motor DSL)
 ├── prompts/
 │   ├── __init__.py
 │   └── excel.py            ← todas las plantillas de texto del bot (SYSTEM_BASE, EJEMPLO_FUNCION, etc.)
 ├── tests/
 │   ├── test_analyzer.py    ← 12 tests para resumir, construir_contexto, analizar_calidad
 │   ├── test_exporter.py    ← 11 tests para crear_ejemplo y crear_plantilla
-│   └── test_reader.py      ← 8 tests para leer_excel, leer_excel_hojas, leer_csv
+│   ├── test_reader.py      ← 8 tests para leer_excel, leer_excel_hojas, leer_csv
+│   └── test_query_engine.py ← 24 tests para el motor DSL (todas las operaciones y errores)
 ├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 └── data/
     ├── historial.db        ← SQLite: historial + preferencias de usuario
@@ -162,9 +165,12 @@ AUTHORIZED_USERS=id1,id2
 - [x] `excel/analyzer.py`: función `analizar_calidad()` detecta columnas casi vacías, constantes, mezcla texto/número, outliers IQR y fechas inválidas
 - [x] 34 tests unitarios en `tests/`: `test_reader`, `test_analyzer`, `test_exporter` — todos en verde
 
-### Fase 6 — Calidad y robustez (Sprint 3, pendiente)
-- [ ] Engine de queries pandas con DSL cerrada (filtrar, agrupar, ordenar, top N, contar, promedio...)
-- [ ] Generación de tablas dinámicas desde los datos reales del usuario
+### Fase 6 — Calidad y robustez (Sprint 3) ✅
+- [x] `excel/query_engine.py`: DSL cerrada con 9 operaciones (filtrar, contar, suma, promedio, max, min, agrupar, ordenar, top_n) y filtros encadenables (== != > >= < <= contiene no_contiene empieza_por)
+- [x] `utils/df_context.py`: DataFrame activo en memoria por usuario
+- [x] `services/llm.py`: `extraer_query_dsl()` — interpreta la pregunta y devuelve JSON o RESPUESTA_LIBRE
+- [x] `handlers/messages.py`: intenta DSL antes del LLM normal si hay Excel activo; fallback transparente
+- [x] 24 tests nuevos en `tests/test_query_engine.py` — 58/58 en verde
 
 ### Fase 7 — Despliegue
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
