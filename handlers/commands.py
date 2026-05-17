@@ -59,7 +59,7 @@ async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @solo_autorizados
 async def ejemplo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    funcion = random.choice(FUNCIONES_EXCEL)
+    funcion = " ".join(context.args).upper() if context.args else random.choice(FUNCIONES_EXCEL)
     mensaje_carga = await update.message.reply_text(f"⏳ Generando ejemplo de {funcion}...")
     try:
         prompt = (
