@@ -1,14 +1,29 @@
+from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 from config import TELEGRAM_TOKEN
 from handlers.commands import start, ayuda, limpiar, ejemplo
 from handlers.messages import responder_mensaje
 
 
-def main() -> None:
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+async def registrar_comandos(app):
+    await app.bot.set_my_commands([
+        BotCommand("start",   "Bienvenida e instrucciones"),
+        BotCommand("ayuda",   "Categorías de temas disponibles"),
+        BotCommand("ejemplo", "Ejemplo aleatorio o de una función: /ejemplo BUSCARV"),
+        BotCommand("limpiar", "Borrar el historial de conversación"),
+    ])
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("ayuda", ayuda))
+
+def main() -> None:
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_TOKEN)
+        .post_init(registrar_comandos)
+        .build()
+    )
+
+    app.add_handler(CommandHandler("start",   start))
+    app.add_handler(CommandHandler("ayuda",   ayuda))
     app.add_handler(CommandHandler("limpiar", limpiar))
     app.add_handler(CommandHandler("ejemplo", ejemplo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder_mensaje))
