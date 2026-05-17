@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
@@ -11,6 +12,18 @@ from utils.auth import solo_autorizados
 from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
+from excel.exporter import crear_tabla_dinamica
+
+# Patrón para detectar intención de crear una tabla dinámica
+_RE_TABLA_DINAMICA = re.compile(
+    r"tabla\s+din[aá]mica",
+    re.IGNORECASE,
+)
+_PALABRAS_ACCION = re.compile(
+    r"\b(cr[eé]a|crea[rm]|genera|gen[eé]ra|hazme|haz|dame|quiero|necesito|"
+    r"pod[eé]s|puedes|ejemplo|muestra|hacer)\b",
+    re.IGNORECASE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +47,11 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # ── Explicador automático de fórmulas ─────────────────────────────────────
     if pregunta.startswith("="):
         await _explicar_formula(update, user_id, pregunta)
+        return
+
+    # ── Generador de tabla dinámica ───────────────────────────────────────────
+    if _RE_TABLA_DINAMICA.search(pregunta) and _PALABRAS_ACCION.search(pregunta):
+        await _generar_tabla_dinamica(update, user_id, pregunta)
         return
 
     # ── Flujo normal ──────────────────────────────────────────────────────────
@@ -89,6 +107,49 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.error("Error inesperado para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text(
             "⚠️ El asistente no está disponible en este momento. Inténtalo en unos segundos."
+        )
+
+
+async def _generar_tabla_dinamica(update: Update, user_id: int, pregunta: str) -> None:
+    """Genera y envía un .xlsx con tabla dinámica usando los datos del usuario (si los tiene)."""
+    mensaje_carga = await update.message.reply_text("⏳ Generando tabla dinámica...")
+    try:
+        df = obtener_df(user_id)
+        usar_datos_usuario = df is not None and not df.empty
+
+        buf, nombre = await asyncio.to_thread(crear_tabla_dinamica, df)
+
+        if usar_datos_usuario:
+            caption = (
+                "📊 *Tabla dinámica con tus datos*\n\n"
+                "El archivo tiene dos hojas:\n"
+                "• *Datos* — tus datos originales\n"
+                "• *Tabla Dinámica* — resúmenes agrupados calculados automáticamente\n\n"
+                "💡 En Excel puedes crear una tabla dinámica interactiva desde "
+                "*Insertar → Tabla dinámica* y arrastrar los campos que quieras."
+            )
+        else:
+            caption = (
+                "📊 *Ejemplo de tabla dinámica*\n\n"
+                "El archivo tiene dos hojas:\n"
+                "• *Datos* — datos de ventas de ejemplo\n"
+                "• *Tabla Dinámica* — resúmenes y cruces calculados\n\n"
+                "💡 Si me subes tu propio archivo Excel, puedo generarte la tabla "
+                "dinámica con tus datos reales."
+            )
+
+        await mensaje_carga.delete()
+        await update.message.reply_document(
+            document=buf,
+            filename=nombre,
+            caption=caption,
+            parse_mode="Markdown",
+        )
+
+    except Exception as error:
+        logger.error("Error generando tabla dinámica para user_id %s: %s", user_id, error, exc_info=True)
+        await mensaje_carga.edit_text(
+            "⚠️ No se pudo generar el archivo. Inténtalo de nuevo."
         )
 
 

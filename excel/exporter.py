@@ -1,6 +1,7 @@
 import io
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+import pandas as pd
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -231,6 +232,161 @@ EJEMPLOS = {
     "CONTAR.SI": _ejemplo_contar_si,
     "SI": _ejemplo_si,
 }
+
+
+# ── Tabla dinámica ───────────────────────────────────────────────────────────
+
+def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, str]:
+    """Genera un .xlsx con dos hojas: datos fuente + resumen tipo tabla dinámica.
+
+    Si se pasa un DataFrame del usuario se usan sus datos;
+    si no, se genera un ejemplo con datos de ventas ficticios.
+    """
+    usar_datos_usuario = df is not None and not df.empty
+
+    if not usar_datos_usuario:
+        df = pd.DataFrame({
+            "Mes":        ["Enero",   "Enero",   "Enero",    "Febrero", "Febrero",
+                           "Febrero", "Marzo",   "Marzo",    "Marzo",   "Abril"],
+            "Categoría":  ["Ventas",  "Ventas",  "Servicios","Ventas",  "Servicios",
+                           "Ventas",  "Servicios","Ventas",  "Ventas",  "Servicios"],
+            "Región":     ["Norte",   "Sur",     "Norte",    "Sur",     "Norte",
+                           "Norte",   "Sur",     "Norte",    "Sur",     "Norte"],
+            "Importe":    [1200, 950, 400, 1400, 600, 1100, 500, 1300, 800, 450],
+            "Unidades":   [12,   9,   4,   14,   6,   11,   5,   13,   8,   4],
+        })
+        nombre_archivo = "tabla_dinamica_ejemplo.xlsx"
+    else:
+        nombre_archivo = "tabla_dinamica_tus_datos.xlsx"
+
+    # ── Detectar columnas categóricas y numéricas ─────────────────────────────
+    cols_cat = [c for c in df.columns if df[c].dtype == object or df[c].nunique() < 15]
+    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+    wb = openpyxl.Workbook()
+
+    # ── Hoja 1: Datos fuente ──────────────────────────────────────────────────
+    ws_datos = wb.active
+    ws_datos.title = "Datos"
+
+    for i, col in enumerate(df.columns, 1):
+        _estilo_cabecera(ws_datos.cell(row=1, column=i, value=col))
+    for fila_idx, fila in enumerate(df.itertuples(index=False), 2):
+        for col_idx, valor in enumerate(fila, 1):
+            ws_datos.cell(row=fila_idx, column=col_idx, value=valor)
+    _ajustar_columnas(ws_datos)
+
+    # ── Hoja 2: Tabla dinámica (resúmenes) ────────────────────────────────────
+    ws_td = wb.create_sheet("Tabla Dinámica")
+
+    fila_actual = 1
+    color_titulo = "1F3864"
+
+    # Resumen 1: por primera columna categórica × primera numérica
+    if cols_cat and cols_num:
+        col_fila = cols_cat[0]
+        for col_val in cols_num[:3]:   # máx. 3 columnas numéricas
+            pivot = df.groupby(col_fila)[col_val].agg(["sum", "mean", "count"])
+            pivot.columns = ["Suma", "Promedio", "Recuento"]
+            pivot = pivot.reset_index().sort_values("Suma", ascending=False)
+
+            # Título del bloque
+            titulo = ws_td.cell(row=fila_actual, column=1,
+                                value=f"Resumen de {col_val} por {col_fila}")
+            titulo.font = Font(bold=True, color="FFFFFF", size=12)
+            titulo.fill = PatternFill("solid", fgColor=color_titulo)
+            ws_td.merge_cells(start_row=fila_actual, start_column=1,
+                              end_row=fila_actual, end_column=4)
+            fila_actual += 1
+
+            # Cabeceras
+            cabeceras_pivot = [col_fila, "Suma", "Promedio", "Recuento"]
+            for ci, cab in enumerate(cabeceras_pivot, 1):
+                _estilo_cabecera(ws_td.cell(row=fila_actual, column=ci, value=cab))
+            fila_actual += 1
+
+            # Datos del resumen
+            borde = Border(
+                bottom=Side(style="thin", color="DDDDDD"),
+                right=Side(style="thin", color="DDDDDD"),
+            )
+            for ri, row in enumerate(pivot.itertuples(index=False)):
+                for ci, valor in enumerate(row, 1):
+                    c = ws_td.cell(row=fila_actual, column=ci, value=valor)
+                    if ri % 2 == 0:
+                        c.fill = PatternFill("solid", fgColor="EBF3FB")
+                    c.border = borde
+                    if ci > 1 and isinstance(valor, float):
+                        c.number_format = "#,##0.00"
+                fila_actual += 1
+
+            # Fila de totales
+            fila_tot = fila_actual
+            ws_td.cell(row=fila_tot, column=1, value="TOTAL")
+            for ci, col_name in enumerate(["Suma", "Promedio", "Recuento"], 2):
+                c = ws_td.cell(row=fila_tot, column=ci)
+                if col_name == "Promedio":
+                    c.value = round(float(df[col_val].mean()), 2)
+                elif col_name == "Suma":
+                    c.value = round(float(df[col_val].sum()), 2)
+                else:
+                    c.value = int(len(df))
+                _estilo_total(c)
+                if isinstance(c.value, float):
+                    c.number_format = "#,##0.00"
+            _estilo_total(ws_td.cell(row=fila_tot, column=1))
+            fila_actual += 2   # espacio entre bloques
+
+    # Resumen 2: cruce de dos categorías (si hay suficientes)
+    if len(cols_cat) >= 2 and cols_num:
+        col_fila = cols_cat[0]
+        col_columna = cols_cat[1]
+        col_val = cols_num[0]
+
+        try:
+            crosstab = df.pivot_table(
+                values=col_val,
+                index=col_fila,
+                columns=col_columna,
+                aggfunc="sum",
+                fill_value=0,
+            ).reset_index()
+
+            titulo = ws_td.cell(row=fila_actual, column=1,
+                                value=f"Cruce: {col_fila} × {col_columna} (suma de {col_val})")
+            titulo.font = Font(bold=True, color="FFFFFF", size=12)
+            titulo.fill = PatternFill("solid", fgColor="385723")
+            ws_td.merge_cells(start_row=fila_actual, start_column=1,
+                              end_row=fila_actual, end_column=len(crosstab.columns))
+            fila_actual += 1
+
+            for ci, col_name in enumerate(crosstab.columns, 1):
+                _estilo_cabecera(ws_td.cell(row=fila_actual, column=ci, value=str(col_name)))
+            fila_actual += 1
+
+            for ri, row in enumerate(crosstab.itertuples(index=False)):
+                for ci, valor in enumerate(row, 1):
+                    c = ws_td.cell(row=fila_actual, column=ci, value=valor)
+                    if ri % 2 == 0:
+                        c.fill = PatternFill("solid", fgColor="E2EFDA")
+                fila_actual += 1
+
+        except Exception:
+            pass   # si el cruce falla (demasiadas categorías, etc.) lo omitimos
+
+    # Añadir nota explicativa
+    fila_actual += 1
+    nota = ws_td.cell(row=fila_actual, column=1,
+                      value="💡 En Excel puedes crear tablas dinámicas interactivas desde: "
+                            "Insertar → Tabla dinámica. Este archivo muestra el resultado equivalente.")
+    nota.font = Font(italic=True, color="595959")
+
+    _ajustar_columnas(ws_td)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf, nombre_archivo
 
 
 # ── Plantillas de uso ────────────────────────────────────────────────────────

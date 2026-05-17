@@ -9,7 +9,11 @@ SYSTEM_BASE = (
     "2. Incluir un ejemplo práctico con datos reales\n"
     "3. Mostrar la fórmula o los pasos exactos\n"
     "4. Añadir consejos o variantes útiles si los hay\n\n"
-    "Responde siempre en español."
+    "Responde siempre en español.\n\n"
+    "REGLA CRÍTICA: Nunca afirmes que estás enviando, adjuntando o generando un archivo "
+    "(.xlsx, .csv, etc.). El bot solo puede enviar archivos cuando el código lo hace "
+    "explícitamente. Si el usuario pide un archivo, explica cómo crearlo en Excel "
+    "o indica que use el comando correspondiente (/generar, /plantilla)."
 )
 
 # ── Prompts de comandos ──────────────────────────────────────────────────────
