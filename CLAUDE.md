@@ -68,7 +68,7 @@ pillow==11.2.1
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer .xlsx (multi-hoja) y .csv con detección de separador
-│   ├── analyzer.py         ← resumen, detección de errores de fórmula, multi-hoja
+│   ├── analyzer.py         ← resumen, detección de errores de fórmula, analizar_calidad(), multi-hoja
 │   ├── charts.py           ← gráficos PNG (barras / líneas / sectores) con matplotlib
 │   └── exporter.py         ← ejemplos de funciones + 4 plantillas listas (presupuesto, gastos, KPIs, inventario)
 ├── utils/
@@ -79,7 +79,15 @@ pillow==11.2.1
 │   ├── sheet_context.py    ← hojas de Excel para selector multi-hoja (en memoria)
 │   ├── user_prefs.py       ← preferencias de usuario: versión Excel (SQLite)
 │   ├── auth.py             ← decorador @solo_autorizados (whitelist por user_id)
-│   └── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
+│   ├── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
+│   └── file_meta.py        ← metadata del último archivo subido por usuario (SQLite)
+├── prompts/
+│   ├── __init__.py
+│   └── excel.py            ← todas las plantillas de texto del bot (SYSTEM_BASE, EJEMPLO_FUNCION, etc.)
+├── tests/
+│   ├── test_analyzer.py    ← 12 tests para resumir, construir_contexto, analizar_calidad
+│   ├── test_exporter.py    ← 11 tests para crear_ejemplo y crear_plantilla
+│   └── test_reader.py      ← 8 tests para leer_excel, leer_excel_hojas, leer_csv
 ├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 └── data/
     ├── historial.db        ← SQLite: historial + preferencias de usuario
@@ -148,9 +156,15 @@ AUTHORIZED_USERS=id1,id2
 - [x] `asyncio.to_thread()` en todas las operaciones bloqueantes (pandas, matplotlib, openpyxl)
 - [x] Fix error 413: system prompt reducido, historial limitado a 6, truncado dinámico de tokens
 
-### Fase 6 — Calidad y robustez (pendiente)
-- [ ] Sprint 2: tests, analista automático ampliado, metadata en SQLite, prompts a módulo
-- [ ] Sprint 3: engine de queries pandas con DSL cerrada (filtrar, agrupar, ordenar, top N...)
+### Fase 6 — Calidad y robustez (Sprint 2) ✅
+- [x] Módulo `prompts/excel.py`: todas las plantillas de texto del bot centralizadas
+- [x] `utils/file_meta.py`: metadata del último archivo subido por usuario en SQLite (nombre, hoja activa); se limpia con /limpiar
+- [x] `excel/analyzer.py`: función `analizar_calidad()` detecta columnas casi vacías, constantes, mezcla texto/número, outliers IQR y fechas inválidas
+- [x] 34 tests unitarios en `tests/`: `test_reader`, `test_analyzer`, `test_exporter` — todos en verde
+
+### Fase 6 — Calidad y robustez (Sprint 3, pendiente)
+- [ ] Engine de queries pandas con DSL cerrada (filtrar, agrupar, ordenar, top N, contar, promedio...)
+- [ ] Generación de tablas dinámicas desde los datos reales del usuario
 
 ### Fase 7 — Despliegue
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
