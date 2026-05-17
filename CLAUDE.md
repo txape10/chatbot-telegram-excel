@@ -106,6 +106,32 @@ Responde siempre en español.
 - [ ] Base de conocimiento propia (PDF de fórmulas favoritas)
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
 
+## Documentación de referencia técnica
+
+- **python-telegram-bot**: https://docs.python-telegram-bot.org (usar v21+)
+- **Google Gemini API**: https://ai.google.dev/docs
+- **google-generativeai SDK**: https://github.com/google/generative-ai-python
+- **openpyxl** (fase 3): https://openpyxl.readthedocs.io
+- **Python objetivo**: 3.11+
+
+## Base de conocimiento de Excel
+
+La carpeta `knowledge/` contiene archivos Markdown con contenido estructurado sobre Excel. Claude Code debe usarlos para:
+1. Construir un system prompt rico y detallado para el bot
+2. Cargarlos como contexto adicional en las respuestas cuando sea relevante
+
+```
+knowledge/
+├── formulas_basicas.md        ← SUMA, SI, BUSCARV, CONTAR.SI...
+├── formulas_avanzadas.md      ← LAMBDA, LET, ÍNDICE/COINCIDIR...
+├── tablas_dinamicas.md        ← pasos, opciones, trucos
+├── formato_condicional.md     ← reglas, fórmulas personalizadas
+├── power_query.md             ← transformaciones más usadas
+├── vba_basico.md              ← macros más útiles y frecuentes
+├── errores_comunes.md         ← #¡VALOR!, #N/A, #¡REF! y cómo resolverlos
+└── ejemplos_respuestas.md     ← tono y formato exacto que debe usar el bot
+```
+
 ## Convenciones de código
 
 - Código en español (variables, comentarios, mensajes al usuario)
