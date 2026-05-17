@@ -1,5 +1,7 @@
 import base64
+import json
 import logging
+import pandas as pd
 from groq import Groq
 from config import GROQ_API_KEY, SYSTEM_PROMPT
 
@@ -49,6 +51,53 @@ def obtener_respuesta(historial: list[dict], pregunta: str) -> str:
         messages=mensajes,
     )
     return respuesta.choices[0].message.content
+
+
+def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
+    """Llama al LLM con el prompt DSL y parsea el JSON resultante.
+
+    Devuelve el dict de query si la pregunta es una consulta de datos,
+    o None si el LLM responde RESPUESTA_LIBRE o si falla el parseo.
+    """
+    from prompts.excel import QUERY_DSL_SISTEMA, QUERY_DSL_USUARIO
+
+    columnas = ", ".join(f"'{c}'" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    muestra  = df.head(3).to_string(index=False)
+
+    mensaje_usuario = QUERY_DSL_USUARIO.format(
+        columnas=columnas,
+        tipos=tipos,
+        muestra=muestra,
+        pregunta=pregunta,
+    )
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": QUERY_DSL_SISTEMA},
+                {"role": "user",   "content": mensaje_usuario},
+            ],
+            temperature=0,
+            max_tokens=300,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Respuesta DSL del LLM: %s", texto)
+
+        if texto == "RESPUESTA_LIBRE":
+            return None
+
+        # Limpiar posibles bloques de código markdown que el LLM añada por error
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        return json.loads(texto)
+
+    except Exception as error:
+        logger.warning("Error extrayendo query DSL: %s", error)
+        return None
 
 
 def analizar_imagen(imagen_bytes: bytes, pregunta: str = "") -> str:

@@ -1,13 +1,16 @@
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
-from services.llm import obtener_respuesta
+from services.llm import obtener_respuesta, extraer_query_dsl
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
+from utils.df_context import obtener_df
 from utils.auth import solo_autorizados
 from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
+from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,17 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         pregunta_completa = prefijo_version + pregunta
 
     try:
+        # ── Intento DSL si hay DataFrame activo ───────────────────────────────
+        df_activo = obtener_df(user_id)
+        if df_activo is not None and contexto_excel:
+            respuesta = await _intentar_dsl(
+                update, user_id, df_activo, pregunta, historial,
+                pregunta_completa, mensaje_carga,
+            )
+            if respuesta is not None:
+                return
+
+        # ── Flujo LLM normal ──────────────────────────────────────────────────
         respuesta = obtener_respuesta(historial, pregunta_completa)
         agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", respuesta)
@@ -76,6 +90,33 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await mensaje_carga.edit_text(
             "⚠️ El asistente no está disponible en este momento. Inténtalo en unos segundos."
         )
+
+
+async def _intentar_dsl(update, user_id, df, pregunta, historial,
+                        pregunta_completa, mensaje_carga):
+    """Intenta resolver la pregunta mediante el motor DSL.
+
+    Devuelve la respuesta si tuvo éxito, o None si debe continuar por LLM normal.
+    """
+    try:
+        query = await asyncio.to_thread(extraer_query_dsl, df, pregunta)
+        if query is None:
+            return None   # el LLM decidió RESPUESTA_LIBRE → flujo normal
+
+        resultado, descripcion = await asyncio.to_thread(ejecutar_query, df, query)
+        texto = formatear_resultado(resultado, descripcion)
+
+        agregar_mensaje(user_id, "user", pregunta)
+        agregar_mensaje(user_id, "model", texto)
+        await mensaje_carga.edit_text(texto, parse_mode="Markdown")
+        return texto
+
+    except QueryError as error:
+        logger.warning("QueryError para user_id %s: %s — usando LLM normal", user_id, error)
+        return None   # error de datos → mejor responder con LLM normal
+    except Exception as error:
+        logger.warning("Error en DSL para user_id %s: %s — usando LLM normal", user_id, error)
+        return None
 
 
 async def _explicar_formula(update: Update, user_id: int, formula: str) -> None:
