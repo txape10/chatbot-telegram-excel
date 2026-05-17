@@ -20,18 +20,28 @@ _ORDEN = [
 
 
 def cargar_base_conocimiento() -> str:
-    """Lee todos los archivos .md de knowledge/ y devuelve su contenido unificado."""
-    bloques = []
+    """Carga solo la guía de tono/estilo para el system prompt.
+    El contenido técnico no se inyecta en el prompt base para no superar
+    el límite de tokens del tier gratuito de Groq (~12 000 TPM)."""
+    contenido = _leer_archivo(
+        os.path.join(DIRECTORIO_KNOWLEDGE, "ejemplos_respuestas.md")
+    )
+    if contenido:
+        logger.info("Guía de estilo cargada en system prompt (%d chars)", len(contenido))
+    else:
+        logger.warning("No se encontró ejemplos_respuestas.md en knowledge/")
+    return contenido
 
-    # Primero los archivos en el orden definido
+
+def cargar_conocimiento_completo() -> str:
+    """Carga todos los archivos .md. Útil para referencia o RAG futuro."""
+    bloques = []
     for nombre in _ORDEN:
         ruta = os.path.join(DIRECTORIO_KNOWLEDGE, nombre)
         if os.path.exists(ruta):
             contenido = _leer_archivo(ruta)
             if contenido:
                 bloques.append(contenido)
-
-    # Luego cualquier .md que no esté en la lista (por si se añaden nuevos)
     nombres_cargados = set(_ORDEN)
     for nombre in sorted(os.listdir(DIRECTORIO_KNOWLEDGE)):
         if nombre.endswith(".md") and nombre not in nombres_cargados:
@@ -39,12 +49,7 @@ def cargar_base_conocimiento() -> str:
             contenido = _leer_archivo(ruta)
             if contenido:
                 bloques.append(contenido)
-
-    if bloques:
-        logger.info("Base de conocimiento cargada: %d archivos", len(bloques))
-    else:
-        logger.warning("No se encontró contenido en knowledge/")
-
+    logger.info("Conocimiento completo cargado: %d archivos", len(bloques))
     return "\n\n---\n\n".join(bloques)
 
 

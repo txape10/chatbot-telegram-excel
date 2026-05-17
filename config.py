@@ -12,7 +12,7 @@ AUTHORIZED_USERS = set(
     if uid.strip()
 )
 
-HISTORIAL_MAX_MENSAJES = 10
+HISTORIAL_MAX_MENSAJES = 6   # 6 intercambios ≈ 12 mensajes; reducido para no superar TPM de Groq
 
 _BASE_CONOCIMIENTO = cargar_base_conocimiento()
 
