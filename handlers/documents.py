@@ -6,6 +6,7 @@ from utils.auth import solo_autorizados
 from utils.excel_context import guardar_contexto
 from excel.reader import leer_excel
 from excel.analyzer import resumir, construir_contexto
+from excel.charts import generar_grafico
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     mensaje_carga = await update.message.reply_text("⏳ Leyendo el archivo...")
+    ruta = None
 
     try:
         os.makedirs(DIRECTORIO_TEMP, exist_ok=True)
@@ -44,9 +46,17 @@ async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         await mensaje_carga.edit_text(resumen, parse_mode="Markdown")
 
+        # Enviar gráfico si hay datos numéricos
+        buffer_grafico = generar_grafico(df, documento.file_name)
+        if buffer_grafico:
+            await update.message.reply_photo(
+                photo=buffer_grafico,
+                caption="📊 Gráfico generado automáticamente con los datos del archivo."
+            )
+
     except Exception as error:
         logger.error("Error procesando Excel para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ No se pudo leer el archivo. Comprueba que es un Excel válido.")
     finally:
-        if os.path.exists(ruta):
+        if ruta and os.path.exists(ruta):
             os.remove(ruta)

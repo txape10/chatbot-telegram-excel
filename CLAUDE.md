@@ -55,16 +55,18 @@ pillow
 ├── handlers/
 │   ├── __init__.py
 │   ├── messages.py         ← lógica de respuesta a mensajes de texto
-│   ├── commands.py         ← comandos /start, /ayuda, /ejemplo, /limpiar
-│   └── documents.py        ← recepción y procesamiento de archivos .xlsx
+│   ├── commands.py         ← comandos /start, /ayuda, /ejemplo, /generar, /limpiar + callbacks InlineKeyboard
+│   ├── documents.py        ← recepción y procesamiento de archivos .xlsx + gráfico automático
+│   └── images.py           ← análisis de capturas de pantalla de Excel (visión LLM)
 ├── services/
 │   ├── __init__.py
-│   └── llm.py              ← integración con la API de Groq (Llama 3.3)
+│   └── llm.py              ← Groq: obtener_respuesta (Llama 3.3) + analizar_imagen (Llama 4 Scout)
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer archivos .xlsx con pandas
 │   ├── analyzer.py         ← análisis, resumen y detección de errores
-│   └── exporter.py         ← generación de archivos .xlsx con ejemplos
+│   ├── charts.py           ← generar gráfico de barras PNG con matplotlib
+│   └── exporter.py         ← generación de archivos .xlsx con ejemplos prácticos
 ├── utils/
 │   ├── __init__.py
 │   └── history.py          ← gestión del historial de conversación
@@ -94,8 +96,9 @@ Responde siempre en español.
 | Comando | Descripción |
 |---|---|
 | `/start` | Bienvenida e instrucciones |
-| `/ayuda` | Categorías de temas disponibles |
-| `/ejemplo` | Ejemplo aleatorio o de una función concreta: `/ejemplo BUSCARV` |
+| `/ayuda` | Categorías con botones InlineKeyboard |
+| `/ejemplo` | Explicación aleatoria o de una función concreta: `/ejemplo BUSCARV` |
+| `/generar` | Genera y envía un .xlsx de ejemplo: `/generar BUSCARV` |
 | `/limpiar` | Borrar el historial de conversación |
 
 ## Funcionalidades — Roadmap
@@ -120,11 +123,12 @@ Responde siempre en español.
 - [x] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
 - [x] Responder preguntas sobre el archivo subido usando el LLM
 
-### Fase 4 — Generación y visualización
-- [ ] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos
-- [ ] Gráficos automáticos con `matplotlib` enviados como imagen
-- [ ] Menús con botones (InlineKeyboard) por categorías de temas
-- [ ] Análisis de imágenes: captura de pantalla de Excel interpretada por el LLM
+### Fase 4 — Generación y visualización ✅
+- [x] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos (BUSCARV, BUSCARX, SUMAR.SI, CONTAR.SI, SI + genérico)
+- [x] Comando `/generar BUSCARV`: envía el .xlsx al usuario directamente por Telegram
+- [x] `excel/charts.py`: gráfico de barras automático con `matplotlib` al subir un Excel
+- [x] Menús con botones InlineKeyboard por categorías en `/ayuda`
+- [x] `handlers/images.py` + `services/llm.py` (`analizar_imagen`): análisis de capturas de pantalla de Excel usando Llama 4 Scout (visión)
 
 ### Fase 5 — Despliegue y producción
 - [ ] Base de conocimiento desde PDFs propios
