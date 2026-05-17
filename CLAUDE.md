@@ -69,8 +69,14 @@ pillow
 │   └── exporter.py         ← generación de archivos .xlsx con ejemplos prácticos
 ├── utils/
 │   ├── __init__.py
-│   └── history.py          ← gestión del historial de conversación
-└── knowledge/              ← base de conocimiento en Markdown
+│   ├── history.py          ← gestión del historial de conversación (SQLite)
+│   ├── excel_context.py    ← contexto del archivo subido (en memoria)
+│   ├── chart_context.py    ← datos para regenerar gráficos (en memoria)
+│   ├── sheet_context.py    ← hojas de Excel para selector multi-hoja (en memoria)
+│   ├── user_prefs.py       ← preferencias de usuario: versión Excel (SQLite)
+│   ├── auth.py             ← decorador @solo_autorizados (whitelist)
+│   └── knowledge.py        ← carga de archivos knowledge/*.md al arrancar
+└── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 ```
 
 ## Variables de entorno (.env)
@@ -99,6 +105,8 @@ Responde siempre en español.
 | `/ayuda` | Categorías con botones InlineKeyboard |
 | `/ejemplo` | Explicación aleatoria o de una función concreta: `/ejemplo BUSCARV` |
 | `/generar` | Genera y envía un .xlsx de ejemplo: `/generar BUSCARV` |
+| `/plantilla` | Plantillas .xlsx listas para usar (presupuesto, gastos, KPIs, inventario) |
+| `/version` | Configura la versión de Excel del usuario |
 | `/limpiar` | Borrar el historial de conversación |
 
 ## Funcionalidades — Roadmap
@@ -130,7 +138,17 @@ Responde siempre en español.
 - [x] Menús con botones InlineKeyboard por categorías en `/ayuda`
 - [x] `handlers/images.py` + `services/llm.py` (`analizar_imagen`): análisis de capturas de pantalla de Excel usando Llama 4 Scout (visión)
 
-### Fase 5 — Despliegue y producción
+### Fase 5 — Enriquecimiento del bot ✅
+- [x] Soporte CSV: `.csv` aceptado igual que Excel, con detección automática de separador
+- [x] Detección de errores de fórmula (`#REF!`, `#N/A`, etc.) al subir un archivo
+- [x] Multi-hoja: si el Excel tiene varias hojas, botones InlineKeyboard para seleccionar cuál analizar
+- [x] Tipos de gráfico: botones para cambiar entre barras, líneas y sectores tras subir un archivo
+- [x] `/plantilla`: 4 plantillas `.xlsx` listas con fórmulas (presupuesto, gastos, KPIs, inventario)
+- [x] Explicador automático de fórmulas: si el mensaje empieza por `=`, el bot la desglosa paso a paso
+- [x] `/version`: guarda la versión de Excel del usuario en SQLite; se pregunta automáticamente la primera vez
+- [x] Base de conocimiento conectada: los 8 archivos `knowledge/*.md` se cargan al arrancar e inyectan en el system prompt
+
+### Fase 6 — Despliegue y producción
 - [ ] Base de conocimiento desde PDFs propios
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
 
