@@ -11,10 +11,10 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.chat.send_action("typing")
 
     historial = obtener_historial(user_id)
-    agregar_mensaje(user_id, "user", pregunta)
 
     try:
         respuesta = obtener_respuesta(historial, pregunta)
+        agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", respuesta)
         await update.message.reply_text(respuesta)
     except Exception as error:
