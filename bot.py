@@ -5,7 +5,7 @@ from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import TELEGRAM_TOKEN
 from handlers.commands import (
-    start, ayuda, limpiar, ejemplo, generar, plantilla, version,
+    start, ayuda, limpiar, ejemplo, generar, plantilla, version, pivote,
     callback_ayuda, callback_version, callback_plantilla,
 )
 from handlers.messages import responder_mensaje
@@ -20,6 +20,7 @@ async def registrar_comandos(app):
         BotCommand("ejemplo",   "Ejemplo de una función: /ejemplo BUSCARV"),
         BotCommand("generar",   "Genera un .xlsx de ejemplo: /generar BUSCARV"),
         BotCommand("plantilla", "Plantillas listas para usar (presupuesto, KPIs...)"),
+        BotCommand("pivote",    "Genera un .xlsx con tabla dinámica de ejemplo"),
         BotCommand("version",   "Configura tu versión de Excel"),
         BotCommand("limpiar",   "Borrar el historial de conversación"),
     ])
@@ -40,6 +41,7 @@ def main() -> None:
     app.add_handler(CommandHandler("ejemplo",   ejemplo))
     app.add_handler(CommandHandler("generar",   generar))
     app.add_handler(CommandHandler("plantilla", plantilla))
+    app.add_handler(CommandHandler("pivote",    pivote))
     app.add_handler(CommandHandler("version",   version))
 
     # Callbacks de botones InlineKeyboard

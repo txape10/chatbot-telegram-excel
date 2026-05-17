@@ -8,7 +8,8 @@ from utils.df_context import borrar_df
 from utils.file_meta import borrar_meta
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
-from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla
+from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla, crear_tabla_dinamica
+from utils.df_context import obtener_df as _obtener_df
 from utils.user_prefs import get_version, set_version, VERSIONES
 from prompts.excel import EJEMPLO_FUNCION
 
@@ -247,6 +248,46 @@ async def plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode="Markdown",
         reply_markup=_TECLADO_PLANTILLA,
     )
+
+
+@solo_autorizados
+async def pivote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Genera y envía un .xlsx con tabla dinámica (con los datos del usuario si los tiene)."""
+    import asyncio
+    mensaje_carga = await update.message.reply_text("⏳ Generando tabla dinámica...")
+    try:
+        df = _obtener_df(update.effective_user.id)
+        usar_datos_usuario = df is not None and not df.empty
+
+        buffer, nombre_archivo = await asyncio.to_thread(crear_tabla_dinamica, df)
+
+        if usar_datos_usuario:
+            caption = (
+                "📊 Tabla dinámica con tus datos\n\n"
+                "· Hoja Datos — tus datos originales\n"
+                "· Hoja Tabla Dinámica — resúmenes agrupados\n\n"
+                "💡 En Excel: Insertar → Tabla dinámica para la versión interactiva."
+            )
+        else:
+            caption = (
+                "📊 Ejemplo de tabla dinámica\n\n"
+                "· Hoja Datos — ventas ficticias de ejemplo\n"
+                "· Hoja Tabla Dinámica — resúmenes y cruces calculados\n\n"
+                "💡 Sube tu Excel y te la genero con tus propios datos."
+            )
+
+        await update.message.reply_document(document=buffer, filename=nombre_archivo, caption=caption)
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except Exception as error:
+        logger.error("Error en /pivote para user_id %s: %s", update.effective_user.id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo generar el archivo. Inténtalo de nuevo.")
+        except Exception:
+            pass
 
 
 async def callback_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
