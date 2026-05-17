@@ -266,18 +266,22 @@ async def _generar_tabla_dinamica(update: Update, user_id: int) -> None:
 
         if usar_datos_usuario:
             caption = (
-                "📊 Tabla dinámica con tus datos\n\n"
+                "📊 Archivo preparado para tabla dinámica interactiva\n\n"
                 "El archivo tiene dos hojas:\n"
-                "· Datos — tus datos originales\n"
-                "· Tabla Dinámica — resúmenes agrupados\n\n"
-                "💡 En Excel: Insertar → Tabla dinámica para una versión interactiva."
+                "· Datos — tus datos como Excel Table (con filtros activos)\n"
+                "· Resúmenes — agrupaciones y cruces precalculados\n\n"
+                "Para crear la tabla dinámica interactiva en Excel:\n"
+                "1. Abre el archivo y haz clic en cualquier celda de la hoja Datos\n"
+                "2. Ve a Insertar → Tabla dinámica → Aceptar\n"
+                "3. Arrastra los campos al panel de la derecha"
             )
         else:
             caption = (
                 "📊 Ejemplo de tabla dinámica (datos de muestra)\n\n"
                 "No tenía tus datos en memoria — puede que hayas reiniciado el bot "
                 "o aún no hayas subido ningún archivo.\n\n"
-                "Sube tu Excel y repite la petición para generarla con tus propios datos."
+                "Sube tu Excel y repite la petición para generarla con tus propios datos.\n\n"
+                "Para crear la TD interactiva: clic en Datos → Insertar → Tabla dinámica → Aceptar"
             )
 
         # Enviar el archivo PRIMERO; borrar el mensaje de carga después

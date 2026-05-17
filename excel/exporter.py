@@ -3,6 +3,7 @@ import openpyxl
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 def _estilo_cabecera(celda):
@@ -342,19 +343,32 @@ def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, st
 
     wb = openpyxl.Workbook()
 
-    # ── Hoja 1: Datos fuente ──────────────────────────────────────────────────
+    # ── Hoja 1: Datos fuente como Excel Table ─────────────────────────────────
     ws_datos = wb.active
     ws_datos.title = "Datos"
 
+    n_filas = len(df)
+    n_cols  = len(df.columns)
+
     for i, col in enumerate(df.columns, 1):
-        _estilo_cabecera(ws_datos.cell(row=1, column=i, value=col))
+        ws_datos.cell(row=1, column=i, value=str(col))
     for fila_idx, fila in enumerate(df.itertuples(index=False), 2):
         for col_idx, valor in enumerate(fila, 1):
             ws_datos.cell(row=fila_idx, column=col_idx, value=valor)
+
+    # Crear Excel Table (rango con nombre, filtros automáticos, fila de totales)
+    ref_tabla = f"A1:{get_column_letter(n_cols)}{n_filas + 1}"
+    tabla = Table(displayName="TablaDatos", ref=ref_tabla)
+    tabla.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False, showLastColumn=False,
+        showRowStripes=True,   showColumnStripes=False,
+    )
+    ws_datos.add_table(tabla)
     _ajustar_columnas(ws_datos)
 
-    # ── Hoja 2: Resúmenes ─────────────────────────────────────────────────────
-    ws_td = wb.create_sheet("Tabla Dinámica")
+    # ── Hoja 2: Resúmenes estáticos ───────────────────────────────────────────
+    ws_td = wb.create_sheet("Resúmenes")
 
     fila_actual = 1
     borde = Border(
