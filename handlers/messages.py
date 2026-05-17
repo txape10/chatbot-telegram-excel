@@ -4,7 +4,8 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
-from services.llm import obtener_respuesta, extraer_query_dsl, extraer_operacion_edicion
+from services.llm import (obtener_respuesta, extraer_query_dsl,
+                          extraer_operacion_edicion, extraer_estructura_excel)
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
 from utils.df_context import obtener_df, guardar_df
@@ -14,7 +15,8 @@ from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, 
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 from excel.editor import aplicar_edicion, exportar_xlsx, EditorError
-from excel.exporter import crear_tabla_dinamica
+from excel.exporter import crear_tabla_dinamica, crear_desde_descripcion
+from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones
 
 # Detección de intención de edición: verbos que implican modificar el archivo
 _RE_EDICION = re.compile(
@@ -33,6 +35,32 @@ _RE_EDICION = re.compile(
     r"renombra[r]?\s|cambia[r]?\s+el\s+nombre\s+de\s|"
     r"aplica[r]?\s+formato\s+condicional|aplica[r]?\s+color|"
     r"pinta[r]?\s+(?:en\s+)?(?:rojo|verde|amarillo|naranja|azul)|colorea[r]?\s"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de creación de Excel desde descripción (B1/B2)
+_RE_CREAR_EXCEL = re.compile(
+    r"\b("
+    r"crea[rm]?\s+(?:un[ao]?\s+)?(?:nuevo\s+)?(?:excel|tabla|hoja|archivo|libro)|"
+    r"hazme\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo|plantilla)|"
+    r"haz\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo)|"
+    r"genera[rm]?\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo)|"
+    r"necesito\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)|"
+    r"quiero\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de análisis estadístico / correlaciones (C1/C2)
+_RE_STATS = re.compile(
+    r"\b("
+    r"estad[ií]stica[s]?|distribuc[ií][oó]n|correlac[ií][oó]n[es]?|"
+    r"an[áa]lisis\s+(?:completo|estad[ií]stico|de\s+datos)|"
+    r"media\s+y\s+(?:mediana|desviaci[oó]n)|resumen\s+estad[ií]stico|"
+    r"desviaci[oó]n\s+(?:est[aá]ndar|t[ií]pica)|percentil[es]?|"
+    r"qu[eé]\s+columnas\s+(?:est[aá]n\s+)?(?:m[aá]s\s+)?relacionadas|"
+    r"c[oó]mo\s+se\s+relacionan|mapa\s+de\s+calor|heatmap"
     r")\b",
     re.IGNORECASE,
 )
@@ -81,10 +109,22 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _intentar_edicion(update, user_id, df_activo, pregunta)
         return
 
+    # ── Creación de Excel desde descripción ──────────────────────────────────
+    if _RE_CREAR_EXCEL.search(pregunta) and not _RE_EDICION.search(pregunta):
+        logger.info("Intención crear Excel detectada para user_id %s: %r", user_id, pregunta)
+        await _crear_excel_desde_descripcion(update, user_id, pregunta)
+        return
+
     # ── Generador de tabla dinámica ───────────────────────────────────────────
     if _RE_TABLA_DINAMICA.search(pregunta) and not _RE_SOLO_INFORMATIVA.search(pregunta):
         logger.info("Intención tabla dinámica detectada para user_id %s: %r", user_id, pregunta)
         await _generar_tabla_dinamica(update, user_id)
+        return
+
+    # ── Análisis estadístico / correlaciones ──────────────────────────────────
+    if df_activo is not None and _RE_STATS.search(pregunta):
+        logger.info("Intención análisis estadístico detectada para user_id %s: %r", user_id, pregunta)
+        await _analizar_estadisticas(update, user_id, df_activo, pregunta)
         return
 
     # ── Flujo normal ──────────────────────────────────────────────────────────
@@ -296,3 +336,76 @@ async def _explicar_formula(update: Update, user_id: int, formula: str) -> None:
     except Exception as error:
         logger.error("Error explicando fórmula para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ No se pudo analizar la fórmula. Inténtalo de nuevo.")
+
+
+async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta: str) -> None:
+    """Genera un .xlsx con la estructura que el usuario describió en lenguaje natural."""
+    mensaje_carga = await update.message.reply_text("⏳ Creando tu Excel...")
+    try:
+        estructura = await asyncio.to_thread(extraer_estructura_excel, pregunta)
+
+        if estructura is None:
+            await mensaje_carga.edit_text(
+                "⚠️ No pude interpretar la estructura del Excel. "
+                "Descríbela con más detalle (columnas, datos, etc.)."
+            )
+            return
+
+        buf, nombre = await asyncio.to_thread(crear_desde_descripcion, estructura)
+
+        titulo = estructura.get("titulo", "Excel")
+        columnas = estructura.get("columnas", [])
+        n_filas = len(estructura.get("datos", []))
+        caption = (
+            f"📄 *{titulo}*\n\n"
+            f"Columnas: {', '.join(columnas)}\n"
+            f"Filas de datos: {n_filas}\n\n"
+            "Puedes abrir el archivo directamente en Excel."
+        )
+
+        await update.message.reply_document(document=buf, filename=nombre, caption=caption,
+                                             parse_mode="Markdown")
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except Exception as error:
+        logger.error("Error creando Excel desde descripción para user_id %s: %s",
+                     user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo crear el archivo. Inténtalo de nuevo.")
+        except Exception:
+            pass
+
+
+async def _analizar_estadisticas(update: Update, user_id: int, df, pregunta: str) -> None:
+    """Devuelve estadísticas completas o correlaciones según lo que pida el usuario."""
+    mensaje_carga = await update.message.reply_text("⏳ Calculando estadísticas...")
+    try:
+        _RE_CORR = re.compile(
+            r"correlac[ií][oó]n|relacionad|mapa\s+de\s+calor|heatmap|c[oó]mo\s+se\s+relacionan",
+            re.IGNORECASE,
+        )
+        if _RE_CORR.search(pregunta):
+            texto, buf_img = await asyncio.to_thread(analisis_correlaciones, df)
+            await update.message.reply_text(texto, parse_mode="Markdown")
+            if buf_img is not None:
+                await update.message.reply_photo(photo=buf_img,
+                                                 caption="🔥 Mapa de correlaciones")
+        else:
+            texto = await asyncio.to_thread(analisis_estadistico_completo, df)
+            await update.message.reply_text(texto, parse_mode="Markdown")
+
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except Exception as error:
+        logger.error("Error en análisis estadístico para user_id %s: %s",
+                     user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo completar el análisis. Inténtalo de nuevo.")
+        except Exception:
+            pass

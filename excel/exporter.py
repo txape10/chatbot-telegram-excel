@@ -234,6 +234,67 @@ EJEMPLOS = {
 }
 
 
+# ── Crear desde descripción (B1/B2) ─────────────────────────────────────────
+
+def crear_desde_descripcion(estructura: dict) -> tuple[io.BytesIO, str]:
+    """Genera un .xlsx a partir de la estructura JSON extraída por el LLM.
+
+    estructura esperada:
+      titulo          → nombre de la hoja
+      columnas        → lista de nombres de columna
+      datos           → lista de listas con los valores (puede ser vacía)
+      agregar_totales → bool, si añadir fila de SUMA al final
+    """
+    titulo   = estructura.get("titulo", "Datos")[:31]   # Excel limita a 31 chars
+    columnas = estructura.get("columnas", [])
+    datos    = estructura.get("datos", [])
+    totales  = estructura.get("agregar_totales", False)
+
+    if not columnas:
+        raise ValueError("La estructura no contiene columnas.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = titulo
+
+    # Cabeceras
+    for ci, col in enumerate(columnas, 1):
+        c = ws.cell(row=1, column=ci, value=str(col))
+        _estilo_cabecera(c)
+
+    # Datos
+    for ri, fila in enumerate(datos, 2):
+        for ci, valor in enumerate(fila, 1):
+            ws.cell(row=ri, column=ci, value=valor)
+
+    # Fila de totales (SUMA en columnas numéricas)
+    if totales and datos:
+        fila_total = len(datos) + 2
+        ws.cell(row=fila_total, column=1, value="TOTAL")
+        ws.cell(row=fila_total, column=1).font = Font(bold=True)
+
+        for ci in range(1, len(columnas) + 1):
+            # Detectar si la columna tiene valores numéricos
+            valores_col = [
+                ws.cell(row=r, column=ci).value
+                for r in range(2, fila_total)
+            ]
+            if any(isinstance(v, (int, float)) for v in valores_col if v is not None):
+                col_letra = get_column_letter(ci)
+                c = ws.cell(row=fila_total, column=ci)
+                c.value = f"=SUMA({col_letra}2:{col_letra}{fila_total - 1})"
+                _estilo_formula(c)
+
+    _ajustar_columnas(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    nombre = f"{titulo.lower().replace(' ', '_')}.xlsx"
+    return buf, nombre
+
+
 # ── Tabla dinámica ───────────────────────────────────────────────────────────
 
 def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, str]:

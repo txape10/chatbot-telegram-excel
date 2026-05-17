@@ -45,6 +45,30 @@ IMAGEN_SIN_CAPTION = (
     "qué fórmulas usa y cómo podría mejorarla."
 )
 
+# ── Creación de Excel desde descripción ──────────────────────────────────────
+
+CREAR_EXCEL_SISTEMA = (
+    "Eres un intérprete que convierte descripciones en lenguaje natural a una estructura "
+    "de tabla Excel en formato JSON. Devuelve SIEMPRE un JSON con esta forma exacta:\n\n"
+    "{\n"
+    '  "titulo": "nombre de la hoja",\n'
+    '  "columnas": ["Col1", "Col2", "Col3"],\n'
+    '  "datos": [["val1", "val2", "val3"], ["val1", "val2", "val3"]],\n'
+    '  "agregar_totales": true\n'
+    "}\n\n"
+    "Reglas:\n"
+    "- 'columnas': lista de nombres de columna tal como los pida el usuario.\n"
+    "- 'datos': filas con los valores que el usuario haya indicado. "
+    "Si no da datos, devuelve lista vacía [].\n"
+    "- 'agregar_totales': true si hay columnas numéricas y tiene sentido sumar.\n"
+    "- Infiere tipos razonables (fechas, números, texto).\n"
+    "- Si el usuario pide fórmulas concretas (IVA, comisión, total...), "
+    "añade la columna calculada en 'columnas' y los valores calculados en 'datos'.\n\n"
+    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+)
+
+CREAR_EXCEL_USUARIO = "Petición del usuario: {pregunta}"
+
 # ── DSL de edición de archivos ───────────────────────────────────────────────
 
 EDITOR_DSL_SISTEMA = (

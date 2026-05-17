@@ -53,6 +53,34 @@ def obtener_respuesta(historial: list[dict], pregunta: str) -> str:
     return respuesta.choices[0].message.content
 
 
+def extraer_estructura_excel(pregunta: str) -> dict | None:
+    """Interpreta la descripción del usuario y devuelve la estructura JSON para crear el xlsx."""
+    from prompts.excel import CREAR_EXCEL_SISTEMA, CREAR_EXCEL_USUARIO
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": CREAR_EXCEL_SISTEMA},
+                {"role": "user",   "content": CREAR_EXCEL_USUARIO.format(pregunta=pregunta)},
+            ],
+            temperature=0,
+            max_tokens=800,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Estructura Excel del LLM: %s", texto)
+
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        return json.loads(texto)
+
+    except Exception as error:
+        logger.warning("Error extrayendo estructura Excel: %s", error)
+        return None
+
+
 def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
     """Llama al LLM con el prompt de edición y parsea el JSON.
 

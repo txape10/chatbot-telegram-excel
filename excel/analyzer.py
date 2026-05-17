@@ -1,3 +1,4 @@
+import io
 import openpyxl
 import pandas as pd
 
@@ -135,3 +136,119 @@ def construir_contexto(df: pd.DataFrame, nombre_archivo: str) -> str:
 
     texto += f"\nPrimeras filas del archivo:\n{df.head(10).to_string(index=False)}\n"
     return texto
+
+
+# ── Análisis estadístico avanzado (C1) ───────────────────────────────────────
+
+def analisis_estadistico_completo(df: pd.DataFrame) -> str:
+    """Genera un informe estadístico detallado de todas las columnas numéricas."""
+    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if not cols_num:
+        return "⚠️ El archivo no tiene columnas numéricas para analizar."
+
+    lineas = [f"📊 *Análisis estadístico — {len(cols_num)} columna(s) numéricas*\n"]
+
+    for col in cols_num:
+        serie = df[col].dropna()
+        if serie.empty:
+            continue
+        nulos = int(df[col].isnull().sum())
+        lineas.append(f"*{col}*")
+        lineas.append(f"  • Registros: {len(serie)} ({nulos} vacíos)")
+        lineas.append(f"  • Media:     {serie.mean():.2f}")
+        lineas.append(f"  • Mediana:   {serie.median():.2f}")
+        lineas.append(f"  • Mín / Máx: {serie.min():.2f} / {serie.max():.2f}")
+        lineas.append(f"  • Desv. std: {serie.std():.2f}")
+        q1, q3 = serie.quantile(0.25), serie.quantile(0.75)
+        lineas.append(f"  • P25 / P75: {q1:.2f} / {q3:.2f}")
+        # Detectar asimetría
+        skew = serie.skew()
+        if abs(skew) > 1:
+            dir_skew = "derecha (valores altos extremos)" if skew > 0 else "izquierda (valores bajos extremos)"
+            lineas.append(f"  • Distribución sesgada hacia la {dir_skew}")
+        lineas.append("")
+
+    return "\n".join(lineas)
+
+
+# ── Análisis de correlaciones (C2) ────────────────────────────────────────────
+
+def analisis_correlaciones(df: pd.DataFrame) -> tuple[str, io.BytesIO | None]:
+    """Calcula la matriz de correlaciones y genera un heatmap PNG.
+
+    Devuelve (texto_resumen, buffer_imagen | None).
+    """
+    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if len(cols_num) < 2:
+        return "⚠️ Se necesitan al menos 2 columnas numéricas para calcular correlaciones.", None
+
+    corr = df[cols_num].corr()
+
+    # Texto: top correlaciones (excluyendo diagonal)
+    pares = []
+    for i, c1 in enumerate(cols_num):
+        for c2 in cols_num[i + 1:]:
+            pares.append((abs(corr.loc[c1, c2]), corr.loc[c1, c2], c1, c2))
+    pares.sort(reverse=True)
+
+    lineas = ["📈 *Análisis de correlaciones*\n"]
+    lineas.append("*Correlaciones más fuertes:*")
+    for _, valor, c1, c2 in pares[:8]:
+        if abs(valor) < 0.1:
+            continue
+        fuerza = (
+            "muy fuerte" if abs(valor) > 0.8 else
+            "fuerte"     if abs(valor) > 0.6 else
+            "moderada"   if abs(valor) > 0.4 else "débil"
+        )
+        signo = "positiva" if valor > 0 else "negativa"
+        lineas.append(f"  • *{c1}* ↔ *{c2}*: {valor:.2f} ({fuerza}, {signo})")
+
+    if not any(abs(p[0]) >= 0.1 for p in pares):
+        lineas.append("  No se detectan correlaciones relevantes entre columnas.")
+
+    lineas.append(f"\n*Matriz completa:*\n```\n{corr.round(2).to_string()}\n```")
+    texto = "\n".join(lineas)
+
+    # Heatmap
+    buf_img = _generar_heatmap(corr, cols_num)
+    return texto, buf_img
+
+
+def _generar_heatmap(corr: pd.DataFrame, cols: list[str]) -> io.BytesIO | None:
+    """Genera un heatmap de correlaciones con matplotlib."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+
+        n = len(cols)
+        fig, ax = plt.subplots(figsize=(max(6, n * 1.2), max(5, n * 1.0)))
+
+        cmap = plt.cm.RdYlGn
+        im = ax.imshow(corr.values, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
+        plt.colorbar(im, ax=ax, shrink=0.8)
+
+        ax.set_xticks(range(n))
+        ax.set_yticks(range(n))
+        ax.set_xticklabels(cols, rotation=45, ha="right", fontsize=9)
+        ax.set_yticklabels(cols, fontsize=9)
+
+        for i in range(n):
+            for j in range(n):
+                val = corr.values[i, j]
+                color = "white" if abs(val) > 0.6 else "black"
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                        fontsize=8, color=color, fontweight="bold")
+
+        ax.set_title("Mapa de correlaciones", fontsize=12, fontweight="bold", pad=12)
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
