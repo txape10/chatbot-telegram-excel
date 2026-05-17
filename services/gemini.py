@@ -1,7 +1,7 @@
 from groq import Groq
 from config import GROQ_API_KEY, SYSTEM_PROMPT
 
-_cliente = Groq(api_key=GROQ_API_KEY)
+_cliente = Groq(api_key=GROQ_API_KEY, timeout=60.0)
 MODELO = "llama-3.3-70b-versatile"
 
 
