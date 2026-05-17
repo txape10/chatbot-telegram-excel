@@ -6,7 +6,8 @@ from utils.history import limpiar_historial
 from utils.excel_context import borrar_contexto
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
-from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx
+from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla
+from utils.user_prefs import get_version, set_version, VERSIONES
 
 logger = logging.getLogger(__name__)
 
@@ -182,3 +183,90 @@ async def callback_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.answer()
     texto = _TEXTOS_CATEGORIA.get(query.data, "Escríbeme tu duda directamente 💬")
     await query.edit_message_text(texto, parse_mode="Markdown")
+
+
+# ── /version ──────────────────────────────────────────────────────────────────
+
+_TECLADO_VERSION = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("Microsoft 365",         callback_data="version_365"),
+        InlineKeyboardButton("Excel 2021",            callback_data="version_2021"),
+    ],
+    [
+        InlineKeyboardButton("Excel 2019",            callback_data="version_2019"),
+        InlineKeyboardButton("Excel 2016 o anterior", callback_data="version_2016"),
+    ],
+])
+
+
+@solo_autorizados
+async def version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    ver_actual = get_version(user_id)
+    nombre_actual = VERSIONES.get(ver_actual, "No configurada") if ver_actual else "No configurada"
+    await update.message.reply_text(
+        f"Versión actual: *{nombre_actual}*\n\nSelecciona tu versión de Excel:",
+        parse_mode="Markdown",
+        reply_markup=_TECLADO_VERSION,
+    )
+
+
+async def callback_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    clave = query.data.replace("version_", "")
+    set_version(query.from_user.id, clave)
+    nombre = VERSIONES.get(clave, clave)
+    await query.edit_message_text(
+        f"✅ Versión guardada: *{nombre}*\n\n"
+        "A partir de ahora ajustaré mis respuestas a las funciones disponibles en tu versión.",
+        parse_mode="Markdown",
+    )
+
+
+# ── /plantilla ────────────────────────────────────────────────────────────────
+
+_TECLADO_PLANTILLA = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("💰 Presupuesto",      callback_data="plantilla_presupuesto"),
+        InlineKeyboardButton("📋 Control gastos",   callback_data="plantilla_gastos"),
+    ],
+    [
+        InlineKeyboardButton("📈 KPIs / métricas",  callback_data="plantilla_kpis"),
+        InlineKeyboardButton("📦 Inventario",       callback_data="plantilla_inventario"),
+    ],
+])
+
+
+@solo_autorizados
+async def plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "¿Qué plantilla quieres? Te envío un *.xlsx* listo para rellenar con tus datos:",
+        parse_mode="Markdown",
+        reply_markup=_TECLADO_PLANTILLA,
+    )
+
+
+async def callback_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    nombre = query.data.replace("plantilla_", "")
+    nombres_legibles = {
+        "presupuesto": "Presupuesto personal",
+        "gastos":      "Control de gastos",
+        "kpis":        "KPIs / métricas",
+        "inventario":  "Inventario",
+    }
+    await query.edit_message_text(f"⏳ Generando plantilla *{nombres_legibles.get(nombre, nombre)}*...", parse_mode="Markdown")
+    try:
+        buffer, nombre_archivo = crear_plantilla(nombre)
+        await query.message.reply_document(
+            document=buffer,
+            filename=nombre_archivo,
+            caption=f"📎 *{nombres_legibles.get(nombre, nombre)}* — rellena las celdas blancas con tus datos.",
+            parse_mode="Markdown",
+        )
+        await query.edit_message_text(f"✅ Plantilla *{nombres_legibles.get(nombre, nombre)}* enviada.", parse_mode="Markdown")
+    except Exception as error:
+        logger.error("Error generando plantilla '%s': %s", nombre, error)
+        await query.edit_message_text("⚠️ No se pudo generar la plantilla. Inténtalo de nuevo.")

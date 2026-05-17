@@ -231,3 +231,176 @@ EJEMPLOS = {
     "CONTAR.SI": _ejemplo_contar_si,
     "SI": _ejemplo_si,
 }
+
+
+# ── Plantillas de uso ────────────────────────────────────────────────────────
+
+def crear_plantilla(nombre: str) -> tuple[io.BytesIO, str]:
+    """Genera una plantilla lista para usar. nombre: presupuesto|gastos|kpis|inventario."""
+    creadores = {
+        "presupuesto": _plantilla_presupuesto,
+        "gastos":      _plantilla_gastos,
+        "kpis":        _plantilla_kpis,
+        "inventario":  _plantilla_inventario,
+    }
+    creador = creadores.get(nombre, _plantilla_presupuesto)
+    wb, nombre_archivo = creador()
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer, nombre_archivo
+
+
+def _estilo_total(celda):
+    celda.font = Font(bold=True, color="FFFFFF")
+    celda.fill = PatternFill("solid", fgColor="ED7D31")
+    celda.alignment = Alignment(horizontal="right")
+
+
+def _plantilla_presupuesto():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Presupuesto"
+
+    cabeceras = ["Categoría", "Presupuesto", "Real", "Diferencia", "% Cumplido"]
+    for i, cab in enumerate(cabeceras, 1):
+        _estilo_cabecera(ws.cell(row=1, column=i, value=cab))
+
+    categorias = ["Vivienda", "Alimentación", "Transporte", "Salud", "Ocio",
+                  "Ropa", "Educación", "Ahorro", "Otros"]
+    for fila, cat in enumerate(categorias, 2):
+        ws.cell(row=fila, column=1, value=cat)
+        ws.cell(row=fila, column=2, value=0)   # Presupuesto — el usuario lo rellena
+        ws.cell(row=fila, column=3, value=0)   # Real — el usuario lo rellena
+        c_dif = ws.cell(row=fila, column=4)
+        c_dif.value = f"=B{fila}-C{fila}"
+        _estilo_formula(c_dif)
+        c_pct = ws.cell(row=fila, column=5)
+        c_pct.value = f'=SI(B{fila}=0,"—",C{fila}/B{fila})'
+        c_pct.number_format = "0.0%"
+        _estilo_formula(c_pct)
+
+    fila_total = len(categorias) + 2
+    ws.cell(row=fila_total, column=1, value="TOTAL")
+    letras = {2: "B", 3: "C", 4: "D"}
+    for col in range(2, 5):
+        c = ws.cell(row=fila_total, column=col)
+        c.value = f"=SUMA({letras[col]}2:{letras[col]}{fila_total - 1})"
+        _estilo_total(c)
+
+    _ajustar_columnas(ws)
+    return wb, "plantilla_presupuesto.xlsx"
+
+
+def _plantilla_gastos():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Gastos"
+
+    cabeceras = ["Fecha", "Descripción", "Categoría", "Importe", "Acumulado"]
+    for i, cab in enumerate(cabeceras, 1):
+        _estilo_cabecera(ws.cell(row=1, column=i, value=cab))
+
+    import datetime
+    hoy = datetime.date.today()
+    ejemplos = [
+        (hoy, "Supermercado", "Alimentación", 65.30),
+        (hoy, "Gasolina", "Transporte", 48.00),
+        (hoy, "Netflix", "Ocio", 15.99),
+    ]
+    for fila, (fecha, desc, cat, imp) in enumerate(ejemplos, 2):
+        ws.cell(row=fila, column=1, value=fecha).number_format = "dd/mm/yyyy"
+        ws.cell(row=fila, column=2, value=desc)
+        ws.cell(row=fila, column=3, value=cat)
+        ws.cell(row=fila, column=4, value=imp)
+        c = ws.cell(row=fila, column=5)
+        c.value = f"=SUMA($D$2:D{fila})"
+        _estilo_formula(c)
+
+    # Hoja de resumen por categoría
+    ws2 = wb.create_sheet("Resumen")
+    cabeceras2 = ["Categoría", "Total gastado"]
+    for i, cab in enumerate(cabeceras2, 1):
+        _estilo_cabecera(ws2.cell(row=1, column=i, value=cab))
+    cats = ["Alimentación", "Transporte", "Ocio", "Salud", "Vivienda", "Otros"]
+    for fila, cat in enumerate(cats, 2):
+        ws2.cell(row=fila, column=1, value=cat)
+        c = ws2.cell(row=fila, column=2)
+        c.value = f'=SUMAR.SI(Gastos!$C:$C,A{fila},Gastos!$D:$D)'
+        _estilo_formula(c)
+
+    _ajustar_columnas(ws)
+    _ajustar_columnas(ws2)
+    return wb, "plantilla_gastos.xlsx"
+
+
+def _plantilla_kpis():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "KPIs"
+
+    cabeceras = ["KPI", "Objetivo", "Real", "Cumplimiento", "Estado"]
+    for i, cab in enumerate(cabeceras, 1):
+        _estilo_cabecera(ws.cell(row=1, column=i, value=cab))
+
+    kpis = [
+        ("Ventas mensuales (€)", 50000, 0),
+        ("Nuevos clientes", 20, 0),
+        ("Tasa de conversión (%)", 15, 0),
+        ("Satisfacción cliente (1-10)", 8, 0),
+        ("Tickets resueltos", 100, 0),
+        ("Coste por adquisición (€)", 30, 0),
+    ]
+    for fila, (kpi, obj, real) in enumerate(kpis, 2):
+        ws.cell(row=fila, column=1, value=kpi)
+        ws.cell(row=fila, column=2, value=obj)
+        ws.cell(row=fila, column=3, value=real)
+        c_pct = ws.cell(row=fila, column=4)
+        c_pct.value = f'=SI(B{fila}=0,"—",C{fila}/B{fila})'
+        c_pct.number_format = "0.0%"
+        _estilo_formula(c_pct)
+        c_est = ws.cell(row=fila, column=5)
+        c_est.value = f'=SI(C{fila}=0,"Sin datos",SI(C{fila}>=B{fila},"✅ OK","⚠️ Por debajo"))'
+        _estilo_formula(c_est)
+
+    _ajustar_columnas(ws)
+    return wb, "plantilla_kpis.xlsx"
+
+
+def _plantilla_inventario():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventario"
+
+    cabeceras = ["Código", "Producto", "Cantidad", "Precio unit.", "Valor total", "Stock mín.", "Alerta"]
+    for i, cab in enumerate(cabeceras, 1):
+        _estilo_cabecera(ws.cell(row=1, column=i, value=cab))
+
+    productos = [
+        ("P001", "Teclado mecánico", 15, 45.99, 5),
+        ("P002", "Ratón inalámbrico", 8, 22.50, 10),
+        ("P003", "Monitor 24\"", 3, 189.00, 2),
+        ("P004", "Auriculares USB", 20, 35.00, 5),
+        ("P005", "Webcam HD", 6, 49.99, 4),
+    ]
+    for fila, (cod, prod, qty, precio, stock_min) in enumerate(productos, 2):
+        ws.cell(row=fila, column=1, value=cod)
+        ws.cell(row=fila, column=2, value=prod)
+        ws.cell(row=fila, column=3, value=qty)
+        ws.cell(row=fila, column=4, value=precio)
+        c_val = ws.cell(row=fila, column=5)
+        c_val.value = f"=C{fila}*D{fila}"
+        _estilo_formula(c_val)
+        ws.cell(row=fila, column=6, value=stock_min)
+        c_alert = ws.cell(row=fila, column=7)
+        c_alert.value = f'=SI(C{fila}<=F{fila},"🔴 Reponer","✅ OK")'
+        _estilo_formula(c_alert)
+
+    fila_total = len(productos) + 2
+    ws.cell(row=fila_total, column=2, value="VALOR TOTAL STOCK")
+    c_tot = ws.cell(row=fila_total, column=5)
+    c_tot.value = f"=SUMA(E2:E{fila_total - 1})"
+    _estilo_total(c_tot)
+
+    _ajustar_columnas(ws)
+    return wb, "plantilla_inventario.xlsx"
