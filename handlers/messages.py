@@ -2,8 +2,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from services.gemini import obtener_respuesta
 from utils.history import obtener_historial, agregar_mensaje
+from utils.auth import solo_autorizados
 
 
+@solo_autorizados
 async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     pregunta = update.message.text

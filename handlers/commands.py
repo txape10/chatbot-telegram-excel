@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from utils.history import limpiar_historial
+from utils.auth import solo_autorizados
 
 MENSAJE_BIENVENIDA = (
     "👋 ¡Hola! Soy tu asistente personal de Excel.\n\n"
@@ -23,14 +24,17 @@ MENSAJE_AYUDA = (
 )
 
 
+@solo_autorizados
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(MENSAJE_BIENVENIDA)
 
 
+@solo_autorizados
 async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(MENSAJE_AYUDA, parse_mode="Markdown")
 
 
+@solo_autorizados
 async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     limpiar_historial(update.effective_user.id)
     await update.message.reply_text("🗑️ Historial borrado. ¡Empezamos de cero!")
