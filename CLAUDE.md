@@ -35,9 +35,14 @@ Un bot de Telegram que:
 python-telegram-bot
 google-generativeai
 python-dotenv
+pandas
+openpyxl
+numpy
+matplotlib
+pillow
 ```
 
-## Estructura del proyecto
+## Estructura del proyecto (objetivo final)
 
 ```
 3 - Chatbot de Telegram para Excel/
@@ -47,17 +52,24 @@ python-dotenv
 ├── .gitignore
 ├── requirements.txt
 ├── bot.py                  ← punto de entrada principal
-├── config.py               ← configuración y variables de entorno
+├── config.py               ← configuración, variables de entorno y whitelist
 ├── handlers/
 │   ├── __init__.py
-│   ├── messages.py         ← lógica de respuesta a mensajes
-│   └── commands.py         ← comandos /start, /ayuda, /ejemplo
+│   ├── messages.py         ← lógica de respuesta a mensajes de texto
+│   ├── commands.py         ← comandos /start, /ayuda, /ejemplo, /limpiar
+│   └── documents.py        ← recepción y procesamiento de archivos .xlsx
 ├── services/
 │   ├── __init__.py
 │   └── gemini.py           ← integración con la API de Gemini
-└── utils/
-    ├── __init__.py
-    └── history.py          ← gestión del historial de conversación
+├── excel/
+│   ├── __init__.py
+│   ├── reader.py           ← leer archivos .xlsx con pandas
+│   ├── analyzer.py         ← análisis, resumen y detección de errores
+│   └── exporter.py         ← generación de archivos .xlsx con ejemplos
+├── utils/
+│   ├── __init__.py
+│   └── history.py          ← gestión del historial de conversación
+└── knowledge/              ← base de conocimiento en Markdown
 ```
 
 ## Variables de entorno (.env)
@@ -88,22 +100,33 @@ Responde siempre en español.
 
 ## Funcionalidades — Roadmap
 
-### Fase 1 — MVP ✅ (implementar primero)
-- [ ] Conexión básica bot Telegram ↔ Gemini API
-- [ ] Respuestas a preguntas de texto sobre Excel
-- [ ] Historial de conversación por usuario (últimos N mensajes)
-- [ ] Comandos básicos: /start, /ayuda, /limpiar
+### Fase 1 — MVP (conversación básica)
+- [x] Conexión básica bot Telegram ↔ Gemini API
+- [x] Respuestas a preguntas de texto sobre Excel
+- [x] Historial de conversación en memoria por usuario (últimos 10 mensajes)
+- [x] Comandos básicos: /start, /ayuda, /limpiar
+- [ ] Control de acceso: whitelist de `user_id` autorizados en `.env`
 
-### Fase 2 — Mejoras medias 🚀
-- [ ] Menús con botones (InlineKeyboard) por categorías: Fórmulas / Tablas dinámicas / VBA / Gráficos / Power Query
-- [ ] Comando /ejemplo con función aleatoria útil
+### Fase 2 — Robustez
+- [ ] Mensajes de carga mientras Gemini procesa ("Escribiendo...")
+- [ ] Manejo de errores con mensajes claros al usuario
 - [ ] Persistencia del historial en SQLite (sobrevive reinicios)
-- [ ] Manejo de errores y mensajes de carga ("Pensando...")
+- [ ] Comando /ejemplo con función aleatoria útil de Excel
 
-### Fase 3 — Funcionalidades avanzadas 💡
-- [ ] Análisis de imágenes: el usuario envía captura de su Excel y el bot la interpreta (Gemini tiene visión)
-- [ ] Generación de archivos .xlsx con ejemplos usando `openpyxl`
-- [ ] Base de conocimiento propia (PDF de fórmulas favoritas)
+### Fase 3 — Excel real con pandas
+- [ ] Carpeta `excel/` con `reader.py` y `analyzer.py`
+- [ ] `handlers/documents.py`: recibir archivos `.xlsx` por Telegram
+- [ ] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
+- [ ] Responder preguntas sobre el archivo subido usando Gemini
+
+### Fase 4 — Generación y visualización
+- [ ] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos
+- [ ] Gráficos automáticos con `matplotlib` enviados como imagen
+- [ ] Menús con botones (InlineKeyboard) por categorías de temas
+- [ ] Análisis de imágenes: captura de pantalla de Excel interpretada por Gemini
+
+### Fase 5 — Despliegue y producción
+- [ ] Base de conocimiento desde PDFs propios
 - [ ] Despliegue en Railway o Render para disponibilidad 24/7
 
 ## Documentación de referencia técnica
@@ -147,14 +170,6 @@ knowledge/
 - **Rama principal**: `main`
 - **Flujo de trabajo**: commits frecuentes con mensajes descriptivos en español
 - **Archivos que NUNCA deben subirse a GitHub**: `.env`, `__pycache__/`, `*.pyc`
-
-### Crear el repositorio (pendiente)
-El repositorio aún no está creado. Claude Code debe crearlo con:
-```bash
-git init
-git remote add origin https://github.com/txape10/chatbot-telegram-excel.git
-```
-Y asegurarse de que el `.gitignore` esté configurado antes del primer commit.
 
 ## Notas importantes
 
