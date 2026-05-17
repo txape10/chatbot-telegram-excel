@@ -59,7 +59,7 @@ pillow
 │   └── documents.py        ← recepción y procesamiento de archivos .xlsx
 ├── services/
 │   ├── __init__.py
-│   └── gemini.py           ← integración con la API de Groq (Llama 3.3)
+│   └── llm.py              ← integración con la API de Groq (Llama 3.3)
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer archivos .xlsx con pandas
@@ -114,11 +114,11 @@ Responde siempre en español.
 - [x] Comando /ejemplo con función aleatoria o concreta (/ejemplo BUSCARV)
 - [x] Comandos registrados en Telegram (menú al escribir "/")
 
-### Fase 3 — Excel real con pandas
-- [ ] Carpeta `excel/` con `reader.py` y `analyzer.py`
-- [ ] `handlers/documents.py`: recibir archivos `.xlsx` por Telegram
-- [ ] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
-- [ ] Responder preguntas sobre el archivo subido usando el LLM
+### Fase 3 — Excel real con pandas ✅
+- [x] Carpeta `excel/` con `reader.py` y `analyzer.py`
+- [x] `handlers/documents.py`: recibir archivos `.xlsx` por Telegram (máx. 5 MB)
+- [x] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
+- [x] Responder preguntas sobre el archivo subido usando el LLM
 
 ### Fase 4 — Generación y visualización
 - [ ] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos
