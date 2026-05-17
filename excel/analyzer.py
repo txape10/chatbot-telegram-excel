@@ -22,6 +22,57 @@ def detectar_errores_xlsx(ruta: str) -> list[str]:
     return errores
 
 
+def analizar_calidad(df: pd.DataFrame) -> list[str]:
+    """Detecta problemas de calidad de datos en el DataFrame.
+    Devuelve una lista de avisos legibles para el usuario."""
+    avisos = []
+    total = len(df)
+    if total == 0:
+        return avisos
+
+    for col in df.columns:
+        serie = df[col]
+        pct_nulos = serie.isnull().mean()
+
+        # Columna casi vacía (>80 % nulos)
+        if pct_nulos > 0.8:
+            avisos.append(f"• `{col}`: {pct_nulos:.0%} de valores vacíos")
+            continue   # si está casi vacía, las demás comprobaciones no aportan
+
+        no_nulos = serie.dropna()
+
+        # Columna constante
+        if len(no_nulos) > 0 and no_nulos.nunique() == 1:
+            avisos.append(f"• `{col}`: columna constante (valor siempre '{no_nulos.iloc[0]}')")
+
+        # Mezcla texto/número
+        if serie.dtype == object:
+            convertidos = pd.to_numeric(no_nulos, errors="coerce")
+            tiene_nums  = convertidos.notna().any()
+            tiene_texto = convertidos.isna().any()
+            if tiene_nums and tiene_texto:
+                avisos.append(f"• `{col}`: mezcla de texto y números en la misma columna")
+
+        # Outliers con IQR (solo numéricas)
+        if pd.api.types.is_numeric_dtype(serie) and len(no_nulos) >= 4:
+            q1, q3 = no_nulos.quantile(0.25), no_nulos.quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                n_outliers = int(((no_nulos < q1 - 1.5 * iqr) | (no_nulos > q3 + 1.5 * iqr)).sum())
+                if n_outliers > 0:
+                    avisos.append(f"• `{col}`: {n_outliers} posibles valor(es) atípico(s) (IQR)")
+
+        # Fechas inválidas (columnas cuyo nombre sugiere fecha)
+        _PALABRAS_FECHA = ("fecha", "date", "dia", "día", "mes", "año", "year", "month")
+        if serie.dtype == object and any(p in str(col).lower() for p in _PALABRAS_FECHA):
+            convertidas = pd.to_datetime(no_nulos, errors="coerce")
+            n_invalidas = int(convertidas.isna().sum())
+            if n_invalidas > 0:
+                avisos.append(f"• `{col}`: {n_invalidas} fecha(s) con formato no reconocido")
+
+    return avisos
+
+
 def resumir(df: pd.DataFrame, nombre_archivo: str, errores: list[str] | None = None) -> str:
     """Devuelve un resumen legible del DataFrame para mostrar al usuario."""
     nulos = {col: int(v) for col, v in df.isnull().sum().items() if v > 0}
@@ -47,6 +98,12 @@ def resumir(df: pd.DataFrame, nombre_archivo: str, errores: list[str] | None = N
         lineas.append(f"\n⚠️ *Errores de fórmula ({len(errores)}):*")
         for e in errores:
             lineas.append(f"  • {e}")
+
+    avisos_calidad = analizar_calidad(df)
+    if avisos_calidad:
+        lineas.append(f"\n🔍 *Calidad de datos ({len(avisos_calidad)} aviso(s)):*")
+        for aviso in avisos_calidad:
+            lineas.append(f"  {aviso}")
 
     lineas.append("\nPuedes hacerme preguntas sobre este archivo.")
     return "\n".join(lineas)

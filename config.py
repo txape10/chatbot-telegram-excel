@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from utils.knowledge import cargar_base_conocimiento
+from prompts.excel import SYSTEM_BASE
 
 load_dotenv()
 
@@ -19,17 +20,10 @@ MAX_FILAS    = 50_000
 MAX_COLUMNAS = 100
 MAX_HOJAS    = 10
 
-_BASE_CONOCIMIENTO = cargar_base_conocimiento()
+_GUIA_ESTILO = cargar_base_conocimiento()
 
-SYSTEM_PROMPT = """Eres un experto en Microsoft Excel con más de 20 años de experiencia.
-Ante cada pregunta debes:
-1. Dar una explicación clara y concisa
-2. Incluir un ejemplo práctico con datos reales
-3. Mostrar la fórmula o los pasos exactos
-4. Añadir consejos o variantes útiles si los hay
-
-Responde siempre en español.
-
-A continuación tienes tu base de conocimiento de referencia. Úsala para dar respuestas precisas, con el tono y formato indicados:
-
-""" + _BASE_CONOCIMIENTO
+SYSTEM_PROMPT = (
+    SYSTEM_BASE
+    + "\n\nGuía de tono y formato:\n\n"
+    + _GUIA_ESTILO
+)

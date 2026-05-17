@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from utils.auth import solo_autorizados
 from utils.excel_context import guardar_contexto
+from utils.file_meta import guardar_meta
 from utils.chart_context import guardar_datos_grafico, obtener_datos_grafico
 from utils.sheet_context import guardar_hojas, obtener_hoja, listar_hojas
 from excel.reader import leer_excel_hojas, leer_csv
@@ -136,6 +137,7 @@ async def _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errore
     resumen  = resumir(df, nombre, errores)
     contexto = construir_contexto(df, nombre)
     guardar_contexto(user_id, contexto)
+    guardar_meta(user_id, nombre)
     await mensaje_carga.edit_text(resumen, parse_mode="Markdown")
 
     guardar_datos_grafico(user_id, df, nombre)
@@ -174,6 +176,7 @@ async def callback_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     contexto = construir_contexto(df, f"hoja '{nombre_hoja}'")
     guardar_contexto(user_id, contexto)
     guardar_datos_grafico(user_id, df, nombre_hoja)
+    guardar_meta(user_id, nombre_hoja, hoja=nombre_hoja)
 
     await query.edit_message_text(resumen, parse_mode="Markdown")
 

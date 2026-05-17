@@ -4,10 +4,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from utils.history import limpiar_historial
 from utils.excel_context import borrar_contexto
+from utils.file_meta import borrar_meta
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
 from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla
 from utils.user_prefs import get_version, set_version, VERSIONES
+from prompts.excel import EJEMPLO_FUNCION
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,7 @@ async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     limpiar_historial(user_id)
     borrar_contexto(user_id)
+    borrar_meta(user_id)
     await update.message.reply_text("🗑️ Historial y contexto Excel borrados. ¡Empezamos de cero!")
 
 
@@ -81,10 +84,7 @@ async def ejemplo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     funcion = " ".join(context.args).upper() if context.args else random.choice(FUNCIONES_EXCEL)
     mensaje_carga = await update.message.reply_text(f"⏳ Generando ejemplo de {funcion}...")
     try:
-        prompt = (
-            f"Explícame la función {funcion} de Microsoft Excel con un ejemplo práctico. "
-            "Usa datos reales y concretos, muestra la fórmula exacta y añade un consejo útil."
-        )
+        prompt = EJEMPLO_FUNCION.format(funcion=funcion)
         respuesta = obtener_respuesta([], prompt)
         await mensaje_carga.edit_text(respuesta)
     except Exception as error:

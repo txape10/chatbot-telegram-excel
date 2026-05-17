@@ -7,6 +7,7 @@ from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
 from utils.auth import solo_autorizados
 from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
+from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,16 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Inyectar versión de Excel si está configurada
     version = get_version(user_id)
     prefijo_version = (
-        f"[El usuario usa {VERSIONES.get(version, version)}. "
-        "Adapta la respuesta a las funciones disponibles en esa versión.]\n\n"
+        PREGUNTA_CON_VERSION.format(version=VERSIONES.get(version, version))
         if version else ""
     )
 
-    pregunta_completa = prefijo_version
     if contexto_excel:
-        pregunta_completa += f"{contexto_excel}\n\nPregunta del usuario: {pregunta}"
+        pregunta_completa = prefijo_version + PREGUNTA_CON_CONTEXTO.format(
+            contexto=contexto_excel, pregunta=pregunta
+        )
     else:
-        pregunta_completa += pregunta
+        pregunta_completa = prefijo_version + pregunta
 
     try:
         respuesta = obtener_respuesta(historial, pregunta_completa)
@@ -80,11 +81,7 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def _explicar_formula(update: Update, user_id: int, formula: str) -> None:
     """Explica paso a paso una fórmula de Excel."""
     mensaje_carga = await update.message.reply_text("⏳ Analizando la fórmula...")
-    prompt = (
-        f"Explica paso a paso esta fórmula de Excel:\n\n{formula}\n\n"
-        "Desglosa cada argumento o parte, explica qué hace cada uno y muestra "
-        "un ejemplo práctico con datos reales de cuándo y cómo usarla."
-    )
+    prompt = EXPLICAR_FORMULA.format(formula=formula)
     try:
         historial = obtener_historial(user_id)
         respuesta = obtener_respuesta(historial, prompt)
