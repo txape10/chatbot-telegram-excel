@@ -3,8 +3,9 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 from utils.history import limpiar_historial
+from utils.excel_context import borrar_contexto
 from utils.auth import solo_autorizados
-from services.gemini import obtener_respuesta
+from services.llm import obtener_respuesta
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,10 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @solo_autorizados
 async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    limpiar_historial(update.effective_user.id)
-    await update.message.reply_text("🗑️ Historial borrado. ¡Empezamos de cero!")
+    user_id = update.effective_user.id
+    limpiar_historial(user_id)
+    borrar_contexto(user_id)
+    await update.message.reply_text("🗑️ Historial y contexto Excel borrados. ¡Empezamos de cero!")
 
 
 @solo_autorizados
