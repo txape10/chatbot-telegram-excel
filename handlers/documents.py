@@ -46,13 +46,18 @@ async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         await mensaje_carga.edit_text(resumen, parse_mode="Markdown")
 
-        # Enviar gráfico si hay datos numéricos
-        buffer_grafico = generar_grafico(df, documento.file_name)
-        if buffer_grafico:
-            await update.message.reply_photo(
-                photo=buffer_grafico,
-                caption="📊 Gráfico generado automáticamente con los datos del archivo."
-            )
+        # Enviar gráfico — try independiente para no afectar al resumen
+        try:
+            buffer_grafico = generar_grafico(df, documento.file_name)
+            if buffer_grafico:
+                await update.message.reply_photo(
+                    photo=buffer_grafico,
+                    caption="📊 Gráfico generado automáticamente con los datos del archivo."
+                )
+            else:
+                logger.info("Sin columnas numéricas para graficar en '%s'", documento.file_name)
+        except Exception as error_grafico:
+            logger.warning("No se pudo generar el gráfico para '%s': %s", documento.file_name, error_grafico)
 
     except Exception as error:
         logger.error("Error procesando Excel para user_id %s: %s", user_id, error)

@@ -8,6 +8,13 @@ import pandas as pd
 def generar_grafico(df: pd.DataFrame, nombre_archivo: str) -> io.BytesIO | None:
     """Genera un gráfico de barras con las columnas numéricas del DataFrame.
     Devuelve un buffer PNG o None si no hay datos numéricos suficientes."""
+    # Intentar convertir columnas object a numérico por si vienen como texto
+    df = df.copy()
+    for col in df.select_dtypes(include="object").columns:
+        convertida = pd.to_numeric(df[col], errors="coerce")
+        if convertida.notna().sum() > len(df) * 0.5:  # más del 50% convertible
+            df[col] = convertida
+
     columnas_numericas = df.select_dtypes(include="number").columns.tolist()
     if not columnas_numericas:
         return None
