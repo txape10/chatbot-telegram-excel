@@ -270,10 +270,10 @@ async def pivote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         else:
             caption = (
-                "📊 Ejemplo de tabla dinámica\n\n"
-                "· Hoja Datos — ventas ficticias de ejemplo\n"
-                "· Hoja Tabla Dinámica — resúmenes y cruces calculados\n\n"
-                "💡 Sube tu Excel y te la genero con tus propios datos."
+                "📊 Ejemplo de tabla dinámica (datos de muestra)\n\n"
+                "No tenía tus datos en memoria — puede que hayas reiniciado el bot "
+                "o aún no hayas subido ningún archivo.\n\n"
+                "Sube tu Excel y repite la petición para generarla con tus propios datos."
             )
 
         await update.message.reply_document(document=buffer, filename=nombre_archivo, caption=caption)

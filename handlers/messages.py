@@ -134,11 +134,10 @@ async def _generar_tabla_dinamica(update: Update, user_id: int) -> None:
             )
         else:
             caption = (
-                "📊 Ejemplo de tabla dinámica\n\n"
-                "El archivo tiene dos hojas:\n"
-                "· Datos — ventas ficticias de ejemplo\n"
-                "· Tabla Dinámica — resúmenes y cruces calculados\n\n"
-                "💡 Sube tu Excel y te la genero con tus propios datos."
+                "📊 Ejemplo de tabla dinámica (datos de muestra)\n\n"
+                "No tenía tus datos en memoria — puede que hayas reiniciado el bot "
+                "o aún no hayas subido ningún archivo.\n\n"
+                "Sube tu Excel y repite la petición para generarla con tus propios datos."
             )
 
         # Enviar el archivo PRIMERO; borrar el mensaje de carga después
