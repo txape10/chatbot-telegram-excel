@@ -19,8 +19,7 @@ Un bot de Telegram que:
 - **Python**
 
 ### LLM (gratuito)
-- **Google Gemini API** — modelo `gemini-2.0-flash` (tier gratuito)
-- Alternativa: **Groq** con Llama 3.3 (14.400 peticiones/día gratis)
+- **Groq** con modelo `llama-3.3-70b-versatile` — gratuito, sin tarjeta de crédito
 
 ### Librería de Telegram
 - `python-telegram-bot`
@@ -33,7 +32,7 @@ Un bot de Telegram que:
 ### Dependencias principales
 ```
 python-telegram-bot
-google-generativeai
+groq
 python-dotenv
 pandas
 openpyxl
@@ -60,7 +59,7 @@ pillow
 │   └── documents.py        ← recepción y procesamiento de archivos .xlsx
 ├── services/
 │   ├── __init__.py
-│   └── gemini.py           ← integración con la API de Gemini
+│   └── gemini.py           ← integración con la API de Groq (Llama 3.3)
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer archivos .xlsx con pandas
@@ -76,7 +75,8 @@ pillow
 
 ```
 TELEGRAM_TOKEN=token_obtenido_de_botfather
-GEMINI_API_KEY=clave_de_google_ai_studio
+GROQ_API_KEY=clave_de_groq_console
+AUTHORIZED_USERS=id1,id2
 ```
 
 ## System prompt del asistente
@@ -95,35 +95,36 @@ Responde siempre en español.
 |---|---|
 | `/start` | Bienvenida e instrucciones |
 | `/ayuda` | Categorías de temas disponibles |
-| `/ejemplo` | Ejemplo aleatorio de función útil de Excel |
+| `/ejemplo` | Ejemplo aleatorio o de una función concreta: `/ejemplo BUSCARV` |
 | `/limpiar` | Borrar el historial de conversación |
 
 ## Funcionalidades — Roadmap
 
-### Fase 1 — MVP (conversación básica)
-- [x] Conexión básica bot Telegram ↔ Gemini API
+### Fase 1 — MVP (conversación básica) ✅
+- [x] Conexión básica bot Telegram ↔ Groq (Llama 3.3)
 - [x] Respuestas a preguntas de texto sobre Excel
 - [x] Historial de conversación en memoria por usuario (últimos 10 mensajes)
 - [x] Comandos básicos: /start, /ayuda, /limpiar
-- [ ] Control de acceso: whitelist de `user_id` autorizados en `.env`
+- [x] Control de acceso: whitelist de `user_id` autorizados en `.env`
 
-### Fase 2 — Robustez
-- [x] Mensajes de carga mientras Gemini procesa ("Pensando...")
+### Fase 2 — Robustez ✅
+- [x] Mensajes de carga mientras el LLM procesa ("⏳ Pensando...")
 - [x] Manejo de errores con mensajes claros al usuario
 - [x] Persistencia del historial en SQLite (sobrevive reinicios)
-- [x] Comando /ejemplo con función aleatoria útil de Excel
+- [x] Comando /ejemplo con función aleatoria o concreta (/ejemplo BUSCARV)
+- [x] Comandos registrados en Telegram (menú al escribir "/")
 
 ### Fase 3 — Excel real con pandas
 - [ ] Carpeta `excel/` con `reader.py` y `analyzer.py`
 - [ ] `handlers/documents.py`: recibir archivos `.xlsx` por Telegram
 - [ ] Resumen automático del Excel subido (filas, columnas, nulos, duplicados)
-- [ ] Responder preguntas sobre el archivo subido usando Gemini
+- [ ] Responder preguntas sobre el archivo subido usando el LLM
 
 ### Fase 4 — Generación y visualización
 - [ ] `excel/exporter.py`: generar archivos `.xlsx` con ejemplos prácticos
 - [ ] Gráficos automáticos con `matplotlib` enviados como imagen
 - [ ] Menús con botones (InlineKeyboard) por categorías de temas
-- [ ] Análisis de imágenes: captura de pantalla de Excel interpretada por Gemini
+- [ ] Análisis de imágenes: captura de pantalla de Excel interpretada por el LLM
 
 ### Fase 5 — Despliegue y producción
 - [ ] Base de conocimiento desde PDFs propios
@@ -132,8 +133,7 @@ Responde siempre en español.
 ## Documentación de referencia técnica
 
 - **python-telegram-bot**: https://docs.python-telegram-bot.org (usar v21+)
-- **Google Gemini API**: https://ai.google.dev/docs
-- **google-generativeai SDK**: https://github.com/google/generative-ai-python
+- **Groq API**: https://console.groq.com/docs
 - **openpyxl** (fase 3): https://openpyxl.readthedocs.io
 - **Python objetivo**: 3.11+
 
@@ -175,5 +175,5 @@ knowledge/
 
 - El archivo `.env` nunca debe subirse a git (añadirlo al `.gitignore`)
 - Para obtener el token de Telegram: buscar `@BotFather` en Telegram → `/newbot`
-- Para obtener la clave de Gemini: registrarse en [Google AI Studio](https://aistudio.google.com)
-- Coste estimado: prácticamente 0€ para uso personal con los tiers gratuitos
+- Para obtener la clave de Groq: registrarse en [console.groq.com](https://console.groq.com) (gratuito, sin tarjeta)
+- Coste: 0€ — Groq ofrece ~14.400 peticiones/día gratis en el tier gratuito
