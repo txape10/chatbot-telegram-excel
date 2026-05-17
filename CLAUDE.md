@@ -108,10 +108,10 @@ Responde siempre en español.
 - [ ] Control de acceso: whitelist de `user_id` autorizados en `.env`
 
 ### Fase 2 — Robustez
-- [ ] Mensajes de carga mientras Gemini procesa ("Escribiendo...")
-- [ ] Manejo de errores con mensajes claros al usuario
-- [ ] Persistencia del historial en SQLite (sobrevive reinicios)
-- [ ] Comando /ejemplo con función aleatoria útil de Excel
+- [x] Mensajes de carga mientras Gemini procesa ("Pensando...")
+- [x] Manejo de errores con mensajes claros al usuario
+- [x] Persistencia del historial en SQLite (sobrevive reinicios)
+- [x] Comando /ejemplo con función aleatoria útil de Excel
 
 ### Fase 3 — Excel real con pandas
 - [ ] Carpeta `excel/` con `reader.py` y `analyzer.py`
