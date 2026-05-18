@@ -463,6 +463,67 @@ def _aplicar_formato_condicional(ws, df: pd.DataFrame, op: dict) -> None:
             pass
 
 
+# ── Combinar dos DataFrames (B3) ─────────────────────────────────────────────
+
+_TIPOS_JOIN = {"inner", "left", "right", "outer"}
+_NOMBRES_JOIN = {
+    "inner": "solo filas coincidentes",
+    "left":  "todas las filas del primer archivo",
+    "right": "todas las filas del segundo archivo",
+    "outer": "todas las filas de ambos archivos",
+}
+
+
+def combinar_dataframes(df1: pd.DataFrame, df2: pd.DataFrame,
+                        op: dict) -> tuple[pd.DataFrame, str]:
+    """Une dos DataFrames por una columna clave.
+
+    op puede contener:
+      col  → columna clave común (si es None se elige la primera columna común)
+      como → tipo de join: inner / left / right / outer  (default: inner)
+    """
+    col  = op.get("col")
+    como = str(op.get("como", "inner")).lower()
+    if como not in _TIPOS_JOIN:
+        como = "inner"
+
+    # Si no se especifica columna, usar la primera común
+    if not col:
+        comunes = [c for c in df1.columns if c in df2.columns]
+        if not comunes:
+            raise EditorError(
+                "No hay columnas en común entre los dos archivos. "
+                "Especifica la columna clave."
+            )
+        col = comunes[0]
+
+    if col not in df1.columns:
+        raise EditorError(
+            f"Columna '{col}' no existe en el primer archivo. "
+            f"Disponibles: {', '.join(df1.columns)}"
+        )
+    if col not in df2.columns:
+        raise EditorError(
+            f"Columna '{col}' no existe en el segundo archivo. "
+            f"Disponibles: {', '.join(df2.columns)}"
+        )
+
+    # Sufijos para columnas duplicadas (excepto la clave)
+    cols_dup = [c for c in df1.columns if c in df2.columns and c != col]
+    sufijos  = ("_A", "_B") if cols_dup else ("", "")
+
+    try:
+        df_result = df1.merge(df2, on=col, how=como, suffixes=sufijos)
+    except Exception as exc:
+        raise EditorError(f"No se pudo combinar: {exc}") from exc
+
+    desc = (
+        f"Archivos combinados por '{col}' ({_NOMBRES_JOIN[como]}). "
+        f"Resultado: {len(df_result)} filas × {len(df_result.columns)} columnas"
+    )
+    return df_result, desc
+
+
 # ── Validación ────────────────────────────────────────────────────────────────
 
 def _validar_col(df: pd.DataFrame, col: str | None) -> None:

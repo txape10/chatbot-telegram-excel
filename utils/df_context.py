@@ -1,7 +1,9 @@
-# DataFrame activo por usuario (en memoria, se pierde al reiniciar el bot)
+# DataFrame activo y secundario por usuario (en memoria, se pierde al reiniciar el bot)
 import pandas as pd
 
-_dataframes: dict[int, pd.DataFrame] = {}
+_dataframes:            dict[int, pd.DataFrame] = {}
+_dataframes_secundarios: dict[int, pd.DataFrame] = {}
+_nombres_secundarios:   dict[int, str]           = {}
 
 
 def guardar_df(user_id: int, df: pd.DataFrame) -> None:
@@ -14,3 +16,29 @@ def obtener_df(user_id: int) -> pd.DataFrame | None:
 
 def borrar_df(user_id: int) -> None:
     _dataframes.pop(user_id, None)
+
+
+# ── Slot secundario (para combinar dos archivos) ──────────────────────────────
+
+def guardar_df_secundario(user_id: int, df: pd.DataFrame, nombre: str = "archivo") -> None:
+    _dataframes_secundarios[user_id] = df.copy()
+    _nombres_secundarios[user_id] = nombre
+
+
+def obtener_df_secundario(user_id: int) -> pd.DataFrame | None:
+    return _dataframes_secundarios.get(user_id)
+
+
+def obtener_nombre_secundario(user_id: int) -> str:
+    return _nombres_secundarios.get(user_id, "archivo")
+
+
+def borrar_df_secundario(user_id: int) -> None:
+    _dataframes_secundarios.pop(user_id, None)
+    _nombres_secundarios.pop(user_id, None)
+
+
+def borrar_todo(user_id: int) -> None:
+    """Limpia tanto el df activo como el secundario (usado por /limpiar)."""
+    borrar_df(user_id)
+    borrar_df_secundario(user_id)

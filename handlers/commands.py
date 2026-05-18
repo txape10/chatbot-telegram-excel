@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from utils.history import limpiar_historial
 from utils.excel_context import borrar_contexto
-from utils.df_context import borrar_df
+from utils.df_context import borrar_todo
 from utils.file_meta import borrar_meta
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
@@ -77,7 +77,7 @@ async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     limpiar_historial(user_id)
     borrar_contexto(user_id)
-    borrar_df(user_id)
+    borrar_todo(user_id)
     borrar_meta(user_id)
     await update.message.reply_text("🗑️ Historial y contexto Excel borrados. ¡Empezamos de cero!")
 

@@ -173,6 +173,51 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
         return None
 
 
+def extraer_operacion_combinar(df1: pd.DataFrame, df2: pd.DataFrame,
+                               pregunta: str) -> dict:
+    """Extrae la columna clave y tipo de join para combinar dos DataFrames.
+
+    Devuelve siempre un dict (puede tener col=None si no se especificó columna).
+    """
+    from prompts.excel import COMBINAR_DSL_SISTEMA, COMBINAR_DSL_USUARIO
+
+    cols_a      = ", ".join(f"'{c}'" for c in df1.columns)
+    cols_b      = ", ".join(f"'{c}'" for c in df2.columns)
+    cols_comunes = ", ".join(
+        f"'{c}'" for c in df1.columns if c in df2.columns
+    ) or "ninguna"
+
+    mensaje_usuario = COMBINAR_DSL_USUARIO.format(
+        cols_a=cols_a,
+        cols_b=cols_b,
+        cols_comunes=cols_comunes,
+        pregunta=pregunta,
+    )
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": COMBINAR_DSL_SISTEMA},
+                {"role": "user",   "content": mensaje_usuario},
+            ],
+            temperature=0,
+            max_tokens=100,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Respuesta combinar DSL del LLM: %s", texto)
+
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        return json.loads(texto)
+
+    except Exception as error:
+        logger.warning("Error extrayendo operación combinar: %s", error)
+        return {"col": None, "como": "inner"}
+
+
 def analizar_imagen(imagen_bytes: bytes, pregunta: str = "") -> str:
     """Analiza una captura de pantalla de Excel usando un modelo con visión."""
     imagen_b64 = base64.standard_b64encode(imagen_bytes).decode("utf-8")

@@ -5,16 +5,17 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 from services.llm import (obtener_respuesta, extraer_query_dsl,
-                          extraer_operacion_edicion, extraer_estructura_excel)
+                          extraer_operacion_edicion, extraer_estructura_excel,
+                          extraer_operacion_combinar)
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
-from utils.df_context import obtener_df, guardar_df
+from utils.df_context import obtener_df, guardar_df, obtener_df_secundario, obtener_nombre_secundario
 from utils.file_meta import obtener_meta
 from utils.auth import solo_autorizados
 from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
-from excel.editor import aplicar_edicion, exportar_xlsx, EditorError
+from excel.editor import aplicar_edicion, exportar_xlsx, combinar_dataframes, EditorError
 from excel.exporter import crear_tabla_dinamica, crear_desde_descripcion
 from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones, analisis_tendencia
 
@@ -44,6 +45,17 @@ _RE_EDICION = re.compile(
     r"convierte[r]?\s+(?:las\s+)?columnas?\s+en\s+filas?|"
     r"convierte[r]?\s+(?:las\s+)?filas?\s+en\s+columnas?|"
     r"(?:meses?|trimestres?|periodos?)\s+en\s+filas?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de combinación de dos archivos (B3)
+_RE_COMBINAR = re.compile(
+    r"\b("
+    r"une[r]?\s|combina[r]?\s|junta[r]?\s|mezcla[r]?\s|fusiona[r]?\s|"
+    r"cruza[r]?\s|cruce\s+(?:con|de)|"
+    r"(?:los\s+)?dos\s+archivos|ambos\s+archivos|"
+    r"merge[r]?\s|join\s"
     r")\b",
     re.IGNORECASE,
 )
@@ -114,8 +126,16 @@ async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _explicar_formula(update, user_id, pregunta)
         return
 
+    df_activo    = obtener_df(user_id)
+    df_secundario = obtener_df_secundario(user_id)
+
+    # ── Combinar dos archivos (B3) ────────────────────────────────────────────
+    if df_activo is not None and df_secundario is not None and _RE_COMBINAR.search(pregunta):
+        logger.info("Intención de combinación detectada para user_id %s: %r", user_id, pregunta)
+        await _intentar_combinar(update, user_id, df_secundario, df_activo, pregunta)
+        return
+
     # ── Editor de archivo (si hay df activo y petición de modificación) ────────
-    df_activo = obtener_df(user_id)
     if df_activo is not None and _RE_EDICION.search(pregunta):
         logger.info("Intención de edición detectada para user_id %s: %r", user_id, pregunta)
         await _intentar_edicion(update, user_id, df_activo, pregunta)
@@ -352,6 +372,52 @@ async def _explicar_formula(update: Update, user_id: int, formula: str) -> None:
     except Exception as error:
         logger.error("Error explicando fórmula para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ No se pudo analizar la fórmula. Inténtalo de nuevo.")
+
+
+async def _intentar_combinar(update: Update, user_id: int,
+                              df_a: "pd.DataFrame", df_b: "pd.DataFrame",
+                              pregunta: str) -> None:
+    """Combina los dos DataFrames en memoria según la petición del usuario."""
+    nombre_a = obtener_nombre_secundario(user_id)
+    meta_b   = obtener_meta(user_id)
+    nombre_b = meta_b["nombre"] if meta_b else "archivo"
+
+    mensaje_carga = await update.message.reply_text("⏳ Combinando archivos...")
+    try:
+        op = await asyncio.to_thread(extraer_operacion_combinar, df_a, df_b, pregunta)
+        df_result, descripcion = await asyncio.to_thread(combinar_dataframes, df_a, df_b, op)
+
+        # El resultado pasa a ser el df activo
+        guardar_df(user_id, df_result)
+
+        buf, nombre_archivo = await asyncio.to_thread(
+            exportar_xlsx, df_result, "combinado", descripcion
+        )
+
+        caption = (
+            f"✅ {descripcion}\n\n"
+            f"Archivo A: *{nombre_a}*\n"
+            f"Archivo B: *{nombre_b}*"
+        )
+        await update.message.reply_document(document=buf, filename=nombre_archivo,
+                                             caption=caption, parse_mode="Markdown")
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except EditorError as error:
+        logger.warning("EditorError en combinar para user_id %s: %s", user_id, error)
+        try:
+            await mensaje_carga.edit_text(f"⚠️ No pude combinar los archivos: {error}")
+        except Exception:
+            pass
+    except Exception as error:
+        logger.error("Error combinando archivos para user_id %s: %s", user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudieron combinar los archivos. Inténtalo de nuevo.")
+        except Exception:
+            pass
 
 
 async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta: str) -> None:

@@ -5,7 +5,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from utils.auth import solo_autorizados
 from utils.excel_context import guardar_contexto
-from utils.df_context import guardar_df
+from utils.df_context import guardar_df, obtener_df, guardar_df_secundario
+from utils.file_meta import obtener_meta
 from utils.file_meta import guardar_meta
 from utils.chart_context import guardar_datos_grafico, obtener_datos_grafico
 from utils.sheet_context import guardar_hojas, obtener_hoja, listar_hojas
@@ -135,12 +136,34 @@ def _validar_limites(df, nombre: str, n_hojas: int) -> None:
 
 async def _procesar_dataframe(update, user_id, df, nombre, mensaje_carga, errores):
     """Envía resumen, guarda contexto y lanza el gráfico con botones de tipo."""
+    # Si ya hay un df activo, guardarlo como secundario antes de reemplazarlo
+    df_anterior = obtener_df(user_id)
+    if df_anterior is not None:
+        meta_anterior = obtener_meta(user_id)
+        nombre_anterior = meta_anterior["nombre"] if meta_anterior else "archivo anterior"
+        guardar_df_secundario(user_id, df_anterior, nombre_anterior)
+
     resumen  = resumir(df, nombre, errores)
     contexto = construir_contexto(df, nombre)
     guardar_contexto(user_id, contexto)
     guardar_df(user_id, df)
     guardar_meta(user_id, nombre)
     await mensaje_carga.edit_text(resumen, parse_mode="Markdown")
+
+    # Avisar si ahora hay dos archivos combinables
+    if df_anterior is not None:
+        meta_anterior = obtener_meta(user_id)
+        nombre_anterior = meta_anterior["nombre"] if meta_anterior else "archivo anterior"
+        cols_comunes = [c for c in df_anterior.columns if c in df.columns]
+        if cols_comunes:
+            sugerencia = f"une por {cols_comunes[0]}"
+            await update.message.reply_text(
+                f"💡 Tienes dos archivos en memoria:\n"
+                f"· *{nombre_anterior}* (anterior)\n"
+                f"· *{nombre}* (nuevo)\n\n"
+                f"Puedes combinarlos, por ejemplo: «{sugerencia}»",
+                parse_mode="Markdown",
+            )
 
     guardar_datos_grafico(user_id, df, nombre)
 

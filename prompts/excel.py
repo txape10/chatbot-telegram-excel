@@ -136,3 +136,25 @@ QUERY_DSL_USUARIO = (
     "Muestra (primeras 3 filas):\n{muestra}\n\n"
     "Pregunta: {pregunta}"
 )
+
+# ── DSL de combinación de dos archivos (B3) ───────────────────────────────────
+
+COMBINAR_DSL_SISTEMA = (
+    "Eres un intérprete de operaciones de combinación de tablas Excel. "
+    "A partir de la petición devuelve un JSON con exactamente estos campos:\n\n"
+    '  "col":  nombre de la columna clave común para el JOIN. '
+    "Si no se menciona explícitamente, usa null y el motor elegirá la primera columna común.\n"
+    '  "como": tipo de JOIN — '
+    '"inner" (solo filas coincidentes, por defecto) | '
+    '"left" (todas las filas del primer archivo) | '
+    '"right" (todas las filas del segundo archivo) | '
+    '"outer" (todas las filas de ambos).\n\n'
+    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+)
+
+COMBINAR_DSL_USUARIO = (
+    "Columnas del archivo A: {cols_a}\n"
+    "Columnas del archivo B: {cols_b}\n"
+    "Columnas comunes: {cols_comunes}\n\n"
+    "Petición: {pregunta}"
+)
