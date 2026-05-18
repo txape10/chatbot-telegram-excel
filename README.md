@@ -50,9 +50,28 @@ El bot envía el `.xlsx` modificado y actualiza el archivo activo en memoria.
 - "Hazme un Excel con columnas Fecha, Concepto, Importe y Categoría" → genera y envía el `.xlsx`
 - "Crea una tabla de inventario con Referencia, Producto, Stock, Precio unitario y Total" → ídem
 
-### Análisis estadístico
+### Análisis estadístico y tendencias
 - "Dame estadísticas del archivo" → media, mediana, mín/máx, desviación estándar, percentiles P25/P75 y detección de sesgo por cada columna numérica
 - "Muéstrame las correlaciones" → ranking de pares más correlacionados + imagen heatmap
+- "Analiza la tendencia" → regresión lineal por columna numérica, R², variación porcentual y gráfico con línea de tendencia
+
+### Combinación de dos archivos
+Sube dos archivos y únelos en lenguaje natural:
+- "Une los dos archivos por ID" → inner join por la columna ID
+- "Combina con todos los clientes" → left join
+- "Fusiona incluyendo todos los registros" → outer join
+
+El bot detecta automáticamente la columna común y gestiona columnas duplicadas con sufijos `_A` / `_B`.
+
+### Modificaciones avanzadas
+Además de las operaciones básicas de edición, el bot soporta:
+
+| Petición de ejemplo | Operación |
+|---|---|
+| "Limpia los textos de Categoría (mayúsculas)" | Normalizar texto (strip/upper/lower/title) |
+| "Convierte la columna Fecha a formato fecha" | Estandarizar fechas (detección automática de formato) |
+| "Convierte las columnas de meses en filas" | Despivotear (melt / unpivot) |
+| "Agrupa Vendedor en columnas con suma de Ventas" | Pivotear (pivot_table) |
 
 ### Tabla dinámica
 - "Tabla dinámica" → genera un `.xlsx` con la hoja de datos como **Excel Table** (con filtros activos) y una segunda hoja con resúmenes estáticos por agrupación. Para la TD interactiva: `Insertar → Tabla dinámica → Aceptar` en Excel.
@@ -163,7 +182,7 @@ El bot queda escuchando. Desde Telegram, envía `/start` para comenzar.
 │   └── auth.py             ← Whitelist de acceso por user_id
 ├── prompts/
 │   └── excel.py            ← Todas las plantillas de texto enviadas al LLM
-├── tests/                  ← 97 tests unitarios (pytest)
+├── tests/                  ← 136 tests unitarios (pytest)
 ├── knowledge/              ← Base de conocimiento en Markdown
 └── data/
     ├── historial.db        ← SQLite
@@ -178,7 +197,7 @@ El bot queda escuchando. Desde Telegram, envía `/start` para comenzar.
 pytest
 ```
 
-97 tests unitarios que cubren: lectura de archivos, análisis de calidad, motor DSL, editor de archivos, generación de Excel y análisis estadístico.
+136 tests unitarios que cubren: lectura de archivos, análisis de calidad, motor DSL, editor de archivos (incl. normalización, fechas, pivot/unpivot), combinación de archivos, tendencias, generación de Excel y plantillas.
 
 ---
 
@@ -199,7 +218,10 @@ pytest
 - [x] Motor de consultas DSL en lenguaje natural
 - [x] Editor de archivos con 8 operaciones
 - [x] Creación de Excel desde descripción
-- [x] Análisis estadístico y correlaciones
+- [x] Análisis estadístico, correlaciones y tendencias
 - [x] Tabla dinámica (Excel Table + resúmenes)
+- [x] Normalización de texto y estandarización de fechas
+- [x] Pivot / unpivot de tablas
+- [x] Combinación de dos archivos (inner/left/right/outer join)
 - [ ] Tablas dinámicas interactivas nativas (evaluando xlwings vs XML injection)
 - [ ] Despliegue en Railway/Render para disponibilidad 24/7

@@ -100,7 +100,8 @@ pillow==11.2.1
 │   ├── test_query_engine.py ← 24 tests para el motor DSL (todas las operaciones y errores)
 │   ├── test_editor.py      ← 23 tests para el editor (8 operaciones, EditorError, exportar_xlsx)
 │   ├── test_b1_c1.py       ← 16 tests para crear_desde_descripcion, análisis estadístico y correlaciones
-│   └── test_c3_c4_c5.py    ← 26 tests para tendencia, normalización, estandarizar fechas, pivot/unpivot
+│   ├── test_c3_c4_c5.py    ← 26 tests para tendencia, normalización, estandarizar fechas, pivot/unpivot
+│   └── test_b3.py          ← 13 tests para combinar_dataframes (inner/left/right/outer, errores, integridad)
 ├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 └── data/
     ├── historial.db        ← SQLite: historial + preferencias de usuario
@@ -164,6 +165,7 @@ AUTHORIZED_USERS=id1,id2
 | "corrige las fechas / estandariza el formato" | Parsea formatos mixtos y unifica a DD/MM/YYYY |
 | "convierte las columnas de meses en filas" | Despivotea (melt): columnas → filas |
 | "pivotea por Producto y Mes" | Pivota (pivot_table): filas → columnas con agregación |
+| "une por ID" / "combina los dos archivos" | Combina el archivo activo con el anterior (inner/left/right/outer) |
 | "tabla dinámica" | Genera Excel Table + resúmenes estáticos (ver nota en Decisiones técnicas) |
 
 ## Roadmap
@@ -233,11 +235,15 @@ AUTHORIZED_USERS=id1,id2
 - [x] `prompts/excel.py`: EDITOR_DSL_SISTEMA actualizado con las 4 nuevas operaciones
 - [x] 26 tests en `tests/test_c3_c4_c5.py` — 123/123 en verde
 
-### Sprint B3 — Combinar dos archivos Excel ⏳ pendiente
-- [ ] Gestión de segundo df en memoria (`df_context.py`: añadir slot secundario por usuario)
-- [ ] Detección por regex de intención de combinación ("une por ID", "combina los dos archivos")
-- [ ] Operación `combinar` en editor: merge por columna clave (inner/left/outer), descripción del resultado
-- [ ] Flujo de subida: si el usuario ya tiene un df activo y sube otro archivo, ofrecer opción de combinar
+### Sprint B3 — Combinar dos archivos Excel ✅
+- [x] `utils/df_context.py`: slot secundario por usuario (guardar/obtener/borrar_df_secundario, borrar_todo)
+- [x] `handlers/documents.py`: al procesar un nuevo archivo con df activo, el anterior pasa a slot secundario y se avisa al usuario con la columna sugerida
+- [x] `excel/editor.py`: `combinar_dataframes()` — merge por columna clave, 4 tipos de join (inner/left/right/outer), sufijos _A/_B para columnas duplicadas, autodetección de columna común
+- [x] `prompts/excel.py`: COMBINAR_DSL_SISTEMA + COMBINAR_DSL_USUARIO
+- [x] `services/llm.py`: `extraer_operacion_combinar()` — extrae col y tipo de join del LLM
+- [x] `handlers/messages.py`: `_RE_COMBINAR` + `_intentar_combinar()` — resultado pasa a ser el df activo
+- [x] `handlers/commands.py`: /limpiar usa `borrar_todo()` → limpia activo + secundario
+- [x] 13 tests en `tests/test_b3.py` — 136/136 en verde
 
 ### Pendiente — decisión futura
 - [ ] Tablas dinámicas interactivas nativas: evaluar xlwings (requiere Excel en la máquina, no válido en cloud) vs XML injection con openpyxl (válido en cloud, complejo)
