@@ -12,12 +12,16 @@ Un bot de Telegram que:
 - Mantiene contexto de la conversación (historial por usuario en SQLite)
 - Analiza archivos Excel y CSV subidos por el usuario (resumen, calidad, gráfico automático)
 - Consulta datos con lenguaje natural (motor DSL: filtrar, agrupar, sumar, ordenar…)
-- Modifica archivos Excel a petición (añadir columnas, ordenar, eliminar duplicados, colorear…)
+- Modifica archivos Excel a petición (añadir columnas, ordenar, buscar/reemplazar, dividir/concatenar columnas…)
 - Crea archivos Excel desde descripción en lenguaje natural
-- Genera resúmenes estadísticos y mapas de correlaciones
+- Genera resúmenes estadísticos, mapas de correlaciones y gráficos de tendencia
 - Genera archivos de tabla dinámica (Excel Table + resúmenes estáticos)
+- Genera gráficos personalizados bajo demanda (barras, líneas, sectores, dispersión)
 - Explica fórmulas paso a paso si el mensaje empieza por `=`
 - Analiza capturas de pantalla de Excel con visión IA
+- Entiende mensajes de voz (Groq Whisper) y puede responder también por voz (edge-tts)
+- Compara dos archivos Excel y devuelve un informe de diferencias
+- Permite guardar y ejecutar macros personales (secuencias de operaciones con nombre)
 - Es accesible desde cualquier dispositivo con Telegram instalado
 
 ## HOW — Stack técnico y decisiones tomadas
@@ -47,6 +51,7 @@ pandas==2.2.3
 openpyxl==3.1.5
 matplotlib==3.9.4
 pillow==11.2.1
+edge-tts==6.1.12
 ```
 
 ## Estructura del proyecto
@@ -63,21 +68,23 @@ pillow==11.2.1
 ├── config.py               ← configuración, variables de entorno, whitelist y límites de seguridad
 ├── handlers/
 │   ├── __init__.py
-│   ├── messages.py         ← respuesta a texto; detección automática de fórmulas (=)
-│   ├── commands.py         ← /start, /ayuda, /ejemplo, /generar, /plantilla, /version, /limpiar + callbacks InlineKeyboard
-│   ├── documents.py        ← archivos .xlsx/.xls/.csv: validación, límites, multi-hoja, gráficos, asyncio.to_thread
-│   └── images.py           ← análisis de capturas de pantalla con LLM de visión
+│   ├── messages.py         ← núcleo de detección de intención: procesar_pregunta() + todos los flujos
+│   ├── commands.py         ← /start, /ayuda, /ejemplo, /generar, /plantilla, /version, /modo, /estado, /privado, /limpiar + callbacks InlineKeyboard
+│   ├── documents.py        ← archivos .xlsx/.xls/.csv: validación, límites, multi-hoja, slot secundario, asyncio.to_thread
+│   ├── images.py           ← análisis de capturas de pantalla con LLM de visión
+│   └── audio.py            ← mensajes de voz y audio: transcripción Whisper → procesar_pregunta; pregunta preferencia de modo
 ├── services/
 │   ├── __init__.py
-│   └── llm.py              ← Groq: obtener_respuesta (Llama 3.3) + analizar_imagen (Llama 4 Scout)
-│                              Gestión dinámica de tokens: truncado automático del historial
+│   ├── llm.py              ← Groq: texto (Llama 3.3), visión (Llama 4 Scout), STT (Whisper), DSLs de consulta/edición/gráfico/macro
+│   │                          Gestión dinámica de tokens: truncado automático del historial
+│   └── tts.py              ← síntesis de voz con edge-tts (es-ES-ElviraNeural); limpieza de Markdown antes de síntesis
 ├── excel/
 │   ├── __init__.py
 │   ├── reader.py           ← leer .xlsx (multi-hoja) y .csv con detección de separador
-│   ├── analyzer.py         ← resumen, errores de fórmula, analizar_calidad(), análisis estadístico, correlaciones
+│   ├── analyzer.py         ← resumen, calidad, estadísticas, correlaciones, tendencias, comparar_dataframes
 │   ├── query_engine.py     ← motor DSL: filtrar/contar/suma/promedio/max/min/agrupar/ordenar/top_n
-│   ├── editor.py           ← modificación de archivos: 8 operaciones + exportar_xlsx con estilos
-│   ├── charts.py           ← gráficos PNG (barras / líneas / sectores) con matplotlib
+│   ├── editor.py           ← 15 operaciones de edición + exportar_xlsx; buscar/reemplazar, dividir, concatenar, pivot/unpivot, normalizar, fechas, combinar
+│   ├── charts.py           ← gráficos PNG automáticos y personalizados (barras/líneas/sectores/dispersión)
 │   └── exporter.py         ← ejemplos, plantillas, crear_desde_descripcion(), crear_tabla_dinamica()
 ├── utils/
 │   ├── __init__.py
@@ -85,11 +92,12 @@ pillow==11.2.1
 │   ├── excel_context.py    ← contexto del archivo subido (en memoria por sesión)
 │   ├── chart_context.py    ← datos para regenerar gráficos (en memoria por sesión)
 │   ├── sheet_context.py    ← hojas de Excel para selector multi-hoja (en memoria)
-│   ├── user_prefs.py       ← preferencias de usuario: versión Excel (SQLite)
+│   ├── user_prefs.py       ← preferencias: versión Excel, modo respuesta (texto/voz), modo privado (SQLite)
 │   ├── auth.py             ← decorador @solo_autorizados (whitelist por user_id)
 │   ├── knowledge.py        ← carga de knowledge/*.md; solo ejemplos_respuestas.md va al system prompt
 │   ├── file_meta.py        ← metadata del último archivo subido por usuario (SQLite)
-│   └── df_context.py       ← DataFrame activo por usuario (en memoria, para motor DSL y editor)
+│   ├── df_context.py       ← DataFrame activo + secundario + undo por usuario (en memoria)
+│   └── macros.py           ← macros personales por usuario: CRUD en SQLite (user_macros), operaciones como lista DSL
 ├── prompts/
 │   ├── __init__.py
 │   └── excel.py            ← todas las plantillas de texto del bot (SYSTEM_BASE, DSL, editor, creación)
@@ -129,7 +137,13 @@ AUTHORIZED_USERS=id1,id2
 | DSL cerrada para consultas y ediciones | El LLM extrae un JSON estructurado (no código Python libre) → sin riesgo de inyección |
 | `RESPUESTA_LIBRE` como centinela del LLM | Si la pregunta no es una operación de datos, el LLM responde exactamente ese literal y el bot cae al flujo normal |
 | Excel Table en lugar de TD nativa | openpyxl no puede crear PivotTable interactivas; la Excel Table permite que el usuario cree la TD en 2 clicks desde Excel. Pendiente: evaluar xlwings para TD nativas (solo local, no válido en cloud) |
-| Orden de detección en messages.py | Fórmulas → Edición → Crear Excel → Tabla dinámica → Estadísticas → DSL → LLM. Cada check es un regex O(1) antes de llamar a la API |
+| TTS con `edge-tts` (sin API key) | Microsoft Neural TTS gratuito, voz `es-ES-ElviraNeural`; Markdown limpiado antes de síntesis; cap de 600 chars con frase de cierre |
+| `_enviar_respuesta()` siempre envía texto | El modo voz añade audio, pero el texto se envía siempre para que fórmulas/código sean legibles |
+| `context.user_data["op_pendiente"]` para confirmaciones | Persiste el JSON de operación destructiva entre mensaje y callback, evitando el límite de 64 bytes de callback_data |
+| Undo con slot `_undo` en `df_context` | `guardar_df()` auto-guarda el df actual antes de sustituirlo; `restaurar_undo()` hace swap activo↔undo — llamarlo dos veces equivale a redo sin estado extra |
+| Macros como lista DSL en SQLite | El LLM convierte la descripción en lenguaje natural a lista de operaciones DSL; se almacena como JSON en `user_macros`; sin código arbitrario |
+| Modo privado omite `agregar_mensaje()` | Cuando está activo, el historial no se escribe en SQLite; el resto del flujo es idéntico |
+| Orden de detección en `procesar_pregunta()` | Fórmulas → Comparar → Combinar → Deshacer → Edición → Crear Excel → Gráfico bajo demanda → Tabla dinámica → Stats/Tendencia → Previsualizar → Valores únicos → Explícame → Exportar CSV → Macros → DSL → LLM. Cada check es un regex O(1) antes de llamar a la API |
 
 ## Comandos del bot
 
@@ -142,18 +156,25 @@ AUTHORIZED_USERS=id1,id2
 | `/plantilla` | Plantillas .xlsx listas: presupuesto, gastos, KPIs, inventario |
 | `/pivote` | Genera archivo con Excel Table + resúmenes estáticos para crear tabla dinámica |
 | `/version` | Configura la versión de Excel del usuario (365, 2021, 2019, 2016) |
-| `/limpiar` | Borra historial de conversación y contexto Excel |
+| `/modo` | Elige si las respuestas son por voz o solo texto |
+| `/estado` | Muestra el estado actual de la sesión (archivo activo, historial, modo, versión) |
+| `/privado` | Activa/desactiva el modo privado (sin historial en SQLite) |
+| `/limpiar` | Borra historial de conversación y contexto Excel (activo + secundario + undo) |
 
 ## Funcionalidades sin comando (detección automática por intención)
 
-| Qué escribe el usuario | Qué hace el bot |
+| Qué escribe/envía el usuario | Qué hace el bot |
 |---|---|
 | Sube un `.xlsx` / `.csv` | Resumen, calidad de datos, gráfico automático, selector multi-hoja |
-| `=FORMULA(...)` | Explica la fórmula paso a paso |
 | Sube una captura de pantalla | Analiza el Excel con visión IA |
+| Envía un mensaje de voz | Transcribe con Whisper → procesa como texto → responde por voz si el modo está activo |
+| `=FORMULA(...)` | Explica la fórmula paso a paso |
 | "añade una columna Margen que sea Precio×0.3" | Modifica el archivo y envía el .xlsx actualizado |
 | "ordena por Fecha descendente" | Ordena el archivo y lo envía |
-| "elimina duplicados / rellena vacíos / renombra columna…" | Aplica la operación y envía el .xlsx |
+| "elimina duplicados / rellena vacíos / renombra columna…" | Aplica la operación (con confirmación si es destructiva) y envía el .xlsx |
+| "busca 'Enero' y reemplaza por 'January'" | Buscar y reemplazar en una columna o en todo el archivo |
+| "divide la columna Nombre por espacio en Nombre y Apellido" | Divide columna de texto en dos |
+| "concatena Nombre y Apellido separados por espacio en NombreCompleto" | Concatena columnas de texto |
 | "colorea en rojo los valores de Ventas menores de 100" | Aplica formato condicional y envía el .xlsx |
 | "cuánto suma Ventas por Región" | Consulta DSL sobre el archivo activo, responde en texto |
 | "muéstrame el top 5 por Importe" | Consulta DSL, responde en texto |
@@ -166,7 +187,16 @@ AUTHORIZED_USERS=id1,id2
 | "convierte las columnas de meses en filas" | Despivotea (melt): columnas → filas |
 | "pivotea por Producto y Mes" | Pivota (pivot_table): filas → columnas con agregación |
 | "une por ID" / "combina los dos archivos" | Combina el archivo activo con el anterior (inner/left/right/outer) |
+| "compara los dos archivos" | Informe de diferencias (columnas, filas únicas, filas compartidas) + .xlsx de diferencias |
 | "tabla dinámica" | Genera Excel Table + resúmenes estáticos (ver nota en Decisiones técnicas) |
+| "hazme un gráfico de barras de Ventas por Mes" | Gráfico personalizado bajo demanda (barras/líneas/sectores/dispersión) |
+| "muéstrame las primeras 10 filas" | Previsualización de N filas (primeras o últimas) en bloque de código |
+| "qué valores únicos hay en Categoría" | Lista de valores únicos de la columna indicada |
+| "explícame el archivo" | Análisis narrativo completo del contenido con el LLM |
+| "exporta como CSV" | Exporta el DataFrame activo como .csv UTF-8 con BOM |
+| "guarda esta macro como LimpiarFechas" | Guarda la última descripción de operaciones como macro con nombre |
+| "ejecuta la macro LimpiarFechas" | Carga la macro y aplica sus operaciones DSL en secuencia |
+| "deshacer" / "revertir" | Restaura el DataFrame al estado anterior a la última edición |
 
 ## Roadmap
 
@@ -244,6 +274,60 @@ AUTHORIZED_USERS=id1,id2
 - [x] `handlers/messages.py`: `_RE_COMBINAR` + `_intentar_combinar()` — resultado pasa a ser el df activo
 - [x] `handlers/commands.py`: /limpiar usa `borrar_todo()` → limpia activo + secundario
 - [x] 13 tests en `tests/test_b3.py` — 136/136 en verde
+
+### Sprint D1 — Entrada por voz (STT) ✅
+- [x] `services/llm.py`: `transcribir_audio()` — Groq Whisper (`whisper-large-v3-turbo`), OGG/Opus, idioma español
+- [x] `handlers/audio.py`: `recibir_voz()` y `recibir_audio()` — descarga, transcribe, muestra "🎤 Te escuché: …", llama a `procesar_pregunta()`
+- [x] `handlers/messages.py`: `procesar_pregunta()` extraído como función pública; `responder_mensaje()` lo llama directamente
+- [x] `bot.py`: handlers para `filters.VOICE` y `filters.AUDIO`
+
+### Sprint D2 — Respuestas por voz (TTS) + preferencia de modo ✅
+- [x] `services/tts.py`: `texto_a_audio()` con edge-tts (`es-ES-ElviraNeural`), `_limpiar_markdown()`, cap 600 chars
+- [x] `utils/user_prefs.py`: migraciones `modo_respuesta`, `preguntado_modo`; `get/set_modo_respuesta()`, `ya_fue_preguntado_modo()`, `marcar_preguntado_modo()`
+- [x] `handlers/messages.py`: `_enviar_respuesta()` — siempre envía texto, añade audio si modo='voz'
+- [x] `handlers/audio.py`: tras primera respuesta, pregunta preferencia con InlineKeyboard si aún no se ha preguntado
+- [x] `handlers/commands.py`: `/modo` + `callback_modo()` — cambia preferencia en cualquier momento
+- [x] `bot.py`: callback `^modo_` registrado
+
+### Sprint E1 — Gráficos bajo demanda ✅
+- [x] `excel/charts.py`: `generar_grafico_personalizado()` — barras/líneas/sectores/dispersión, groupby con 5 funciones de agregación, límite 20 categorías
+- [x] `prompts/excel.py`: GRAFICO_DSL_SISTEMA + GRAFICO_DSL_USUARIO
+- [x] `services/llm.py`: `extraer_peticion_grafico()` — extrae {col_x, col_y, tipo, agregar}
+- [x] `handlers/messages.py`: `_RE_GRAFICO` + `_generar_grafico_bajo_demanda()`
+
+### Sprint E2 — Deshacer operaciones ✅
+- [x] `utils/df_context.py`: slot `_dataframes_undo`; `guardar_df()` auto-guarda antes de sustituir; `restaurar_undo()` (swap activo↔undo), `hay_undo()`
+- [x] `handlers/messages.py`: `_RE_UNDO` + `_deshacer_operacion()` — exporta y envía el df restaurado
+- [x] `handlers/commands.py`: `/estado` muestra si hay undo disponible
+
+### Sprint E3 — Explícame archivo + Exportar CSV ✅
+- [x] `handlers/messages.py`: `_RE_EXPLICAR_ARCHIVO` + `_explicar_archivo()` — construye prompt con `resumir()` + `analizar_calidad()` y llama al LLM
+- [x] `handlers/messages.py`: `_RE_EXPORTAR_CSV` + `_exportar_csv()` — exporta df activo como UTF-8 con BOM
+
+### Sprint F1 — Confirmaciones para operaciones destructivas ✅
+- [x] `handlers/messages.py`: `_OPS_DESTRUCTIVAS` set; `_intentar_edicion()` intercepta operaciones destructivas
+- [x] `handlers/messages.py`: `_pedir_confirmacion()` — guarda op en `context.user_data["op_pendiente"]`, muestra teclado Sí/No
+- [x] `handlers/messages.py`: `callback_confirmacion()` — lee `op_pendiente`, ejecuta via `aplicar_edicion()`
+- [x] `bot.py`: callback `^confirmar_op_` registrado
+
+### Sprint F2 — Previsualizar filas + Valores únicos ✅
+- [x] `handlers/messages.py`: `_RE_PREVIEW` + `_previsualizar()` — primeras/últimas N filas en bloque de código
+- [x] `handlers/messages.py`: `_RE_VALORES_UNICOS` + `_valores_unicos()` — lista de valores únicos por columna o resumen completo
+
+### Sprint F3 — Comparar dos archivos ✅
+- [x] `excel/analyzer.py`: `comparar_dataframes()` — outer merge con indicator, informe de columnas/filas únicas/compartidas, devuelve df_diff con columna `_origen_`
+- [x] `handlers/messages.py`: `_RE_COMPARAR` + `_comparar_archivos()` — envía informe texto + .xlsx de diferencias si las hay
+
+### Sprint F4 — Macros personales + Modo privado + Buscar/Dividir/Concatenar ✅
+- [x] `utils/macros.py`: tabla `user_macros` SQLite; `guardar_macro()`, `obtener_macro()`, `listar_macros()`, `borrar_macro()`
+- [x] `prompts/excel.py`: MACRO_DSL_SISTEMA + MACRO_DSL_USUARIO
+- [x] `services/llm.py`: `extraer_operaciones_macro()` — convierte descripción en lista de ops DSL
+- [x] `handlers/messages.py`: `_RE_GUARDAR_MACRO`, `_RE_EJECUTAR_MACRO`, `_RE_LISTAR_MACROS`, `_RE_BORRAR_MACRO` + handlers correspondientes
+- [x] `utils/user_prefs.py`: migración `modo_privado`; `get_modo_privado()`, `toggle_modo_privado()`
+- [x] `handlers/commands.py`: `/privado` alterna modo; `/estado` muestra estado privado
+- [x] `handlers/messages.py`: `procesar_pregunta()` omite `agregar_mensaje()` si modo privado activo
+- [x] `excel/editor.py`: `_buscar_reemplazar()`, `_dividir_columna()`, `_concatenar_columnas()` añadidas al dispatcher
+- [x] `prompts/excel.py`: EDITOR_DSL_SISTEMA actualizado con las 3 nuevas operaciones
 
 ### Pendiente — decisión futura
 - [ ] Tablas dinámicas interactivas nativas: evaluar xlwings (requiere Excel en la máquina, no válido en cloud) vs XML injection con openpyxl (válido en cloud, complejo)
