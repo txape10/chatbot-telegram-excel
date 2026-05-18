@@ -118,8 +118,17 @@ _TECLADO_VERSION = InlineKeyboardMarkup([
 
 @solo_autorizados
 async def responder_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await procesar_pregunta(update, context, update.message.text.strip())
+
+
+async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                             pregunta: str) -> None:
+    """Núcleo de procesamiento de una pregunta de texto.
+
+    Reutilizable desde cualquier handler (texto, voz, etc.) una vez que
+    el texto ya ha sido extraído o transcrito.
+    """
     user_id = update.effective_user.id
-    pregunta = update.message.text.strip()
 
     # ── Explicador automático de fórmulas ─────────────────────────────────────
     if pregunta.startswith("="):

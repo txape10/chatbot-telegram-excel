@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 _cliente = Groq(api_key=GROQ_API_KEY, timeout=60.0)
 MODELO        = "llama-3.3-70b-versatile"
 MODELO_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
+MODELO_AUDIO  = "whisper-large-v3-turbo"
 
 # Margen de seguridad bajo el límite de 12 000 TPM del tier gratuito de Groq
 _MAX_TOKENS_PETICION = 9_000
@@ -216,6 +217,19 @@ def extraer_operacion_combinar(df1: pd.DataFrame, df2: pd.DataFrame,
     except Exception as error:
         logger.warning("Error extrayendo operación combinar: %s", error)
         return {"col": None, "como": "inner"}
+
+
+def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
+    """Transcribe un mensaje de voz usando Groq Whisper.
+
+    Devuelve el texto transcrito. Lanza excepción si el audio no es válido.
+    """
+    transcripcion = _cliente.audio.transcriptions.create(
+        file=(filename, audio_bytes),
+        model=MODELO_AUDIO,
+        language="es",
+    )
+    return transcripcion.text.strip()
 
 
 def analizar_imagen(imagen_bytes: bytes, pregunta: str = "") -> str:

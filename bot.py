@@ -11,6 +11,7 @@ from handlers.commands import (
 from handlers.messages import responder_mensaje
 from handlers.documents import recibir_documento, callback_sheet, callback_chart
 from handlers.images import recibir_imagen
+from handlers.audio import recibir_voz, recibir_audio
 
 
 async def registrar_comandos(app):
@@ -60,8 +61,10 @@ def main() -> None:
         recibir_documento,
     ))
 
-    # Imágenes y texto
+    # Imágenes, voz y texto
     app.add_handler(MessageHandler(filters.PHOTO, recibir_imagen))
+    app.add_handler(MessageHandler(filters.VOICE, recibir_voz))
+    app.add_handler(MessageHandler(filters.AUDIO, recibir_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder_mensaje))
 
     print("Bot iniciado. Pulsa Ctrl+C para detenerlo.")
