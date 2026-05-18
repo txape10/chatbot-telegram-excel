@@ -77,6 +77,30 @@ _RE_CREAR_EXCEL = re.compile(
     re.IGNORECASE,
 )
 
+# Detección de "explícame este archivo" (E3)
+_RE_EXPLICAR_ARCHIVO = re.compile(
+    r"\b("
+    r"expl[ií]came\s+(?:este\s+)?(?:archivo|excel|datos?|tabla)|"
+    r"qu[eé]\s+(?:contiene|hay en|tiene)\s+(?:este\s+)?(?:archivo|excel)|"
+    r"descr[ií]beme\s+(?:este\s+)?(?:archivo|excel|datos?)|"
+    r"resumen\s+(?:del?\s+)?archivo|analiza\s+(?:este\s+)?archivo|"
+    r"de\s+qu[eé]\s+(?:va|trata)\s+(?:este\s+)?(?:archivo|excel)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de exportar a CSV (E3)
+_RE_EXPORTAR_CSV = re.compile(
+    r"\b("
+    r"exporta[r]?\s+(?:a\s+|como\s+|en\s+)?csv|"
+    r"guarda[r]?\s+(?:como\s+|en\s+)?csv|"
+    r"descarga[r]?\s+(?:en\s+|como\s+)?csv|"
+    r"convierte[r]?\s+a\s+csv|"
+    r"en\s+formato\s+csv|formato\s+csv"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Detección de deshacer (E2)
 _RE_UNDO = re.compile(
     r"\b("
@@ -208,7 +232,7 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # ── Editor de archivo (si hay df activo y petición de modificación) ────────
     if df_activo is not None and _RE_EDICION.search(pregunta):
         logger.info("Intención de edición detectada para user_id %s: %r", user_id, pregunta)
-        await _intentar_edicion(update, user_id, df_activo, pregunta)
+        await _intentar_edicion(update, user_id, df_activo, pregunta, context)
         return
 
     # ── Creación de Excel desde descripción ──────────────────────────────────
@@ -233,6 +257,18 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if df_activo is not None and _RE_STATS.search(pregunta):
         logger.info("Intención análisis estadístico detectada para user_id %s: %r", user_id, pregunta)
         await _analizar_estadisticas(update, user_id, df_activo, pregunta)
+        return
+
+    # ── Explícame este archivo ────────────────────────────────────────────────
+    if df_activo is not None and _RE_EXPLICAR_ARCHIVO.search(pregunta):
+        logger.info("Intención explicar archivo para user_id %s", user_id)
+        await _explicar_archivo(update, user_id, df_activo)
+        return
+
+    # ── Exportar a CSV ────────────────────────────────────────────────────────
+    if df_activo is not None and _RE_EXPORTAR_CSV.search(pregunta):
+        logger.info("Intención exportar CSV para user_id %s", user_id)
+        await _exportar_csv(update, user_id, df_activo)
         return
 
     # ── Flujo normal ──────────────────────────────────────────────────────────
@@ -290,7 +326,12 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
 
 
-async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str) -> None:
+# Operaciones que requieren confirmación antes de ejecutarse
+_OPS_DESTRUCTIVAS = {"eliminar_columna", "eliminar_duplicados", "filtrar_exportar"}
+
+
+async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
+                             context=None) -> None:
     """Extrae la operación de edición, aplica el cambio y envía el archivo modificado."""
     mensaje_carga = await update.message.reply_text("⏳ Aplicando modificación...")
     try:
@@ -299,8 +340,13 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str) -> 
         if op is None:
             # El LLM dijo RESPUESTA_LIBRE → dejar que el flujo normal responda
             await mensaje_carga.delete()
-            # Re-lanzar como mensaje normal (sin edición)
             await _responder_con_llm(update, user_id, pregunta, mensaje_carga=None)
+            return
+
+        # Operaciones destructivas: pedir confirmación primero
+        if op.get("op") in _OPS_DESTRUCTIVAS and context is not None:
+            await mensaje_carga.delete()
+            await _pedir_confirmacion(update, context, user_id, df, op)
             return
 
         df_mod, descripcion, extras = await asyncio.to_thread(aplicar_edicion, df, op)
@@ -537,6 +583,94 @@ async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta:
             pass
 
 
+_NOMBRES_OP = {
+    "eliminar_columna":    "Eliminar columna",
+    "eliminar_duplicados": "Eliminar duplicados",
+    "filtrar_exportar":    "Filtrar y exportar",
+}
+
+
+async def _pedir_confirmacion(update: Update, context, user_id: int,
+                               df, op: dict) -> None:
+    """Muestra un botón Sí/No antes de ejecutar una operación destructiva."""
+    import json as _json
+    nombre_op = _NOMBRES_OP.get(op.get("op", ""), op.get("op", "operación"))
+
+    # Detalles legibles de la operación
+    detalles = ""
+    if op.get("op") == "eliminar_columna":
+        cols = op.get("columnas", [])
+        detalles = f"Columnas a eliminar: *{', '.join(cols)}*"
+    elif op.get("op") == "eliminar_duplicados":
+        cols = op.get("columnas")
+        detalles = f"Comparando: *{'todas las columnas' if not cols else ', '.join(cols)}*"
+    elif op.get("op") == "filtrar_exportar":
+        filtros = op.get("filtros", [])
+        detalles = "Filtros: " + ", ".join(
+            f"{f.get('col')} {f.get('op')} {f.get('val')}" for f in filtros
+        )
+
+    # Guardar la operación pendiente en user_data para recuperarla en el callback
+    context.user_data["op_pendiente"] = _json.dumps(op, ensure_ascii=False)
+
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Sí, aplicar",  callback_data="confirmar_op_si"),
+            InlineKeyboardButton("❌ Cancelar",      callback_data="confirmar_op_no"),
+        ]
+    ])
+    await update.message.reply_text(
+        f"⚠️ *{nombre_op}*\n{detalles}\n\n¿Confirmas la operación?",
+        parse_mode="Markdown",
+        reply_markup=teclado,
+    )
+
+
+async def callback_confirmacion(update, context) -> None:
+    """Ejecuta o cancela la operación destructiva según la respuesta del usuario."""
+    import json as _json
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "confirmar_op_no":
+        context.user_data.pop("op_pendiente", None)
+        await query.edit_message_text("❌ Operación cancelada.")
+        return
+
+    op_json = context.user_data.pop("op_pendiente", None)
+    if not op_json:
+        await query.edit_message_text("⚠️ No encontré la operación pendiente. Vuelve a intentarlo.")
+        return
+
+    op = _json.loads(op_json)
+    df = obtener_df(user_id)
+    if df is None:
+        await query.edit_message_text("⚠️ No hay ningún archivo activo.")
+        return
+
+    await query.edit_message_text("⏳ Aplicando...")
+    try:
+        df_mod, descripcion, extras = await asyncio.to_thread(aplicar_edicion, df, op)
+        meta = obtener_meta(user_id)
+        nombre_base = meta["nombre"] if meta else "archivo"
+        fmt_cond = extras if op.get("op") == "formato_condicional" else None
+        buf, nombre_archivo = await asyncio.to_thread(
+            exportar_xlsx, df_mod, nombre_base, descripcion, fmt_cond
+        )
+        guardar_df(user_id, df_mod)
+        await query.message.reply_document(
+            document=buf, filename=nombre_archivo,
+            caption=f"✅ {descripcion}\n\nEl archivo incluye los cambios aplicados."
+        )
+        await query.edit_message_text(f"✅ {descripcion}")
+    except EditorError as error:
+        await query.edit_message_text(f"⚠️ No pude aplicar la modificación: {error}")
+    except Exception as error:
+        logger.error("Error en callback confirmación user_id %s: %s", user_id, error, exc_info=True)
+        await query.edit_message_text("⚠️ No se pudo aplicar. Inténtalo de nuevo.")
+
+
 async def _deshacer_operacion(update: Update, user_id: int) -> None:
     """Restaura el DataFrame al estado anterior a la última edición."""
     if not hay_undo(user_id):
@@ -610,6 +744,81 @@ async def _generar_grafico_bajo_demanda(update: Update, user_id: int,
                      user_id, error, exc_info=True)
         try:
             await mensaje_carga.edit_text("⚠️ No se pudo generar el gráfico. Inténtalo de nuevo.")
+        except Exception:
+            pass
+
+
+async def _explicar_archivo(update: Update, user_id: int, df) -> None:
+    """Genera una descripción en lenguaje natural del archivo activo usando el LLM."""
+    mensaje_carga = await update.message.reply_text("⏳ Analizando el archivo...")
+    try:
+        from excel.analyzer import resumir, analizar_calidad
+
+        resumen_tecnico = resumir(df)
+        calidad         = analizar_calidad(df)
+
+        cols_num  = df.select_dtypes(include="number").columns.tolist()
+        cols_text = df.select_dtypes(include="object").columns.tolist()
+        muestra   = df.head(3).to_string(index=False)
+
+        prompt = (
+            f"Tengo un archivo Excel con los siguientes datos:\n\n"
+            f"Resumen: {resumen_tecnico}\n\n"
+            f"Columnas numéricas: {', '.join(cols_num) or 'ninguna'}\n"
+            f"Columnas de texto: {', '.join(cols_text) or 'ninguna'}\n\n"
+            f"Primeras filas:\n{muestra}\n\n"
+            f"Problemas de calidad detectados: {calidad if calidad else 'ninguno'}\n\n"
+            "Explícame en español, de forma clara y concisa, qué contiene este archivo: "
+            "qué tipo de datos son, para qué podría servir, qué columnas son clave, "
+            "y si hay algún problema de calidad relevante que deba saber."
+        )
+
+        historial = obtener_historial(user_id)
+        respuesta = await asyncio.to_thread(obtener_respuesta, historial, prompt)
+        agregar_mensaje(user_id, "user", "Explícame este archivo")
+        agregar_mensaje(user_id, "model", respuesta)
+        await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
+
+    except Exception as error:
+        logger.error("Error explicando archivo para user_id %s: %s", user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No pude analizar el archivo. Inténtalo de nuevo.")
+        except Exception:
+            pass
+
+
+async def _exportar_csv(update: Update, user_id: int, df) -> None:
+    """Exporta el DataFrame activo como archivo CSV."""
+    mensaje_carga = await update.message.reply_text("⏳ Generando CSV...")
+    try:
+        import io as _io
+
+        def _crear_csv():
+            buf = _io.BytesIO()
+            df.to_csv(buf, index=False, encoding="utf-8-sig")  # utf-8-sig para Excel en Windows
+            buf.seek(0)
+            return buf
+
+        buf = await asyncio.to_thread(_crear_csv)
+        meta = obtener_meta(user_id)
+        nombre_base = meta["nombre"].rsplit(".", 1)[0] if meta else "archivo"
+        nombre_csv  = f"{nombre_base}.csv"
+
+        await update.message.reply_document(
+            document=buf,
+            filename=nombre_csv,
+            caption=f"📄 *{nombre_csv}*\n{df.shape[0]:,} filas × {df.shape[1]} columnas",
+            parse_mode="Markdown",
+        )
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except Exception as error:
+        logger.error("Error exportando CSV para user_id %s: %s", user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo generar el CSV. Inténtalo de nuevo.")
         except Exception:
             pass
 

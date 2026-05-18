@@ -5,10 +5,10 @@ from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import TELEGRAM_TOKEN
 from handlers.commands import (
-    start, ayuda, limpiar, ejemplo, generar, plantilla, version, pivote, modo,
+    start, ayuda, limpiar, ejemplo, generar, plantilla, version, pivote, modo, estado,
     callback_ayuda, callback_version, callback_plantilla, callback_modo,
 )
-from handlers.messages import responder_mensaje
+from handlers.messages import responder_mensaje, callback_confirmacion
 from handlers.documents import recibir_documento, callback_sheet, callback_chart
 from handlers.images import recibir_imagen
 from handlers.audio import recibir_voz, recibir_audio
@@ -24,6 +24,7 @@ async def registrar_comandos(app):
         BotCommand("pivote",    "Genera un .xlsx con tabla dinámica de ejemplo"),
         BotCommand("version",   "Configura tu versión de Excel"),
         BotCommand("modo",      "Elige si quieres respuestas por voz o texto"),
+        BotCommand("estado",    "Ver el estado actual de tu sesión"),
         BotCommand("limpiar",   "Borrar el historial de conversación"),
     ])
 
@@ -46,12 +47,14 @@ def main() -> None:
     app.add_handler(CommandHandler("pivote",    pivote))
     app.add_handler(CommandHandler("version",   version))
     app.add_handler(CommandHandler("modo",      modo))
+    app.add_handler(CommandHandler("estado",    estado))
 
     # Callbacks de botones InlineKeyboard
     app.add_handler(CallbackQueryHandler(callback_ayuda,     pattern="^cat_"))
     app.add_handler(CallbackQueryHandler(callback_version,   pattern="^version_"))
     app.add_handler(CallbackQueryHandler(callback_plantilla, pattern="^plantilla_"))
-    app.add_handler(CallbackQueryHandler(callback_modo,      pattern="^modo_"))
+    app.add_handler(CallbackQueryHandler(callback_modo,         pattern="^modo_"))
+    app.add_handler(CallbackQueryHandler(callback_confirmacion, pattern="^confirmar_op_"))
     app.add_handler(CallbackQueryHandler(callback_sheet,     pattern="^sheet_"))
     app.add_handler(CallbackQueryHandler(callback_chart,     pattern="^chart_"))
 

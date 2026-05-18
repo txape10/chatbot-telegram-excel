@@ -9,8 +9,9 @@ from utils.file_meta import borrar_meta
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
 from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla, crear_tabla_dinamica
-from utils.df_context import obtener_df as _obtener_df
+from utils.df_context import obtener_df as _obtener_df, obtener_df_secundario, obtener_nombre_secundario, hay_undo
 from utils.user_prefs import get_version, set_version, VERSIONES, get_modo_respuesta, set_modo_respuesta
+from utils.history import obtener_historial
 from prompts.excel import EJEMPLO_FUNCION
 
 logger = logging.getLogger(__name__)
@@ -298,6 +299,53 @@ _TECLADO_MODO = InlineKeyboardMarkup([
         InlineKeyboardButton("💬 Solo texto",          callback_data="modo_texto"),
     ]
 ])
+
+
+@solo_autorizados
+async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Muestra un resumen del estado actual de la sesión del usuario."""
+    user_id = update.effective_user.id
+
+    df_activo     = _obtener_df(user_id)
+    df_secundario = obtener_df_secundario(user_id)
+    meta          = obtener_meta(user_id)
+    historial     = obtener_historial(user_id)
+    modo_actual   = get_modo_respuesta(user_id)
+    version       = get_version(user_id)
+
+    lineas = ["📋 *Estado de tu sesión*\n"]
+
+    # Archivo activo
+    if df_activo is not None:
+        nombre = meta["nombre"] if meta else "archivo"
+        lineas.append(
+            f"📂 *Archivo activo:* `{nombre}`\n"
+            f"   {df_activo.shape[0]:,} filas × {df_activo.shape[1]} columnas"
+        )
+        if hay_undo(user_id):
+            lineas.append("   ↩️ Hay un cambio que puedes deshacer")
+    else:
+        lineas.append("📂 *Archivo activo:* ninguno")
+
+    # Archivo secundario
+    if df_secundario is not None:
+        nombre_sec = obtener_nombre_secundario(user_id)
+        lineas.append(
+            f"📂 *Archivo secundario:* `{nombre_sec}`\n"
+            f"   {df_secundario.shape[0]:,} filas × {df_secundario.shape[1]} columnas"
+        )
+
+    # Historial
+    n_mensajes = len(historial)
+    lineas.append(f"🗣️ *Historial:* {n_mensajes} mensaje{'s' if n_mensajes != 1 else ''}")
+
+    # Preferencias
+    modo_nombre = "🔊 Voz" if modo_actual == "voz" else "💬 Texto"
+    lineas.append(f"🎙️ *Modo de respuesta:* {modo_nombre}")
+    if version:
+        lineas.append(f"📊 *Versión Excel:* {VERSIONES.get(version, version)}")
+
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
 
 
 @solo_autorizados
