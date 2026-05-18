@@ -99,7 +99,8 @@ pillow==11.2.1
 │   ├── test_reader.py      ← 8 tests para leer_excel, leer_excel_hojas, leer_csv
 │   ├── test_query_engine.py ← 24 tests para el motor DSL (todas las operaciones y errores)
 │   ├── test_editor.py      ← 23 tests para el editor (8 operaciones, EditorError, exportar_xlsx)
-│   └── test_b1_c1.py       ← 16 tests para crear_desde_descripcion, análisis estadístico y correlaciones
+│   ├── test_b1_c1.py       ← 16 tests para crear_desde_descripcion, análisis estadístico y correlaciones
+│   └── test_c3_c4_c5.py    ← 26 tests para tendencia, normalización, estandarizar fechas, pivot/unpivot
 ├── knowledge/              ← base de conocimiento en Markdown (8 archivos)
 └── data/
     ├── historial.db        ← SQLite: historial + preferencias de usuario
@@ -158,6 +159,11 @@ AUTHORIZED_USERS=id1,id2
 | "hazme un Excel con columnas Fecha, Concepto, Importe" | Genera y envía el .xlsx desde descripción |
 | "dame estadísticas del archivo" | Análisis estadístico completo (media, std, percentiles, sesgo) |
 | "correlaciones" / "mapa de calor" | Análisis de correlaciones + imagen heatmap PNG |
+| "¿qué tendencia tienen mis ventas?" | Regresión lineal por columna, R², gráfico de tendencia |
+| "normaliza el texto / pon en mayúsculas" | Limpia espacios y unifica capitalización en columnas de texto |
+| "corrige las fechas / estandariza el formato" | Parsea formatos mixtos y unifica a DD/MM/YYYY |
+| "convierte las columnas de meses en filas" | Despivotea (melt): columnas → filas |
+| "pivotea por Producto y Mes" | Pivota (pivot_table): filas → columnas con agregación |
 | "tabla dinámica" | Genera Excel Table + resúmenes estáticos (ver nota en Decisiones técnicas) |
 
 ## Roadmap
@@ -214,8 +220,24 @@ AUTHORIZED_USERS=id1,id2
 ### Sprint C1/C2 — Análisis estadístico y correlaciones ✅
 - [x] `excel/analyzer.py`: `analisis_estadistico_completo()` — media, mediana, min, max, std, P25/P75, sesgo por columna numérica
 - [x] `excel/analyzer.py`: `analisis_correlaciones()` — texto con ranking de pares + heatmap PNG (matplotlib)
-- [x] `handlers/messages.py`: regex `_RE_STATS` → `_analizar_estadisticas()` (detecta si pide correlaciones o estadísticas generales)
+- [x] `handlers/messages.py`: rama en `_analizar_estadisticas()` para correlaciones vs estadísticas generales
 - [x] 16 tests en `tests/test_b1_c1.py` — 97/97 en verde
+
+### Sprint C3+C4+C5 — Tendencia, normalización y pivot/unpivot ✅
+- [x] `excel/analyzer.py`: `analisis_tendencia()` — regresión lineal por columna numérica, R², cambio porcentual, interpretación (📈/📉/sin tendencia), gráfico PNG con línea de tendencia
+- [x] `excel/editor.py`: `normalizar_texto()` — strip/upper/lower/title/todas sobre una columna o todas las de texto
+- [x] `excel/editor.py`: `estandarizar_fechas()` — parseo de formatos mixtos (DD/MM, ISO, con guiones) y unificación
+- [x] `excel/editor.py`: `despivotear()` — columnas → filas (pd.melt), nombres de variable y valor configurables
+- [x] `excel/editor.py`: `pivotear()` — filas → columnas (pd.pivot_table), 5 funciones de agregación
+- [x] `handlers/messages.py`: `_RE_TENDENCIA` + rama en `_analizar_estadisticas()`; `_RE_EDICION` y `_RE_STATS` ampliados
+- [x] `prompts/excel.py`: EDITOR_DSL_SISTEMA actualizado con las 4 nuevas operaciones
+- [x] 26 tests en `tests/test_c3_c4_c5.py` — 123/123 en verde
+
+### Sprint B3 — Combinar dos archivos Excel ⏳ pendiente
+- [ ] Gestión de segundo df en memoria (`df_context.py`: añadir slot secundario por usuario)
+- [ ] Detección por regex de intención de combinación ("une por ID", "combina los dos archivos")
+- [ ] Operación `combinar` en editor: merge por columna clave (inner/left/outer), descripción del resultado
+- [ ] Flujo de subida: si el usuario ya tiene un df activo y sube otro archivo, ofrecer opción de combinar
 
 ### Pendiente — decisión futura
 - [ ] Tablas dinámicas interactivas nativas: evaluar xlwings (requiere Excel en la máquina, no válido en cloud) vs XML injection con openpyxl (válido en cloud, complejo)
