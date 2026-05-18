@@ -10,7 +10,9 @@ from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
 from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla, crear_tabla_dinamica
 from utils.df_context import obtener_df as _obtener_df, obtener_df_secundario, obtener_nombre_secundario, hay_undo
-from utils.user_prefs import get_version, set_version, VERSIONES, get_modo_respuesta, set_modo_respuesta
+from utils.user_prefs import (get_version, set_version, VERSIONES,
+                               get_modo_respuesta, set_modo_respuesta,
+                               get_modo_privado, toggle_modo_privado)
 from utils.history import obtener_historial
 from prompts.excel import EJEMPLO_FUNCION
 
@@ -344,6 +346,8 @@ async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lineas.append(f"🎙️ *Modo de respuesta:* {modo_nombre}")
     if version:
         lineas.append(f"📊 *Versión Excel:* {VERSIONES.get(version, version)}")
+    if get_modo_privado(user_id):
+        lineas.append("🔒 *Modo privado:* activo (historial no guardado)")
 
     await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
 
@@ -377,6 +381,26 @@ async def callback_modo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text(
             "💬 Entendido, responderé solo con texto.\n"
             "Usa /modo para cambiarlo cuando quieras."
+        )
+
+
+@solo_autorizados
+async def privado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Activa o desactiva el modo privado (no se guarda historial)."""
+    user_id    = update.effective_user.id
+    nuevo_estado = toggle_modo_privado(user_id)
+    if nuevo_estado:
+        await update.message.reply_text(
+            "🔒 *Modo privado activado.*\n\n"
+            "A partir de ahora no guardaré el historial de esta conversación.\n"
+            "Usa /privado de nuevo para desactivarlo.",
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            "🔓 *Modo privado desactivado.*\n\n"
+            "El historial de conversación vuelve a guardarse normalmente.",
+            parse_mode="Markdown",
         )
 
 

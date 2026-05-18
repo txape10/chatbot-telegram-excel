@@ -96,6 +96,18 @@ def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict
         df, desc = _pivotear(df, op)
         return df, desc, None
 
+    elif tipo == "buscar_reemplazar":
+        df, desc = _buscar_reemplazar(df, op)
+        return df, desc, None
+
+    elif tipo == "dividir_columna":
+        df, desc = _dividir_columna(df, op)
+        return df, desc, None
+
+    elif tipo == "concatenar_columnas":
+        df, desc = _concatenar_columnas(df, op)
+        return df, desc, None
+
     else:
         raise EditorError(f"Operación no reconocida: '{tipo}'")
 
@@ -461,6 +473,86 @@ def _aplicar_formato_condicional(ws, df: pd.DataFrame, op: dict) -> None:
                 celda.fill = fill_color
         except (TypeError, ValueError):
             pass
+
+
+# ── Nuevas operaciones F1 ────────────────────────────────────────────────────
+
+def _buscar_reemplazar(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Sustituye un valor por otro en una columna o en todo el DataFrame.
+
+    op: buscar (str|num), reemplazar (str|num), col (opcional).
+    """
+    buscar     = op.get("buscar")
+    reemplazar = op.get("reemplazar", "")
+    col        = op.get("col")
+
+    if buscar is None:
+        raise EditorError("Falta el campo 'buscar'.")
+
+    if col:
+        _validar_col(df, col)
+        antes = df[col].astype(str).str.contains(str(buscar), na=False).sum()
+        df[col] = df[col].replace(buscar, reemplazar)
+        # También intentar reemplazo en texto por si el valor es string
+        df[col] = df[col].astype(str).str.replace(str(buscar), str(reemplazar), regex=False)
+        df[col] = pd.to_numeric(df[col], errors="ignore")  # revertir a num si procede
+        desc = f"Reemplazado '{buscar}' por '{reemplazar}' en columna '{col}' ({antes} celdas afectadas)"
+    else:
+        df = df.replace(buscar, reemplazar)
+        df = df.apply(lambda s: s.str.replace(str(buscar), str(reemplazar), regex=False)
+                      if s.dtype == object else s)
+        desc = f"Reemplazado '{buscar}' por '{reemplazar}' en todo el archivo"
+
+    return df, desc
+
+
+def _dividir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Divide una columna de texto en dos o más columnas nuevas.
+
+    op: col, separador (default ' '), col_nueva_1, col_nueva_2, n (nº de partes, default 2).
+    """
+    col       = op.get("col")
+    separador = op.get("separador", " ")
+    nombre_1  = op.get("col_nueva_1") or f"{col}_1"
+    nombre_2  = op.get("col_nueva_2") or f"{col}_2"
+    n_partes  = int(op.get("n", 2))
+
+    if not col:
+        raise EditorError("Falta el campo 'col'.")
+    _validar_col(df, col)
+
+    partes = df[col].astype(str).str.split(separador, n=n_partes - 1, expand=True)
+
+    nuevas = [nombre_1, nombre_2] + [f"{col}_{i+3}" for i in range(partes.shape[1] - 2)]
+    for i, nombre in enumerate(nuevas[:partes.shape[1]]):
+        df[nombre] = partes[i] if i < partes.shape[1] else ""
+
+    desc = (f"Columna '{col}' dividida en {partes.shape[1]} columnas "
+            f"({', '.join(nuevas[:partes.shape[1]])}) usando '{separador}' como separador")
+    return df, desc
+
+
+def _concatenar_columnas(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Une varias columnas en una nueva columna de texto.
+
+    op: columnas (lista), separador (default ' '), col_resultado.
+    """
+    columnas     = op.get("columnas", [])
+    separador    = op.get("separador", " ")
+    col_resultado = op.get("col_resultado") or "_".join(columnas)
+
+    if not columnas or len(columnas) < 2:
+        raise EditorError("Se necesitan al menos dos columnas en 'columnas'.")
+    for c in columnas:
+        _validar_col(df, c)
+
+    df[col_resultado] = df[columnas[0]].astype(str)
+    for c in columnas[1:]:
+        df[col_resultado] = df[col_resultado] + separador + df[c].astype(str)
+
+    desc = (f"Columnas {', '.join(columnas)} concatenadas en '{col_resultado}' "
+            f"con separador '{separador}'")
+    return df, desc
 
 
 # ── Combinar dos DataFrames (B3) ─────────────────────────────────────────────

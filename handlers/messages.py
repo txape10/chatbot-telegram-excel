@@ -7,7 +7,10 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 from services.llm import (obtener_respuesta, extraer_query_dsl,
                           extraer_operacion_edicion, extraer_estructura_excel,
-                          extraer_operacion_combinar, extraer_peticion_grafico)
+                          extraer_operacion_combinar, extraer_peticion_grafico,
+                          extraer_operaciones_macro)
+from utils.macros import guardar_macro, obtener_macro, listar_macros, borrar_macro
+from utils.user_prefs import get_modo_respuesta, get_modo_privado
 from services.tts import texto_a_audio
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
@@ -15,12 +18,12 @@ from utils.df_context import (obtener_df, guardar_df, obtener_df_secundario,
                                obtener_nombre_secundario, restaurar_undo, hay_undo)
 from utils.file_meta import obtener_meta
 from utils.auth import solo_autorizados
-from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES, get_modo_respuesta
+from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 from excel.editor import aplicar_edicion, exportar_xlsx, combinar_dataframes, EditorError
 from excel.exporter import crear_tabla_dinamica, crear_desde_descripcion
-from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones, analisis_tendencia
+from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones, analisis_tendencia, comparar_dataframes as _comparar_dfs
 from excel.charts import generar_grafico_personalizado, ChartError
 
 # Detección de intención de edición: verbos que implican modificar el archivo
@@ -48,7 +51,11 @@ _RE_EDICION = re.compile(
     r"(?:des)?pivotea[r]?|"
     r"convierte[r]?\s+(?:las\s+)?columnas?\s+en\s+filas?|"
     r"convierte[r]?\s+(?:las\s+)?filas?\s+en\s+columnas?|"
-    r"(?:meses?|trimestres?|periodos?)\s+en\s+filas?"
+    r"(?:meses?|trimestres?|periodos?)\s+en\s+filas?|"
+    r"reemplaza[r]?\s|sustituye[r]?\s|cambia[r]?\s+(?:todos?\s+los?\s+|todas?\s+las?\s+)?(?:valores?|celdas?|textos?)\s|"
+    r"busca[r]?\s+y\s+reemplaza[r]?|"
+    r"divide[r]?\s+(?:la\s+)?columna|separa[r]?\s+(?:la\s+)?columna|partir\s+(?:la\s+)?columna|"
+    r"concat[eé]na[r]?\s|une[r]?\s+(?:las\s+)?columnas?|junta[r]?\s+(?:las\s+)?columnas?"
     r")\b",
     re.IGNORECASE,
 )
@@ -73,6 +80,59 @@ _RE_CREAR_EXCEL = re.compile(
     r"genera[rm]?\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo)|"
     r"necesito\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)|"
     r"quiero\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de macros (F4)
+_RE_GUARDAR_MACRO = re.compile(
+    r"\b(?:guarda[r]?|crea[r]?|define[r]?)\s+(?:una?\s+)?macro\s+(?:llamada?\s+|con\s+nombre\s+)?['\"]?(\w+)['\"]?",
+    re.IGNORECASE,
+)
+_RE_EJECUTAR_MACRO = re.compile(
+    r"\b(?:aplica[r]?|ejecuta[r]?|usa[r]?|lanza[r]?)\s+(?:la\s+)?macro\s+['\"]?(\w+)['\"]?",
+    re.IGNORECASE,
+)
+_RE_LISTAR_MACROS = re.compile(
+    r"\b(?:lista[r]?\s+macros?|mis\s+macros?|qu[eé]\s+macros?\s+tengo|ver\s+macros?)\b",
+    re.IGNORECASE,
+)
+_RE_BORRAR_MACRO = re.compile(
+    r"\b(?:borra[r]?|elimina[r]?|quita[r]?)\s+(?:la\s+)?macro\s+['\"]?(\w+)['\"]?",
+    re.IGNORECASE,
+)
+
+# Detección de comparar archivos (F3)
+_RE_COMPARAR = re.compile(
+    r"\b("
+    r"compara[r]?\s+(?:los?\s+)?(?:dos\s+)?archivos?|"
+    r"diferencias?\s+entre\s+(?:los?\s+)?(?:dos\s+)?archivos?|"
+    r"qu[eé]\s+(?:ha\s+)?cambiado|qu[eé]\s+cambios?\s+hay|"
+    r"qu[eé]\s+diferencias?\s+(?:hay|tiene|existen)|"
+    r"compara[r]?\s+(?:con\s+)?el\s+anterior|"
+    r"diff\b|comparaci[oó]n\s+de\s+archivos?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de previsualización de filas (F2)
+_RE_PREVIEW = re.compile(
+    r"\b(?:primeras?|[uú]ltimas?)\s+(\d+)\s*(?:filas?|registros?|l[ií]neas?|datos?)?|"
+    r"\b(\d+)\s+(?:primeras?|[uú]ltimas?)\s*(?:filas?|registros?)?|"
+    r"\bmu[eé]strame\s+(?:los?\s+)?datos\b|"
+    r"\bprevisualiza[r]?\b|"
+    r"\bver?\s+(?:los?\s+)?datos\b",
+    re.IGNORECASE,
+)
+
+# Detección de valores únicos (F2)
+_RE_VALORES_UNICOS = re.compile(
+    r"\b("
+    r"valores?\s+[uú]nicos?|valores?\s+distintos?|"
+    r"qu[eé]\s+(?:valores?|categor[ií]as?|opciones?|tipos?)\s+(?:hay|tiene|existen|aparecen)|"
+    r"lista[r]?\s+(?:los?\s+)?(?:valores?|categor[ií]as?|opciones?)|"
+    r"cu[aá]ntos?\s+(?:\w+\s+)?(?:distintos?|[uú]nicos?)\s+hay|"
+    r"cu[aá]les?\s+son\s+los?\s+(?:distintos?|[uú]nicos?|posibles?)"
     r")\b",
     re.IGNORECASE,
 )
@@ -217,6 +277,12 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     df_activo    = obtener_df(user_id)
     df_secundario = obtener_df_secundario(user_id)
 
+    # ── Comparar dos archivos (F3) ────────────────────────────────────────────
+    if df_activo is not None and df_secundario is not None and _RE_COMPARAR.search(pregunta):
+        logger.info("Intención comparar archivos para user_id %s", user_id)
+        await _comparar_archivos(update, user_id, df_secundario, df_activo)
+        return
+
     # ── Combinar dos archivos (B3) ────────────────────────────────────────────
     if df_activo is not None and df_secundario is not None and _RE_COMBINAR.search(pregunta):
         logger.info("Intención de combinación detectada para user_id %s: %r", user_id, pregunta)
@@ -259,6 +325,18 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await _analizar_estadisticas(update, user_id, df_activo, pregunta)
         return
 
+    # ── Previsualizar filas (F2) ──────────────────────────────────────────────
+    if df_activo is not None and _RE_PREVIEW.search(pregunta):
+        logger.info("Intención previsualizar para user_id %s", user_id)
+        await _previsualizar(update, user_id, df_activo, pregunta)
+        return
+
+    # ── Valores únicos (F2) ───────────────────────────────────────────────────
+    if df_activo is not None and _RE_VALORES_UNICOS.search(pregunta):
+        logger.info("Intención valores únicos para user_id %s", user_id)
+        await _valores_unicos(update, user_id, df_activo, pregunta)
+        return
+
     # ── Explícame este archivo ────────────────────────────────────────────────
     if df_activo is not None and _RE_EXPLICAR_ARCHIVO.search(pregunta):
         logger.info("Intención explicar archivo para user_id %s", user_id)
@@ -269,6 +347,23 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if df_activo is not None and _RE_EXPORTAR_CSV.search(pregunta):
         logger.info("Intención exportar CSV para user_id %s", user_id)
         await _exportar_csv(update, user_id, df_activo)
+        return
+
+    # ── Macros (F4) ───────────────────────────────────────────────────────────
+    if _RE_LISTAR_MACROS.search(pregunta):
+        await _listar_macros(update, user_id)
+        return
+    m_guardar = _RE_GUARDAR_MACRO.search(pregunta)
+    if m_guardar:
+        await _guardar_macro(update, user_id, m_guardar.group(1), pregunta)
+        return
+    m_borrar = _RE_BORRAR_MACRO.search(pregunta)
+    if m_borrar:
+        await _borrar_macro(update, user_id, m_borrar.group(1))
+        return
+    m_ejecutar = _RE_EJECUTAR_MACRO.search(pregunta)
+    if m_ejecutar and df_activo is not None:
+        await _ejecutar_macro(update, user_id, df_activo, m_ejecutar.group(1))
         return
 
     # ── Flujo normal ──────────────────────────────────────────────────────────
@@ -303,8 +398,9 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
         # ── Flujo LLM normal ──────────────────────────────────────────────────
         respuesta = obtener_respuesta(historial, pregunta_completa)
-        agregar_mensaje(user_id, "user", pregunta)
-        agregar_mensaje(user_id, "model", respuesta)
+        if not get_modo_privado(user_id):
+            agregar_mensaje(user_id, "user", pregunta)
+            agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
 
         # Preguntar versión la primera vez (tras responder, no antes)
@@ -746,6 +842,206 @@ async def _generar_grafico_bajo_demanda(update: Update, user_id: int,
             await mensaje_carga.edit_text("⚠️ No se pudo generar el gráfico. Inténtalo de nuevo.")
         except Exception:
             pass
+
+
+async def _guardar_macro(update: Update, user_id: int,
+                         nombre: str, pregunta: str) -> None:
+    """Interpreta la descripción y guarda la macro en SQLite."""
+    mensaje_carga = await update.message.reply_text(f"⏳ Definiendo macro '{nombre}'...")
+    try:
+        ops = await asyncio.to_thread(extraer_operaciones_macro, pregunta)
+        if not ops:
+            await mensaje_carga.edit_text(
+                f"⚠️ No pude interpretar las operaciones de la macro '{nombre}'.\n"
+                "Describe qué pasos quieres que haga, por ejemplo:\n"
+                "_«Guarda una macro llamada limpieza que normalice el texto, "
+                "elimine duplicados y ordene por Fecha»_",
+                parse_mode="Markdown",
+            )
+            return
+
+        guardar_macro(user_id, nombre, ops, descripcion=pregunta)
+        pasos = "\n".join(f"  {i+1}. {op.get('op', '?')}" for i, op in enumerate(ops))
+        await mensaje_carga.edit_text(
+            f"✅ Macro *{nombre}* guardada con {len(ops)} paso(s):\n{pasos}\n\n"
+            f"Úsala con: _«aplica la macro {nombre}»_",
+            parse_mode="Markdown",
+        )
+    except Exception as error:
+        logger.error("Error guardando macro para user_id %s: %s", user_id, error, exc_info=True)
+        await mensaje_carga.edit_text("⚠️ No se pudo guardar la macro. Inténtalo de nuevo.")
+
+
+async def _ejecutar_macro(update: Update, user_id: int, df, nombre: str) -> None:
+    """Ejecuta todas las operaciones de una macro guardada."""
+    ops = obtener_macro(user_id, nombre)
+    if ops is None:
+        macros = listar_macros(user_id)
+        if macros:
+            nombres = ", ".join(f"*{m['nombre']}*" for m in macros)
+            await update.message.reply_text(
+                f"⚠️ No encontré la macro '{nombre}'.\n"
+                f"Tus macros disponibles: {nombres}",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ No encontré la macro '{nombre}' y no tienes ninguna guardada.\n"
+                "Crea una con: _«Guarda una macro llamada X que haga Y»_",
+                parse_mode="Markdown",
+            )
+        return
+
+    mensaje_carga = await update.message.reply_text(
+        f"⏳ Ejecutando macro *{nombre}* ({len(ops)} pasos)...", parse_mode="Markdown"
+    )
+    try:
+        df_actual = df.copy()
+        descripciones = []
+        for op in ops:
+            df_actual, desc, _ = await asyncio.to_thread(aplicar_edicion, df_actual, op)
+            descripciones.append(desc)
+
+        meta = obtener_meta(user_id)
+        nombre_base = meta["nombre"] if meta else "archivo"
+        buf, nombre_archivo = await asyncio.to_thread(
+            exportar_xlsx, df_actual,
+            nombre_base, f"Macro '{nombre}' aplicada"
+        )
+        guardar_df(user_id, df_actual)
+
+        pasos_txt = "\n".join(f"  {i+1}. {d}" for i, d in enumerate(descripciones))
+        await update.message.reply_document(
+            document=buf, filename=nombre_archivo,
+            caption=f"✅ Macro *{nombre}* completada:\n{pasos_txt}",
+            parse_mode="Markdown",
+        )
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except EditorError as error:
+        await mensaje_carga.edit_text(f"⚠️ Error en la macro '{nombre}': {error}")
+    except Exception as error:
+        logger.error("Error ejecutando macro para user_id %s: %s", user_id, error, exc_info=True)
+        await mensaje_carga.edit_text("⚠️ No se pudo ejecutar la macro. Inténtalo de nuevo.")
+
+
+async def _listar_macros(update: Update, user_id: int) -> None:
+    macros = listar_macros(user_id)
+    if not macros:
+        await update.message.reply_text(
+            "No tienes ninguna macro guardada.\n"
+            "Crea una con: _«Guarda una macro llamada limpieza que normalice el texto»_",
+            parse_mode="Markdown",
+        )
+        return
+    lineas = ["📋 *Tus macros guardadas:*\n"]
+    for m in macros:
+        ops = obtener_macro(user_id, m["nombre"])
+        n_pasos = len(ops) if ops else 0
+        lineas.append(f"• *{m['nombre']}* — {n_pasos} paso(s)")
+    lineas.append("\n_Usa «aplica la macro X» para ejecutar una._")
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
+
+
+async def _borrar_macro(update: Update, user_id: int, nombre: str) -> None:
+    eliminada = borrar_macro(user_id, nombre)
+    if eliminada:
+        await update.message.reply_text(f"🗑️ Macro *{nombre}* eliminada.", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"⚠️ No encontré ninguna macro llamada '{nombre}'."
+        )
+
+
+async def _comparar_archivos(update: Update, user_id: int,
+                              df_a, df_b) -> None:
+    """Compara los dos DataFrames en memoria y envía el informe de diferencias."""
+    mensaje_carga = await update.message.reply_text("⏳ Comparando archivos...")
+    try:
+        nombre_a = obtener_nombre_secundario(user_id)
+        meta_b   = obtener_meta(user_id)
+        nombre_b = meta_b["nombre"] if meta_b else "archivo activo"
+
+        resumen, df_diff = await asyncio.to_thread(
+            _comparar_dfs, df_a, df_b, nombre_a, nombre_b
+        )
+
+        await mensaje_carga.delete()
+        await update.message.reply_text(resumen, parse_mode="Markdown")
+
+        if df_diff is not None and not df_diff.empty:
+            buf, nombre_archivo = await asyncio.to_thread(
+                exportar_xlsx, df_diff, "diferencias", "Filas que difieren entre archivos"
+            )
+            await update.message.reply_document(
+                document=buf,
+                filename=nombre_archivo,
+                caption="📋 Filas que difieren entre los dos archivos",
+            )
+
+    except Exception as error:
+        logger.error("Error comparando archivos para user_id %s: %s", user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo comparar los archivos. Inténtalo de nuevo.")
+        except Exception:
+            pass
+
+
+async def _previsualizar(update: Update, user_id: int, df, pregunta: str) -> None:
+    """Muestra las primeras o últimas N filas del DataFrame en el chat."""
+    ultimas = bool(re.search(r"\b[uú]ltimas?\b", pregunta, re.IGNORECASE))
+    m = re.search(r"\b(\d+)\b", pregunta)
+    n = int(m.group(1)) if m else 10
+    n = min(n, 30)  # máximo 30 filas para no saturar el chat
+
+    muestra = df.tail(n) if ultimas else df.head(n)
+    pos_txt = f"últimas {n}" if ultimas else f"primeras {n}"
+
+    # Formatear como tabla de texto dentro de bloque de código
+    tabla = muestra.to_string(index=False, max_colwidth=20)
+    texto = (
+        f"📋 *{pos_txt} filas* ({df.shape[0]:,} total × {df.shape[1]} columnas)\n\n"
+        f"```\n{tabla}\n```"
+    )
+    await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+async def _valores_unicos(update: Update, user_id: int, df, pregunta: str) -> None:
+    """Muestra los valores únicos de una columna (o de todas si no se especifica)."""
+    # Buscar nombre de columna en la pregunta (comparación case-insensitive)
+    col_encontrada = None
+    pregunta_lower = pregunta.lower()
+    for col in df.columns:
+        if col.lower() in pregunta_lower:
+            col_encontrada = col
+            break
+
+    if col_encontrada:
+        unicos = df[col_encontrada].dropna().unique()
+        n_unicos = len(unicos)
+        muestra = sorted(unicos, key=str)[:30]  # máximo 30 valores
+        lista = "\n".join(f"  • {v}" for v in muestra)
+        resto = f"\n  _...y {n_unicos - 30} más_" if n_unicos > 30 else ""
+        texto = (
+            f"🔍 *Valores únicos de '{col_encontrada}'* ({n_unicos} distintos)\n\n"
+            f"{lista}{resto}"
+        )
+    else:
+        # Resumen de valores únicos por cada columna
+        lineas = [f"🔍 *Valores únicos por columna* ({df.shape[0]:,} filas)\n"]
+        for col in df.columns:
+            n_unicos = df[col].nunique()
+            if df[col].dtype == object and n_unicos <= 10:
+                vals = ", ".join(str(v) for v in sorted(df[col].dropna().unique(), key=str))
+                lineas.append(f"• *{col}* ({n_unicos}): {vals}")
+            else:
+                lineas.append(f"• *{col}*: {n_unicos:,} valores distintos")
+        texto = "\n".join(lineas)
+
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 async def _explicar_archivo(update: Update, user_id: int, df) -> None:

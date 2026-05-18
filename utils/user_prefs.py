@@ -25,6 +25,7 @@ def _conectar() -> sqlite3.Connection:
     for sql in [
         "ALTER TABLE user_prefs ADD COLUMN modo_respuesta  TEXT    DEFAULT 'texto'",
         "ALTER TABLE user_prefs ADD COLUMN preguntado_modo INTEGER DEFAULT 0",
+        "ALTER TABLE user_prefs ADD COLUMN modo_privado    INTEGER DEFAULT 0",
     ]:
         try:
             conn.execute(sql)
@@ -117,3 +118,29 @@ def marcar_preguntado_modo(user_id: int) -> None:
             SET preguntado_modo = 1
         """, (user_id,))
         conn.commit()
+
+
+# ── Modo privado ──────────────────────────────────────────────────────────────
+
+def get_modo_privado(user_id: int) -> bool:
+    """True si el usuario tiene el modo privado activo."""
+    with _conectar() as conn:
+        fila = conn.execute(
+            "SELECT modo_privado FROM user_prefs WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return bool(fila and fila[0])
+
+
+def toggle_modo_privado(user_id: int) -> bool:
+    """Alterna el modo privado. Devuelve el nuevo estado (True = activo)."""
+    actual = get_modo_privado(user_id)
+    nuevo  = not actual
+    with _conectar() as conn:
+        conn.execute("""
+            INSERT INTO user_prefs (user_id, modo_privado)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE
+            SET modo_privado = excluded.modo_privado
+        """, (user_id, int(nuevo)))
+        conn.commit()
+    return nuevo

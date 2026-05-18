@@ -388,3 +388,75 @@ def _generar_grafico_tendencia(resultados, x_label, df, col_fecha) -> io.BytesIO
         return buf
     except Exception:
         return None
+
+
+# ── Comparar dos DataFrames (F3) ─────────────────────────────────────────────
+
+def comparar_dataframes(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                        nombre_a: str = "Archivo A",
+                        nombre_b: str = "Archivo B") -> tuple[str, pd.DataFrame | None]:
+    """Compara dos DataFrames y devuelve (texto_resumen, df_diferencias | None).
+
+    Detecta diferencias estructurales, filas exclusivas de cada archivo
+    y el número de filas idénticas en ambos.
+    """
+    lineas = [f"🔄 *Comparación: {nombre_a} vs {nombre_b}*\n"]
+
+    cols_a = set(df_a.columns)
+    cols_b = set(df_b.columns)
+
+    # ── Diferencias estructurales ─────────────────────────────────────────────
+    solo_en_a = cols_a - cols_b
+    solo_en_b = cols_b - cols_a
+    if solo_en_a:
+        lineas.append(f"📌 Columnas solo en *{nombre_a}*: {', '.join(sorted(solo_en_a))}")
+    if solo_en_b:
+        lineas.append(f"📌 Columnas solo en *{nombre_b}*: {', '.join(sorted(solo_en_b))}")
+
+    lineas.append(
+        f"\n📊 Filas: *{nombre_a}* = {len(df_a):,}  |  *{nombre_b}* = {len(df_b):,}"
+    )
+
+    cols_comunes = sorted(cols_a & cols_b)
+    if not cols_comunes:
+        lineas.append("\n⚠️ No hay columnas en común — no es posible comparar filas.")
+        return "\n".join(lineas), None
+
+    # ── Comparación de filas (usando columnas comunes como cadenas) ───────────
+    a_str = df_a[cols_comunes].astype(str)
+    b_str = df_b[cols_comunes].astype(str)
+
+    merge = a_str.merge(b_str, on=cols_comunes, how="outer", indicator=True)
+    solo_a = merge[merge["_merge"] == "left_only"].drop(columns="_merge")
+    solo_b = merge[merge["_merge"] == "right_only"].drop(columns="_merge")
+    n_comunes = int((merge["_merge"] == "both").sum())
+
+    lineas.append(f"\n➕ Filas solo en *{nombre_a}*: {len(solo_a):,}")
+    lineas.append(f"➖ Filas solo en *{nombre_b}*: {len(solo_b):,}")
+    lineas.append(f"✅ Filas idénticas en ambos: {n_comunes:,}")
+
+    # ── DataFrame de diferencias para exportar ────────────────────────────────
+    df_diff = None
+    if len(solo_a) > 0 or len(solo_b) > 0:
+        partes = []
+        if len(solo_a) > 0:
+            tmp = solo_a.copy()
+            tmp.insert(0, "_origen_", f"Solo en {nombre_a}")
+            partes.append(tmp)
+        if len(solo_b) > 0:
+            tmp = solo_b.copy()
+            tmp.insert(0, "_origen_", f"Solo en {nombre_b}")
+            partes.append(tmp)
+        df_diff = pd.concat(partes, ignore_index=True)
+
+    if len(solo_a) == 0 and len(solo_b) == 0:
+        lineas.append(
+            "\n🎉 Los archivos tienen exactamente el mismo contenido en las columnas comunes."
+        )
+    else:
+        lineas.append(
+            f"\nSe adjunta un archivo con las {len(solo_a) + len(solo_b):,} "
+            "filas que difieren entre ambos archivos."
+        )
+
+    return "\n".join(lineas), df_diff

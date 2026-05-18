@@ -5,7 +5,7 @@ from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import TELEGRAM_TOKEN
 from handlers.commands import (
-    start, ayuda, limpiar, ejemplo, generar, plantilla, version, pivote, modo, estado,
+    start, ayuda, limpiar, ejemplo, generar, plantilla, version, pivote, modo, estado, privado,
     callback_ayuda, callback_version, callback_plantilla, callback_modo,
 )
 from handlers.messages import responder_mensaje, callback_confirmacion
@@ -25,6 +25,7 @@ async def registrar_comandos(app):
         BotCommand("version",   "Configura tu versión de Excel"),
         BotCommand("modo",      "Elige si quieres respuestas por voz o texto"),
         BotCommand("estado",    "Ver el estado actual de tu sesión"),
+        BotCommand("privado",   "Activar/desactivar modo privado (sin historial)"),
         BotCommand("limpiar",   "Borrar el historial de conversación"),
     ])
 
@@ -48,6 +49,7 @@ def main() -> None:
     app.add_handler(CommandHandler("version",   version))
     app.add_handler(CommandHandler("modo",      modo))
     app.add_handler(CommandHandler("estado",    estado))
+    app.add_handler(CommandHandler("privado",   privado))
 
     # Callbacks de botones InlineKeyboard
     app.add_handler(CallbackQueryHandler(callback_ayuda,     pattern="^cat_"))

@@ -259,6 +259,40 @@ def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
         return None
 
 
+def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
+    """Convierte una descripción de macro en una lista de operaciones DSL.
+
+    Devuelve una lista de dicts o None si falla el parseo.
+    """
+    from prompts.excel import MACRO_DSL_SISTEMA, MACRO_DSL_USUARIO
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": MACRO_DSL_SISTEMA},
+                {"role": "user",   "content": MACRO_DSL_USUARIO.format(descripcion=descripcion)},
+            ],
+            temperature=0,
+            max_tokens=400,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Operaciones macro del LLM: %s", texto)
+
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        ops = json.loads(texto)
+        if isinstance(ops, list):
+            return ops
+        return None
+
+    except Exception as error:
+        logger.warning("Error extrayendo operaciones de macro: %s", error)
+        return None
+
+
 def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
     """Transcribe un mensaje de voz usando Groq Whisper.
 

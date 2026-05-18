@@ -94,7 +94,13 @@ EDITOR_DSL_SISTEMA = (
     "Requiere: 'columnas_valores' [lista]. Opcional: 'columnas_id' [lista], "
     "'col_nombre' (nombre col variable), 'col_valor' (nombre col valor).\n"
     "  pivotear           → convierte filas en columnas (pivot_table). "
-    "Requiere: 'index', 'columns', 'values'. Opcional: 'aggfunc' (suma/promedio/contar/max/min).\n\n"
+    "Requiere: 'index', 'columns', 'values'. Opcional: 'aggfunc' (suma/promedio/contar/max/min).\n"
+    "  buscar_reemplazar  → sustituye un valor por otro. "
+    "Requiere: 'buscar', 'reemplazar'. Opcional: 'col' (sin col aplica a todo el archivo).\n"
+    "  dividir_columna    → divide una columna de texto en varias. "
+    "Requiere: 'col'. Opcional: 'separador' (default ' '), 'col_nueva_1', 'col_nueva_2', 'n' (nº partes).\n"
+    "  concatenar_columnas → une varias columnas en una. "
+    "Requiere: 'columnas' [lista]. Opcional: 'separador' (default ' '), 'col_resultado'.\n\n"
     "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
     "Responde SOLO con JSON válido o RESPUESTA_LIBRE. Sin explicaciones, sin markdown."
@@ -184,3 +190,21 @@ GRAFICO_DSL_USUARIO = (
     "Tipos de datos: {tipos}\n\n"
     "Petición: {pregunta}"
 )
+
+# ── DSL de macros personales (F4) ─────────────────────────────────────────────
+
+MACRO_DSL_SISTEMA = (
+    "Eres un intérprete que convierte la descripción de una macro de Excel "
+    "en una lista JSON de operaciones de edición. "
+    "Cada operación usa el mismo formato que el editor DSL:\n\n"
+    '  {"op": "ordenar",            "col": "Fecha", "orden": "desc"}\n'
+    '  {"op": "eliminar_duplicados"}\n'
+    '  {"op": "normalizar_texto",   "accion": "strip"}\n'
+    '  {"op": "rellenar_nulos",     "metodo": "cero"}\n'
+    '  {"op": "buscar_reemplazar",  "buscar": "N/A", "reemplazar": ""}\n'
+    '  {"op": "renombrar_columna",  "columnas": {"Impt": "Importe"}}\n'
+    "  (y cualquier otra operación del editor)\n\n"
+    "Devuelve SOLO un array JSON de operaciones. Sin explicaciones, sin markdown."
+)
+
+MACRO_DSL_USUARIO = "Descripción de la macro: {descripcion}"
