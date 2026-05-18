@@ -16,7 +16,7 @@ from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_C
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 from excel.editor import aplicar_edicion, exportar_xlsx, EditorError
 from excel.exporter import crear_tabla_dinamica, crear_desde_descripcion
-from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones
+from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones, analisis_tendencia
 
 # Detección de intención de edición: verbos que implican modificar el archivo
 _RE_EDICION = re.compile(
@@ -34,7 +34,16 @@ _RE_EDICION = re.compile(
     r"completa[r]?\s+(?:los\s+|las\s+)?(?:vac[ií]os?|nulos?)|"
     r"renombra[r]?\s|cambia[r]?\s+el\s+nombre\s+de\s|"
     r"aplica[r]?\s+formato\s+condicional|aplica[r]?\s+color|"
-    r"pinta[r]?\s+(?:en\s+)?(?:rojo|verde|amarillo|naranja|azul)|colorea[r]?\s"
+    r"pinta[r]?\s+(?:en\s+)?(?:rojo|verde|amarillo|naranja|azul)|colorea[r]?\s|"
+    r"normaliza[r]?\s+(?:el\s+)?(?:texto|datos)|"
+    r"limpia[r]?\s+(?:los\s+)?espacios|quita[r]?\s+(?:los\s+)?espacios|"
+    r"(?:unifica[r]?|convierte[r]?\s+a|pon[er]?\s+en)\s+(?:may[uú]sculas?|min[uú]sculas?)|"
+    r"capitaliza[r]?\s|"
+    r"(?:corrige[r]?|estandariza[r]?|formatea[r]?)\s+(?:las\s+)?fechas?|"
+    r"(?:des)?pivotea[r]?|"
+    r"convierte[r]?\s+(?:las\s+)?columnas?\s+en\s+filas?|"
+    r"convierte[r]?\s+(?:las\s+)?filas?\s+en\s+columnas?|"
+    r"(?:meses?|trimestres?|periodos?)\s+en\s+filas?"
     r")\b",
     re.IGNORECASE,
 )
@@ -52,7 +61,7 @@ _RE_CREAR_EXCEL = re.compile(
     re.IGNORECASE,
 )
 
-# Detección de análisis estadístico / correlaciones (C1/C2)
+# Detección de análisis estadístico / correlaciones (C1/C2) / tendencia (C3)
 _RE_STATS = re.compile(
     r"\b("
     r"estad[ií]stica[s]?|distribuc[ií][oó]n|correlac[ií][oó]n[es]?|"
@@ -60,7 +69,10 @@ _RE_STATS = re.compile(
     r"media\s+y\s+(?:mediana|desviaci[oó]n)|resumen\s+estad[ií]stico|"
     r"desviaci[oó]n\s+(?:est[aá]ndar|t[ií]pica)|percentil[es]?|"
     r"qu[eé]\s+columnas\s+(?:est[aá]n\s+)?(?:m[aá]s\s+)?relacionadas|"
-    r"c[oó]mo\s+se\s+relacionan|mapa\s+de\s+calor|heatmap"
+    r"c[oó]mo\s+se\s+relacionan|mapa\s+de\s+calor|heatmap|"
+    r"tendencia[s]?|proyecci[oó]n|evoluci[oó]n\s+de\s+|"
+    r"c[oó]mo\s+(?:evolucionan|van\s+(?:mis\s+)?|crecen|bajan)|"
+    r"predicci[oó]n|pron[oó]stico"
     r")\b",
     re.IGNORECASE,
 )
@@ -383,15 +395,29 @@ async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta:
             pass
 
 
+_RE_CORR = re.compile(
+    r"correlac[ií][oó]n|relacionad|mapa\s+de\s+calor|heatmap|c[oó]mo\s+se\s+relacionan",
+    re.IGNORECASE,
+)
+_RE_TENDENCIA = re.compile(
+    r"tendencia[s]?|proyecci[oó]n|evoluci[oó]n\s+de\s+|"
+    r"c[oó]mo\s+(?:evolucionan|van\s+(?:mis\s+)?|crecen|bajan)|"
+    r"predicci[oó]n|pron[oó]stico",
+    re.IGNORECASE,
+)
+
+
 async def _analizar_estadisticas(update: Update, user_id: int, df, pregunta: str) -> None:
-    """Devuelve estadísticas completas o correlaciones según lo que pida el usuario."""
-    mensaje_carga = await update.message.reply_text("⏳ Calculando estadísticas...")
+    """Devuelve estadísticas, correlaciones o tendencia según lo que pida el usuario."""
+    mensaje_carga = await update.message.reply_text("⏳ Calculando...")
     try:
-        _RE_CORR = re.compile(
-            r"correlac[ií][oó]n|relacionad|mapa\s+de\s+calor|heatmap|c[oó]mo\s+se\s+relacionan",
-            re.IGNORECASE,
-        )
-        if _RE_CORR.search(pregunta):
+        if _RE_TENDENCIA.search(pregunta):
+            texto, buf_img = await asyncio.to_thread(analisis_tendencia, df)
+            await update.message.reply_text(texto, parse_mode="Markdown")
+            if buf_img is not None:
+                await update.message.reply_photo(photo=buf_img,
+                                                 caption="📈 Gráfico de tendencia")
+        elif _RE_CORR.search(pregunta):
             texto, buf_img = await asyncio.to_thread(analisis_correlaciones, df)
             await update.message.reply_text(texto, parse_mode="Markdown")
             if buf_img is not None:

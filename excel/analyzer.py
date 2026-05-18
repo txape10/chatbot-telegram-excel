@@ -1,5 +1,6 @@
 import io
 import openpyxl
+import numpy as np
 import pandas as pd
 
 _ERRORES_EXCEL = {"#REF!", "#VALOR!", "#N/A", "#DIV/0!", "#NOMBRE?", "#NULO!", "#NUM!", "#VALUE!", "#NAME?"}
@@ -245,6 +246,141 @@ def _generar_heatmap(corr: pd.DataFrame, cols: list[str]) -> io.BytesIO | None:
         ax.set_title("Mapa de correlaciones", fontsize=12, fontweight="bold", pad=12)
         plt.tight_layout()
 
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
+# ── Análisis de tendencia (C3) ────────────────────────────────────────────────
+
+_PALABRAS_FECHA = ("fecha", "date", "dia", "día", "mes", "año", "year", "month",
+                   "periodo", "semana", "trimestre", "quarter")
+
+
+def analisis_tendencia(df: pd.DataFrame) -> tuple[str, io.BytesIO | None]:
+    """Detecta tendencias en columnas numéricas usando regresión lineal.
+
+    Devuelve (texto_resumen, buffer_grafico | None).
+    """
+    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if not cols_num:
+        return "⚠️ No hay columnas numéricas para analizar la tendencia.", None
+
+    # Detectar columna temporal (para usar como eje X)
+    col_fecha = next(
+        (c for c in df.columns if any(p in str(c).lower() for p in _PALABRAS_FECHA)),
+        None,
+    )
+
+    # Construir eje X numérico
+    x_label = "Período"
+    if col_fecha:
+        fechas = pd.to_datetime(df[col_fecha], errors="coerce", dayfirst=True)
+        if fechas.notna().sum() >= 3:
+            x_raw = fechas.ffill().map(lambda d: d.toordinal()).values.astype(float)
+            x_label = str(col_fecha)
+        else:
+            col_fecha = None
+    if col_fecha is None:
+        x_raw = np.arange(len(df), dtype=float)
+
+    # Normalizar X al rango [0, N-1] para que la pendiente sea interpretable
+    x = x_raw - x_raw[0]
+    x_norm_total = x[-1] if x[-1] != 0 else 1
+
+    lineas = ["📈 *Análisis de tendencia*\n"]
+    resultados = []   # para el gráfico
+
+    for col in cols_num:
+        serie = df[col].dropna()
+        if len(serie) < 3:
+            continue
+
+        # Alinear longitudes
+        n = min(len(x), len(serie))
+        xi, yi = x[:n], serie.values[:n]
+
+        try:
+            coef, intercept = np.polyfit(xi, yi, 1)
+        except Exception:
+            continue
+
+        # R²
+        y_pred = coef * xi + intercept
+        ss_res = float(((yi - y_pred) ** 2).sum())
+        ss_tot = float(((yi - yi.mean()) ** 2).sum())
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+        # Cambio total estimado en el período
+        cambio_abs = coef * x_norm_total
+        pct_cambio = (cambio_abs / abs(yi[0])) * 100 if yi[0] != 0 else 0.0
+
+        # Interpretación
+        if r2 < 0.25:
+            tendencia = "sin tendencia clara (datos muy dispersos)"
+        elif coef > 0:
+            tendencia = f"📈 creciente  ({pct_cambio:+.1f}% en el período)"
+        else:
+            tendencia = f"📉 decreciente ({pct_cambio:+.1f}% en el período)"
+
+        fiabilidad = "alta" if r2 > 0.7 else "moderada" if r2 > 0.4 else "baja"
+
+        lineas.append(f"*{col}*")
+        lineas.append(f"  • Tendencia: {tendencia}")
+        lineas.append(f"  • R²: {r2:.2f} (ajuste {fiabilidad})")
+        lineas.append(f"  • Inicio: {yi[0]:.2f}  →  Final: {yi[-1]:.2f}  (Δ {yi[-1]-yi[0]:+.2f})")
+        lineas.append("")
+
+        resultados.append((col, xi, yi, coef, intercept, r2))
+
+    if not resultados:
+        return "⚠️ No hay suficientes datos para calcular tendencias (mínimo 3 filas).", None
+
+    buf = _generar_grafico_tendencia(resultados, x_label, df, col_fecha)
+    return "\n".join(lineas), buf
+
+
+def _generar_grafico_tendencia(resultados, x_label, df, col_fecha) -> io.BytesIO | None:
+    """Genera un gráfico con los valores reales y la línea de tendencia."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        n_cols = len(resultados)
+        fig, axes = plt.subplots(n_cols, 1, figsize=(9, 3.5 * n_cols), squeeze=False)
+
+        for idx, (col, xi, yi, coef, intercept, r2) in enumerate(resultados):
+            ax = axes[idx][0]
+
+            # Etiquetas del eje X
+            if col_fecha and col_fecha in df.columns:
+                fechas = pd.to_datetime(df[col_fecha], errors="coerce", dayfirst=True)
+                x_ticks = fechas.dropna().values[:len(xi)]
+                ax.plot(x_ticks, yi, "o-", color="#2E75B6", linewidth=1.5,
+                        markersize=5, label="Valor real", zorder=3)
+                y_trend = coef * xi + intercept
+                ax.plot(x_ticks, y_trend, "--", color="#FF6B6B", linewidth=2,
+                        label=f"Tendencia (R²={r2:.2f})", zorder=2)
+                fig.autofmt_xdate()
+            else:
+                ax.plot(yi, "o-", color="#2E75B6", linewidth=1.5,
+                        markersize=5, label="Valor real", zorder=3)
+                y_trend = coef * xi + intercept
+                ax.plot(y_trend, "--", color="#FF6B6B", linewidth=2,
+                        label=f"Tendencia (R²={r2:.2f})", zorder=2)
+                ax.set_xlabel(x_label, fontsize=9)
+
+            ax.set_title(col, fontsize=11, fontweight="bold")
+            ax.set_ylabel("Valor", fontsize=9)
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
         plt.close(fig)

@@ -4,7 +4,8 @@ Aplica operaciones de modificación sobre el archivo del usuario y devuelve
 el resultado como un nuevo .xlsx listo para descargar.
 
 Operaciones: añadir_columna, ordenar, eliminar_duplicados, filtrar_exportar,
-             rellenar_nulos, renombrar_columna, eliminar_columna, formato_condicional.
+             rellenar_nulos, renombrar_columna, eliminar_columna, formato_condicional,
+             normalizar_texto, estandarizar_fechas, despivotear, pivotear.
 """
 import io
 import pandas as pd
@@ -78,6 +79,22 @@ def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict
     elif tipo == "formato_condicional":
         desc = _describir_formato(op)
         return df, desc, op   # df sin cambios; extras lleva las instrucciones
+
+    elif tipo == "normalizar_texto":
+        df, desc = _normalizar_texto(df, op)
+        return df, desc, None
+
+    elif tipo == "estandarizar_fechas":
+        df, desc = _estandarizar_fechas(df, op)
+        return df, desc, None
+
+    elif tipo == "despivotear":
+        df, desc = _despivotear(df, op)
+        return df, desc, None
+
+    elif tipo == "pivotear":
+        df, desc = _pivotear(df, op)
+        return df, desc, None
 
     else:
         raise EditorError(f"Operación no reconocida: '{tipo}'")
@@ -205,6 +222,154 @@ def _eliminar_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
         _validar_col(df, c)
     df = df.drop(columns=columnas)
     return df, f"Eliminada(s): {', '.join(columnas)}"
+
+
+def _normalizar_texto(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Limpia espacios y/o unifica capitalización en columnas de texto."""
+    col    = op.get("col")
+    accion = str(op.get("accion", "todas")).lower().strip()
+
+    if col:
+        _validar_col(df, col)
+        cols_obj = [col]
+    else:
+        cols_obj = [c for c in df.columns if df[c].dtype == object]
+
+    if not cols_obj:
+        raise EditorError("No hay columnas de texto a las que aplicar la normalización.")
+
+    _ACCIONES = {"strip", "upper", "lower", "title", "todas"}
+    if accion not in _ACCIONES:
+        raise EditorError(f"Acción no reconocida: '{accion}'. Usa: {', '.join(_ACCIONES)}")
+
+    aplicadas = 0
+    for c in cols_obj:
+        if df[c].dtype != object:
+            continue
+        if accion in ("strip", "todas"):
+            df[c] = df[c].str.strip()
+        if accion in ("upper",):
+            df[c] = df[c].str.upper()
+        elif accion in ("lower",):
+            df[c] = df[c].str.lower()
+        elif accion in ("title",):
+            df[c] = df[c].str.title()
+        # "todas" aplica strip + title como limpieza estándar
+        if accion == "todas":
+            df[c] = df[c].str.title()
+        aplicadas += 1
+
+    sufijo = f"columna '{col}'" if col else f"{aplicadas} columna(s) de texto"
+    return df, f"Texto normalizado en {sufijo} (acción: {accion})"
+
+
+def _estandarizar_fechas(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Convierte columnas de texto con fechas a formato estándar DD/MM/YYYY."""
+    col = op.get("col")
+    fmt_salida = op.get("formato_salida", "%d/%m/%Y")
+
+    _PALABRAS_FECHA = ("fecha", "date", "dia", "día", "mes", "año", "year", "month",
+                       "periodo", "semana", "trimestre")
+
+    if col:
+        _validar_col(df, col)
+        cols_fecha = [col]
+    else:
+        cols_fecha = [c for c in df.columns
+                      if any(p in str(c).lower() for p in _PALABRAS_FECHA)]
+
+    if not cols_fecha:
+        raise EditorError(
+            "No encontré columnas de fecha. Especifica la columna con 'col'."
+        )
+
+    convertidas = 0
+    errores_total = 0
+    for c in cols_fecha:
+        # format="mixed" permite parsear múltiples formatos de fecha en la misma columna
+        try:
+            serie_dt = pd.to_datetime(df[c], errors="coerce", dayfirst=True, format="mixed")
+        except TypeError:
+            serie_dt = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
+        validas  = serie_dt.notna()
+        errores  = int(validas.sum() == 0)
+        if validas.any():
+            df.loc[validas, c] = serie_dt[validas].dt.strftime(fmt_salida)
+            convertidas += 1
+        errores_total += int((~validas & df[c].notna()).sum())
+
+    desc = f"Fechas estandarizadas a {fmt_salida} en {convertidas} columna(s)"
+    if errores_total:
+        desc += f" ({errores_total} valor(es) no reconocido(s) sin cambios)"
+    return df, desc
+
+
+def _despivotear(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Convierte columnas de valores en filas (pd.melt / unpivot)."""
+    cols_valores = op.get("columnas_valores", [])
+    if not cols_valores:
+        raise EditorError("Falta 'columnas_valores' (lista de columnas a convertir en filas).")
+    for c in cols_valores:
+        _validar_col(df, c)
+
+    cols_id = op.get("columnas_id") or [c for c in df.columns if c not in cols_valores]
+    for c in cols_id:
+        _validar_col(df, c)
+
+    col_nombre = op.get("col_nombre", "Variable")
+    col_valor  = op.get("col_valor",  "Valor")
+
+    df_melt = df.melt(
+        id_vars=cols_id,
+        value_vars=cols_valores,
+        var_name=col_nombre,
+        value_name=col_valor,
+    ).reset_index(drop=True)
+
+    return df_melt, (
+        f"Despivotado: {len(cols_valores)} columna(s) → filas "
+        f"('{col_nombre}' / '{col_valor}'). "
+        f"Resultado: {len(df_melt)} filas × {len(df_melt.columns)} columnas"
+    )
+
+
+def _pivotear(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Convierte filas en columnas (pd.pivot_table)."""
+    index   = op.get("index")
+    columns = op.get("columns")
+    values  = op.get("values")
+
+    if not index or not columns or not values:
+        raise EditorError("Faltan 'index', 'columns' y/o 'values' para pivotear.")
+    for c in (index, columns, values):
+        _validar_col(df, c)
+
+    _AGGFUNCS = {
+        "suma":    "sum",
+        "sum":     "sum",
+        "promedio":"mean",
+        "mean":    "mean",
+        "contar":  "count",
+        "count":   "count",
+        "max":     "max",
+        "min":     "min",
+    }
+    aggfunc_str = str(op.get("aggfunc", "suma")).lower()
+    aggfunc = _AGGFUNCS.get(aggfunc_str, "sum")
+
+    try:
+        df_pivot = df.pivot_table(
+            index=index, columns=columns, values=values,
+            aggfunc=aggfunc, fill_value=0,
+        ).reset_index()
+        df_pivot.columns = [str(c) for c in df_pivot.columns]
+    except Exception as e:
+        raise EditorError(f"No se pudo pivotear: {e}") from e
+
+    return df_pivot, (
+        f"Pivotado: filas={index}, columnas={columns}, valores={values} ({aggfunc_str}). "
+        f"Resultado: {len(df_pivot)} filas × {len(df_pivot.columns)} columnas"
+    )
 
 
 def _describir_formato(op: dict) -> str:
