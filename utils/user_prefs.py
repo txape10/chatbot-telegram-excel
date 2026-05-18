@@ -21,6 +21,15 @@ def _conectar() -> sqlite3.Connection:
             actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Migraciones: añadir columnas nuevas si aún no existen
+    for sql in [
+        "ALTER TABLE user_prefs ADD COLUMN modo_respuesta  TEXT    DEFAULT 'texto'",
+        "ALTER TABLE user_prefs ADD COLUMN preguntado_modo INTEGER DEFAULT 0",
+    ]:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # columna ya existe
     conn.commit()
     return conn
 
@@ -62,4 +71,49 @@ def marcar_preguntado(user_id: int) -> None:
             "INSERT OR IGNORE INTO user_prefs (user_id, version_excel) VALUES (?, NULL)",
             (user_id,)
         )
+        conn.commit()
+
+
+# ── Modo de respuesta (texto / voz) ──────────────────────────────────────────
+
+def get_modo_respuesta(user_id: int) -> str:
+    """Devuelve 'voz' o 'texto' (por defecto 'texto')."""
+    with _conectar() as conn:
+        fila = conn.execute(
+            "SELECT modo_respuesta FROM user_prefs WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return (fila[0] or "texto") if fila else "texto"
+
+
+def set_modo_respuesta(user_id: int, modo: str) -> None:
+    """Guarda el modo de respuesta ('texto' o 'voz')."""
+    with _conectar() as conn:
+        conn.execute("""
+            INSERT INTO user_prefs (user_id, modo_respuesta)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE
+            SET modo_respuesta  = excluded.modo_respuesta,
+                actualizado_en  = CURRENT_TIMESTAMP
+        """, (user_id, modo))
+        conn.commit()
+
+
+def ya_fue_preguntado_modo(user_id: int) -> bool:
+    """True si ya le preguntamos la preferencia de voz/texto."""
+    with _conectar() as conn:
+        fila = conn.execute(
+            "SELECT preguntado_modo FROM user_prefs WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return bool(fila and fila[0])
+
+
+def marcar_preguntado_modo(user_id: int) -> None:
+    """Registra que ya se le preguntó el modo de respuesta."""
+    with _conectar() as conn:
+        conn.execute("""
+            INSERT INTO user_prefs (user_id, preguntado_modo)
+            VALUES (?, 1)
+            ON CONFLICT(user_id) DO UPDATE
+            SET preguntado_modo = 1
+        """, (user_id,))
         conn.commit()

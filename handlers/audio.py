@@ -10,14 +10,22 @@ Flujo:
 import asyncio
 import logging
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from utils.auth import solo_autorizados
+from utils.user_prefs import ya_fue_preguntado_modo, marcar_preguntado_modo
 from services.llm import transcribir_audio
 from handlers.messages import procesar_pregunta
 
 logger = logging.getLogger(__name__)
+
+_TECLADO_MODO = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("🔊 Respóndeme por voz", callback_data="modo_voz"),
+        InlineKeyboardButton("💬 Solo texto",          callback_data="modo_texto"),
+    ]
+])
 
 
 @solo_autorizados
@@ -45,6 +53,16 @@ async def recibir_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         # Procesar el texto transcrito exactamente igual que si lo hubiera escrito
         await procesar_pregunta(update, context, texto)
+
+        # Una sola vez: preguntar si quiere respuestas por voz
+        user_id = update.effective_user.id
+        if not ya_fue_preguntado_modo(user_id):
+            marcar_preguntado_modo(user_id)
+            await update.message.reply_text(
+                "💡 ¿Quieres que también te responda por voz?\n"
+                "Puedes cambiarlo cuando quieras con /modo",
+                reply_markup=_TECLADO_MODO,
+            )
 
     except Exception as error:
         logger.error("Error transcribiendo voz para user_id %s: %s",

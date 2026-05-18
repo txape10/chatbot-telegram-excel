@@ -10,7 +10,7 @@ from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
 from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla, crear_tabla_dinamica
 from utils.df_context import obtener_df as _obtener_df
-from utils.user_prefs import get_version, set_version, VERSIONES
+from utils.user_prefs import get_version, set_version, VERSIONES, get_modo_respuesta, set_modo_respuesta
 from prompts.excel import EJEMPLO_FUNCION
 
 logger = logging.getLogger(__name__)
@@ -288,6 +288,48 @@ async def pivote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await mensaje_carga.edit_text("⚠️ No se pudo generar el archivo. Inténtalo de nuevo.")
         except Exception:
             pass
+
+
+# ── /modo ─────────────────────────────────────────────────────────────────────
+
+_TECLADO_MODO = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("🔊 Respóndeme por voz", callback_data="modo_voz"),
+        InlineKeyboardButton("💬 Solo texto",          callback_data="modo_texto"),
+    ]
+])
+
+
+@solo_autorizados
+async def modo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Permite al usuario cambiar entre respuestas en texto o voz."""
+    user_id = update.effective_user.id
+    modo_actual = get_modo_respuesta(user_id)
+    nombre_actual = "🔊 Voz" if modo_actual == "voz" else "💬 Texto"
+    await update.message.reply_text(
+        f"Modo de respuesta actual: *{nombre_actual}*\n\nElige cómo quieres que te responda:",
+        parse_mode="Markdown",
+        reply_markup=_TECLADO_MODO,
+    )
+
+
+async def callback_modo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Guarda la preferencia de modo de respuesta."""
+    query = update.callback_query
+    await query.answer()
+    modo_elegido = query.data.replace("modo_", "")   # "voz" o "texto"
+    set_modo_respuesta(query.from_user.id, modo_elegido)
+    if modo_elegido == "voz":
+        await query.edit_message_text(
+            "🔊 ¡Perfecto! A partir de ahora te responderé por voz.\n\n"
+            "El texto siempre estará visible por si quieres releerlo o copiarlo.\n"
+            "Usa /modo para cambiarlo cuando quieras."
+        )
+    else:
+        await query.edit_message_text(
+            "💬 Entendido, responderé solo con texto.\n"
+            "Usa /modo para cambiarlo cuando quieras."
+        )
 
 
 async def callback_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

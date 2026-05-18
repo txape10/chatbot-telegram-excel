@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,12 +8,13 @@ from telegram.error import TelegramError
 from services.llm import (obtener_respuesta, extraer_query_dsl,
                           extraer_operacion_edicion, extraer_estructura_excel,
                           extraer_operacion_combinar)
+from services.tts import texto_a_audio
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
 from utils.df_context import obtener_df, guardar_df, obtener_df_secundario, obtener_nombre_secundario
 from utils.file_meta import obtener_meta
 from utils.auth import solo_autorizados
-from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES
+from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES, get_modo_respuesta
 from prompts.excel import EXPLICAR_FORMULA, PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
 from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 from excel.editor import aplicar_edicion, exportar_xlsx, combinar_dataframes, EditorError
@@ -103,6 +105,27 @@ _RE_SOLO_INFORMATIVA = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _enviar_respuesta(update: Update, user_id: int,
+                             mensaje_carga, texto: str,
+                             parse_mode: str = None) -> None:
+    """Envía la respuesta en texto o texto+voz según la preferencia del usuario.
+
+    Siempre edita `mensaje_carga` con el texto (para que el usuario pueda
+    releerlo). Si el modo es 'voz', además envía un mensaje de audio a
+    continuación. Si el TTS falla, la respuesta de texto ya está enviada.
+    """
+    await mensaje_carga.edit_text(texto, parse_mode=parse_mode)
+
+    if get_modo_respuesta(user_id) == "voz":
+        try:
+            audio_bytes = await texto_a_audio(texto)
+            if audio_bytes:
+                await update.message.reply_voice(voice=io.BytesIO(audio_bytes))
+        except Exception as error:
+            logger.warning("TTS falló para user_id %s: %s", user_id, error)
+
 
 _TECLADO_VERSION = InlineKeyboardMarkup([
     [
@@ -202,7 +225,7 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         respuesta = obtener_respuesta(historial, pregunta_completa)
         agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", respuesta)
-        await mensaje_carga.edit_text(respuesta)
+        await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
 
         # Preguntar versión la primera vez (tras responder, no antes)
         if not ya_fue_preguntado(user_id):
@@ -288,7 +311,7 @@ async def _responder_con_llm(update: Update, user_id: int, pregunta: str,
         respuesta = obtener_respuesta(historial, pregunta_completa)
         agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", respuesta)
-        await mensaje_carga.edit_text(respuesta)
+        await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
     except Exception as error:
         logger.error("Error LLM fallback para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ Error al obtener respuesta. Inténtalo de nuevo.")
@@ -357,7 +380,7 @@ async def _intentar_dsl(update, user_id, df, pregunta, historial,
 
         agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", texto)
-        await mensaje_carga.edit_text(texto, parse_mode="Markdown")
+        await _enviar_respuesta(update, user_id, mensaje_carga, texto, parse_mode="Markdown")
         return texto
 
     except QueryError as error:
