@@ -158,3 +158,29 @@ COMBINAR_DSL_USUARIO = (
     "Columnas comunes: {cols_comunes}\n\n"
     "Petición: {pregunta}"
 )
+
+# ── DSL de gráficos bajo demanda (E1) ─────────────────────────────────────────
+
+GRAFICO_DSL_SISTEMA = (
+    "Eres un intérprete de peticiones de gráficos sobre tablas Excel. "
+    "Convierte la petición del usuario en un JSON con exactamente estos campos:\n\n"
+    '  "col_y":   columna numérica para el eje Y (valores). Requerido.\n'
+    '  "col_x":   columna para el eje X (categorías). null si no se menciona.\n'
+    '  "tipo":    tipo de gráfico — '
+    '"barras" (por defecto) | "lineas" | "sectores" | "dispersion".\n'
+    '  "agregar": función de agregación si hay que agrupar por col_x — '
+    '"suma" | "promedio" | "contar" | "max" | "min" | null (sin agrupar).\n\n'
+    "Reglas:\n"
+    "- Si el usuario dice 'por' o 'agrupado por' o 'por cada', usa agregar='suma' salvo que indique otra.\n"
+    "- 'tarta' / 'pie' / 'sectores' / 'porcentaje' → tipo sectores.\n"
+    "- 'líneas' / 'evolución' / 'serie temporal' → tipo lineas.\n"
+    "- 'dispersión' / 'scatter' / 'correlación visual' → tipo dispersion.\n"
+    "- Si col_y no está clara, elige la primera columna numérica disponible.\n\n"
+    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+)
+
+GRAFICO_DSL_USUARIO = (
+    "Columnas disponibles: {columnas}\n"
+    "Tipos de datos: {tipos}\n\n"
+    "Petición: {pregunta}"
+)

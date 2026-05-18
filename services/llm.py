@@ -219,6 +219,46 @@ def extraer_operacion_combinar(df1: pd.DataFrame, df2: pd.DataFrame,
         return {"col": None, "como": "inner"}
 
 
+def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
+    """Extrae los parámetros del gráfico pedido en lenguaje natural.
+
+    Devuelve un dict {col_x, col_y, tipo, agregar} o None si falla el parseo.
+    """
+    from prompts.excel import GRAFICO_DSL_SISTEMA, GRAFICO_DSL_USUARIO
+
+    columnas = ", ".join(f"'{c}'" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+
+    mensaje_usuario = GRAFICO_DSL_USUARIO.format(
+        columnas=columnas,
+        tipos=tipos,
+        pregunta=pregunta,
+    )
+
+    try:
+        respuesta = _cliente.chat.completions.create(
+            model=MODELO,
+            messages=[
+                {"role": "system", "content": GRAFICO_DSL_SISTEMA},
+                {"role": "user",   "content": mensaje_usuario},
+            ],
+            temperature=0,
+            max_tokens=150,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+        logger.debug("Respuesta gráfico DSL del LLM: %s", texto)
+
+        if "```" in texto:
+            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+            texto = "\n".join(lineas).strip()
+
+        return json.loads(texto)
+
+    except Exception as error:
+        logger.warning("Error extrayendo petición de gráfico: %s", error)
+        return None
+
+
 def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
     """Transcribe un mensaje de voz usando Groq Whisper.
 

@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 from services.llm import (obtener_respuesta, extraer_query_dsl,
                           extraer_operacion_edicion, extraer_estructura_excel,
-                          extraer_operacion_combinar)
+                          extraer_operacion_combinar, extraer_peticion_grafico)
 from services.tts import texto_a_audio
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
@@ -20,6 +20,7 @@ from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
 from excel.editor import aplicar_edicion, exportar_xlsx, combinar_dataframes, EditorError
 from excel.exporter import crear_tabla_dinamica, crear_desde_descripcion
 from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones, analisis_tendencia
+from excel.charts import generar_grafico_personalizado, ChartError
 
 # Detección de intención de edición: verbos que implican modificar el archivo
 _RE_EDICION = re.compile(
@@ -71,6 +72,23 @@ _RE_CREAR_EXCEL = re.compile(
     r"genera[rm]?\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo)|"
     r"necesito\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)|"
     r"quiero\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de gráfico bajo demanda (E1)
+_RE_GRAFICO = re.compile(
+    r"\b("
+    r"gr[aá]fico[s]?\b|chart\b|"
+    r"dibuja[r]?\s+(?:un\s+)?gr[aá]fico|"
+    r"pinta[r]?\s+(?:un\s+)?gr[aá]fico|"
+    r"genera[r]?\s+(?:un\s+)?gr[aá]fico|"
+    r"hazme\s+(?:un\s+)?gr[aá]fico|"
+    r"muestra[r]?\s+(?:un\s+)?gr[aá]fico|"
+    r"crea[r]?\s+(?:un\s+)?gr[aá]fico|"
+    r"visualiza[r]?\s|representa[r]?\s+gr[aá]ficamente|"
+    r"gr[aá]fico\s+de\s+(?:barras?|l[ií]neas?|sectores?|tarta|pie|dispersi[oó]n|scatter)|"
+    r"histograma\b"
     r")\b",
     re.IGNORECASE,
 )
@@ -177,6 +195,12 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if _RE_CREAR_EXCEL.search(pregunta) and not _RE_EDICION.search(pregunta):
         logger.info("Intención crear Excel detectada para user_id %s: %r", user_id, pregunta)
         await _crear_excel_desde_descripcion(update, user_id, pregunta)
+        return
+
+    # ── Gráfico bajo demanda ─────────────────────────────────────────────────
+    if df_activo is not None and _RE_GRAFICO.search(pregunta):
+        logger.info("Intención gráfico bajo demanda para user_id %s: %r", user_id, pregunta)
+        await _generar_grafico_bajo_demanda(update, user_id, df_activo, pregunta)
         return
 
     # ── Generador de tabla dinámica ───────────────────────────────────────────
@@ -489,6 +513,56 @@ async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta:
                      user_id, error, exc_info=True)
         try:
             await mensaje_carga.edit_text("⚠️ No se pudo crear el archivo. Inténtalo de nuevo.")
+        except Exception:
+            pass
+
+
+async def _generar_grafico_bajo_demanda(update: Update, user_id: int,
+                                        df, pregunta: str) -> None:
+    """Extrae parámetros del gráfico con el LLM y genera la imagen PNG."""
+    mensaje_carga = await update.message.reply_text("⏳ Generando gráfico...")
+    try:
+        params = await asyncio.to_thread(extraer_peticion_grafico, df, pregunta)
+
+        if params is None:
+            await mensaje_carga.edit_text(
+                "⚠️ No entendí qué gráfico quieres. Intenta con algo como:\n"
+                "• _Gráfico de barras de Ventas por Región_\n"
+                "• _Hazme un gráfico de líneas de la columna Beneficio_",
+                parse_mode="Markdown",
+            )
+            return
+
+        col_y   = params.get("col_y")
+        col_x   = params.get("col_x")
+        tipo    = params.get("tipo", "barras")
+        agregar = params.get("agregar")
+
+        buf, titulo = await asyncio.to_thread(
+            generar_grafico_personalizado, df, col_y, col_x, tipo, agregar
+        )
+
+        meta = obtener_meta(user_id)
+        nombre = meta["nombre"] if meta else "archivo"
+        caption = f"📊 {titulo} — {nombre}"
+
+        await update.message.reply_photo(photo=buf, caption=caption)
+        try:
+            await mensaje_carga.delete()
+        except Exception:
+            pass
+
+    except ChartError as error:
+        logger.warning("ChartError para user_id %s: %s", user_id, error)
+        try:
+            await mensaje_carga.edit_text(f"⚠️ {error}")
+        except Exception:
+            pass
+    except Exception as error:
+        logger.error("Error generando gráfico para user_id %s: %s",
+                     user_id, error, exc_info=True)
+        try:
+            await mensaje_carga.edit_text("⚠️ No se pudo generar el gráfico. Inténtalo de nuevo.")
         except Exception:
             pass
 

@@ -8,6 +8,10 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+class ChartError(ValueError):
+    """Error controlado al generar un gráfico personalizado."""
+
+
 def generar_grafico(df: pd.DataFrame, nombre_archivo: str, tipo: str = "barras") -> io.BytesIO | None:
     """Genera un gráfico con las columnas numéricas del DataFrame.
     tipo: 'barras' | 'lineas' | 'sectores'
@@ -71,3 +75,115 @@ def generar_grafico(df: pd.DataFrame, nombre_archivo: str, tipo: str = "barras")
     plt.close(fig)
     buffer.seek(0)
     return buffer
+
+
+# ── Gráfico personalizado bajo demanda ───────────────────────────────────────
+
+_AGGFUNCS = {
+    "suma":     "sum",
+    "promedio": "mean",
+    "contar":   "count",
+    "max":      "max",
+    "min":      "min",
+}
+
+
+def generar_grafico_personalizado(
+    df: pd.DataFrame,
+    col_y: str,
+    col_x: str | None = None,
+    tipo: str = "barras",
+    agregar: str | None = None,
+) -> tuple[io.BytesIO, str]:
+    """Genera un gráfico con parámetros explícitos indicados por el usuario.
+
+    Parámetros
+    ----------
+    col_y    : columna numérica para el eje Y (requerida).
+    col_x    : columna para el eje X / categorías. None → índice.
+    tipo     : 'barras' | 'lineas' | 'sectores' | 'dispersion'.
+    agregar  : 'suma' | 'promedio' | 'contar' | 'max' | 'min' | None.
+
+    Devuelve (buffer_png, descripcion).
+    Lanza ChartError si las columnas no existen o los datos no son válidos.
+    """
+    # ── Validación ────────────────────────────────────────────────────────────
+    if col_y not in df.columns:
+        raise ChartError(f"La columna '{col_y}' no existe en el archivo.")
+    if col_x and col_x not in df.columns:
+        raise ChartError(f"La columna '{col_x}' no existe en el archivo.")
+
+    tipo = tipo.lower() if tipo else "barras"
+    if tipo not in ("barras", "lineas", "sectores", "dispersion"):
+        tipo = "barras"
+
+    df = df.copy()
+
+    # ── Agregación ────────────────────────────────────────────────────────────
+    descripcion_agg = ""
+    if agregar and col_x:
+        func = _AGGFUNCS.get(agregar, "sum")
+        try:
+            df = df.groupby(col_x, as_index=False)[col_y].agg(func)
+            descripcion_agg = f" ({agregar} de {col_y} por {col_x})"
+        except Exception as error:
+            raise ChartError(f"No se pudo agrupar: {error}") from error
+
+    # Limitar a 20 puntos para legibilidad
+    muestra = df.head(20)
+
+    x_vals = muestra[col_x].astype(str) if col_x else range(len(muestra))
+    y_vals = pd.to_numeric(muestra[col_y], errors="coerce")
+
+    if y_vals.dropna().empty:
+        raise ChartError(f"La columna '{col_y}' no contiene valores numéricos.")
+
+    # ── Dibujar ───────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 5))
+    titulo = f"{col_y}{descripcion_agg}"
+
+    if tipo == "sectores":
+        validos = y_vals.dropna()
+        etiquetas = list(muestra.loc[validos.index, col_x].astype(str)) if col_x else list(range(len(validos)))
+        if len(validos) > 8:
+            top = validos.nlargest(7)
+            otros_val = validos.sum() - top.sum()
+            validos = pd.concat([top, pd.Series([otros_val], index=[-1])])
+            etiquetas = [muestra.loc[i, col_x] if col_x else str(i) for i in top.index] + ["Otros"]
+        ax.pie(validos, labels=etiquetas, autopct="%1.1f%%", startangle=140)
+
+    elif tipo == "lineas":
+        ax.plot(x_vals, y_vals, marker="o", color="steelblue")
+        if col_x:
+            ax.set_xlabel(col_x)
+            plt.xticks(rotation=45, ha="right")
+        ax.set_ylabel(col_y)
+
+    elif tipo == "dispersion":
+        if col_x:
+            x_num = pd.to_numeric(muestra[col_x], errors="coerce")
+            if x_num.dropna().empty:
+                raise ChartError(
+                    f"La columna '{col_x}' debe ser numérica para un gráfico de dispersión."
+                )
+            ax.scatter(x_num, y_vals, color="steelblue", alpha=0.7)
+            ax.set_xlabel(col_x)
+        else:
+            ax.scatter(range(len(y_vals)), y_vals, color="steelblue", alpha=0.7)
+        ax.set_ylabel(col_y)
+
+    else:  # barras (por defecto)
+        ax.bar(x_vals, y_vals, color="steelblue")
+        if col_x:
+            ax.set_xlabel(col_x)
+            plt.xticks(rotation=45, ha="right")
+        ax.set_ylabel(col_y)
+
+    ax.set_title(titulo)
+    plt.tight_layout()
+
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=120)
+    plt.close(fig)
+    buffer.seek(0)
+    return buffer, titulo
