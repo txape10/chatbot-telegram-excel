@@ -11,7 +11,8 @@ from services.llm import (obtener_respuesta, extraer_query_dsl,
 from services.tts import texto_a_audio
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
-from utils.df_context import obtener_df, guardar_df, obtener_df_secundario, obtener_nombre_secundario
+from utils.df_context import (obtener_df, guardar_df, obtener_df_secundario,
+                               obtener_nombre_secundario, restaurar_undo, hay_undo)
 from utils.file_meta import obtener_meta
 from utils.auth import solo_autorizados
 from utils.user_prefs import get_version, ya_fue_preguntado, marcar_preguntado, VERSIONES, get_modo_respuesta
@@ -72,6 +73,19 @@ _RE_CREAR_EXCEL = re.compile(
     r"genera[rm]?\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja|archivo)|"
     r"necesito\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)|"
     r"quiero\s+(?:un[ao]?\s+)?(?:excel|tabla|hoja)\s+(?:con|para|de)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Detección de deshacer (E2)
+_RE_UNDO = re.compile(
+    r"\b("
+    r"deshaz|deshacer|desh[aá]cer|"
+    r"vuelve\s+atr[aá]s|volver\s+atr[aá]s|"
+    r"revertir|revierte|rev[eé]rtelo|"
+    r"undo|ctrl\s*\+?\s*z|"
+    r"cancela\s+(?:el\s+)?(?:[uú]ltimo\s+)?cambio|"
+    r"recupera\s+(?:el\s+)?(?:archivo|excel|datos?)\s+anterior"
     r")\b",
     re.IGNORECASE,
 )
@@ -183,6 +197,12 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if df_activo is not None and df_secundario is not None and _RE_COMBINAR.search(pregunta):
         logger.info("Intención de combinación detectada para user_id %s: %r", user_id, pregunta)
         await _intentar_combinar(update, user_id, df_secundario, df_activo, pregunta)
+        return
+
+    # ── Deshacer última operación (E2) ───────────────────────────────────────
+    if df_activo is not None and _RE_UNDO.search(pregunta):
+        logger.info("Intención de undo para user_id %s", user_id)
+        await _deshacer_operacion(update, user_id)
         return
 
     # ── Editor de archivo (si hay df activo y petición de modificación) ────────
@@ -515,6 +535,33 @@ async def _crear_excel_desde_descripcion(update: Update, user_id: int, pregunta:
             await mensaje_carga.edit_text("⚠️ No se pudo crear el archivo. Inténtalo de nuevo.")
         except Exception:
             pass
+
+
+async def _deshacer_operacion(update: Update, user_id: int) -> None:
+    """Restaura el DataFrame al estado anterior a la última edición."""
+    if not hay_undo(user_id):
+        await update.message.reply_text(
+            "↩️ No hay ninguna operación anterior que deshacer."
+        )
+        return
+
+    df_restaurado = restaurar_undo(user_id)
+    meta = obtener_meta(user_id)
+    nombre_base = meta["nombre"] if meta else "archivo"
+
+    buf, nombre_archivo = await asyncio.to_thread(
+        exportar_xlsx, df_restaurado, nombre_base, "Versión anterior restaurada"
+    )
+    await update.message.reply_document(
+        document=buf,
+        filename=nombre_archivo,
+        caption=(
+            f"↩️ Operación deshecha.\n"
+            f"Archivo restaurado: *{df_restaurado.shape[0]} filas × "
+            f"{df_restaurado.shape[1]} columnas*"
+        ),
+        parse_mode="Markdown",
+    )
 
 
 async def _generar_grafico_bajo_demanda(update: Update, user_id: int,
