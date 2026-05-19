@@ -8,3 +8,6 @@ venv/
 *.egg-info/
 dist/
 build/
+*.log
+Plan_Pruebas_Chatbot_Excel.xlsx
+settings.local.json
