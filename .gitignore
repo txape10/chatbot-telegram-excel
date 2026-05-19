@@ -1,5 +1,8 @@
+# Configuración local y secretos
 .env
-data/*.db
+settings.local.json
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -8,6 +11,14 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Proyecto
+data/
+logs/
 *.log
+.claude/
+
+# Archivos temporales
 Plan_Pruebas_Chatbot_Excel.xlsx
-settings.local.json
+*.tmp
+*.bak
