@@ -34,9 +34,12 @@ MENSAJE_BIENVENIDA = (
     "/version — indica tu versión de Excel para respuestas exactas\n"
     "/estado — ver qué archivo tienes activo en sesión\n"
     "/limpiar — borrar historial y archivo activo\n\n"
-    "🔌 *Add-in de Excel disponible:*\n"
-    "Puedes usar este mismo asistente como panel lateral dentro de Excel. "
-    "Escríbeme si quieres instalarlo."
+    "🔌 *Add-in de Excel — instalación:*\n"
+    "1\\. Abre Excel → Insertar → Complementos → Mis complementos\n"
+    "2\\. Elige *Cargar complemento* e introduce esta URL:\n"
+    "`https://asistente-excel.onrender.com/manifest.xml`\n"
+    "3\\. Aparecerá el botón *Abrir asistente* en la cinta Inicio\n\n"
+    "⚠️ Necesitas usar el correo de tu cuenta de Microsoft para que el sistema te reconozca."
 )
 
 MENSAJE_AYUDA = (
