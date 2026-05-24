@@ -66,10 +66,11 @@ Write-Step "Centro de confianza de Excel"
 Write-Host ""
 Write-Host "  El instalador puede registrar el complemento automaticamente" -ForegroundColor White
 Write-Host "  modificando el registro de Windows, o puedes hacerlo tu mismo" -ForegroundColor White
-Write-Host "  desde los menus de Excel si lo prefieres." -ForegroundColor White
+Write-Host "  desde los menus de Excel." -ForegroundColor White
 Write-Host ""
-Write-Host "  [A] Automatico — el instalador lo configura solo (recomendado)" -ForegroundColor Green
+Write-Host "  [A] Automatico — el instalador lo configura solo" -ForegroundColor Green
 Write-Host "  [M] Manual     — me indicas los pasos a seguir en Excel" -ForegroundColor Yellow
+Write-Host "                   (usa esta opcion si el antivirus bloquea la automatica)" -ForegroundColor DarkYellow
 Write-Host ""
 
 do {
