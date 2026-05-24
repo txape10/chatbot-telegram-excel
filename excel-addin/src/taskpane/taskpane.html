@@ -42,8 +42,22 @@
       <div id="selector-temas" class="selector-temas"></div>
     </div>
 
+    <!-- Barra de archivo activo -->
+    <div id="barra-archivo" class="barra-archivo">
+      <div class="barra-archivo-fila">
+        <span class="barra-icono">📄</span>
+        <span id="archivo-nombre" class="barra-libro">—</span>
+        <span class="barra-sep">·</span>
+        <span id="archivo-hoja" class="barra-hoja">—</span>
+      </div>
+      <div class="barra-archivo-fila">
+        <span class="barra-icono">📍</span>
+        <span id="archivo-rango" class="barra-rango">Sin selección</span>
+      </div>
+    </div>
+
     <!-- Pregunta -->
-    <label class="ms-font-s etiqueta">Selecciona un rango en Excel y escribe tu pregunta:</label>
+    <label class="ms-font-s etiqueta">Escribe tu pregunta:</label>
     <textarea id="pregunta" class="ms-font-m" rows="4"
       placeholder="Ej: ¿Cuánto suma la columna Ventas? (Ctrl+Enter para enviar)"></textarea>
 
@@ -79,6 +93,18 @@
       <button class="ms-Button boton-copiar" onclick="copiarRespuesta()">
         <span class="ms-Button-label">Copiar respuesta</span>
       </button>
+    </div>
+
+    <!-- Historial de conversación -->
+    <div id="bloque-historial" class="bloque-historial">
+      <div class="historial-cabecera" onclick="toggleHistorial()">
+        <span id="historial-titulo" class="historial-titulo">💬 Historial <span id="historial-count"></span></span>
+        <div class="historial-acciones">
+          <button class="btn-limpiar-historial" onclick="limpiarHistorial(event)" title="Limpiar historial">🗑</button>
+          <span id="historial-chevron" class="historial-chevron">▲</span>
+        </div>
+      </div>
+      <div id="historial-lista" class="historial-lista"></div>
     </div>
 
   </div>

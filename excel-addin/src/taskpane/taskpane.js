@@ -19,6 +19,11 @@ let _rangoCols        = 0;
 // Easter egg
 let _eggInterval = null;
 
+// Historial local
+const _CLAVE_HISTORIAL   = "asistente-excel-historial";
+const _MAX_HISTORIAL     = 20;
+let _historialAbierto    = true;
+
 Office.onReady(() => {
   if (!estaAutorizado()) {
     document.getElementById("panel").style.display = "none";
@@ -33,6 +38,8 @@ Office.onReady(() => {
 
   cargarTema();
   construirSelectorTemas();
+  _inicializarBarraArchivo();
+  _renderizarHistorial();
 
   document.getElementById("pregunta").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.ctrlKey) {
@@ -105,9 +112,11 @@ async function preguntar() {
       _datosModificados = respuesta.datos_modificados;
       mostrarDialogo(respuesta.descripcion);
       mostrarEstado("Rango leido: " + direccion);
+      _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
     } else {
       mostrarRespuesta(respuesta.respuesta);
       mostrarEstado("Rango consultado: " + direccion);
+      _agregarAlHistorial(instruccion, respuesta.respuesta);
     }
 
   } catch (error) {
@@ -355,11 +364,159 @@ async function copiarRespuesta() {
   setTimeout(() => { label.textContent = "Copiar respuesta"; }, 2000);
 }
 
+// ── Barra de archivo activo ───────────────────────────────────────────────────
+
+async function _inicializarBarraArchivo() {
+  await _actualizarArchivoActivo();
+
+  // Actualizar rango en tiempo real al cambiar la selección
+  try {
+    await Excel.run(async (context) => {
+      context.workbook.onSelectionChanged.add(_onSelectionChanged);
+      await context.sync();
+    });
+  } catch (_e) {
+    // Sin soporte de eventos — la barra muestra el estado inicial solamente
+  }
+}
+
+async function _actualizarArchivoActivo() {
+  try {
+    await Excel.run(async (context) => {
+      const workbook = context.workbook;
+      const sheet    = workbook.worksheets.getActiveWorksheet();
+      const rango    = workbook.getSelectedRange();
+      workbook.load("name");
+      sheet.load("name");
+      rango.load("address");
+      await context.sync();
+
+      const libro = workbook.name || "Libro";
+      const hoja  = sheet.name   || "Hoja";
+      const dir   = rango.address
+        ? rango.address.replace(/^[^!]+!/, "")   // quitar prefijo de hoja
+        : "—";
+
+      document.getElementById("archivo-nombre").textContent = libro;
+      document.getElementById("archivo-hoja").textContent   = hoja;
+      document.getElementById("archivo-rango").textContent  = dir;
+    });
+  } catch (_e) {
+    // Excel no disponible en este contexto (ej. preview)
+  }
+}
+
+async function _onSelectionChanged() {
+  try {
+    await Excel.run(async (context) => {
+      const rango = context.workbook.getSelectedRange();
+      const sheet = context.workbook.worksheets.getActiveWorksheet();
+      rango.load("address");
+      sheet.load("name");
+      await context.sync();
+
+      const dir  = rango.address
+        ? rango.address.replace(/^[^!]+!/, "")
+        : "—";
+      document.getElementById("archivo-rango").textContent = dir;
+      document.getElementById("archivo-hoja").textContent  = sheet.name || "Hoja";
+    });
+  } catch (_e) { /* silencioso */ }
+}
+
+// ── Historial local ───────────────────────────────────────────────────────────
+
+function _cargarHistorial() {
+  try {
+    return JSON.parse(localStorage.getItem(_CLAVE_HISTORIAL) || "[]");
+  } catch (_e) {
+    return [];
+  }
+}
+
+function _guardarHistorial(entradas) {
+  localStorage.setItem(_CLAVE_HISTORIAL, JSON.stringify(entradas.slice(-_MAX_HISTORIAL)));
+}
+
+function _agregarAlHistorial(pregunta, respuesta) {
+  const entradas = _cargarHistorial();
+  entradas.push({ pregunta, respuesta, ts: Date.now() });
+  _guardarHistorial(entradas);
+  _renderizarHistorial();
+}
+
+function _renderizarHistorial() {
+  const entradas  = _cargarHistorial();
+  const lista     = document.getElementById("historial-lista");
+  const count     = document.getElementById("historial-count");
+  const chevron   = document.getElementById("historial-chevron");
+
+  count.textContent = entradas.length ? `(${entradas.length})` : "";
+  chevron.textContent = _historialAbierto ? "▲" : "▼";
+  lista.style.display = _historialAbierto ? "flex" : "none";
+
+  lista.innerHTML = "";
+
+  if (entradas.length === 0) {
+    const vacio = document.createElement("div");
+    vacio.className = "historial-vacio";
+    vacio.textContent = "Aún no hay preguntas";
+    lista.appendChild(vacio);
+    return;
+  }
+
+  // Mostrar las últimas 10 entradas en orden cronológico
+  const visibles = entradas.slice(-10);
+  visibles.forEach(({ pregunta, respuesta }) => {
+    const entrada = document.createElement("div");
+    entrada.className = "historial-entrada";
+
+    // Respuesta: quitar Markdown básico para lectura limpia
+    const textoBot = respuesta
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/`(.*?)`/g, "$1")
+      .replace(/#{1,3} /g, "")
+      .substring(0, 200) + (respuesta.length > 200 ? "…" : "");
+
+    entrada.innerHTML = `
+      <span class="historial-usuario">Tú</span>
+      <span class="historial-texto-usuario">${_escaparHtml(pregunta)}</span>
+      <span class="historial-bot">Asistente</span>
+      <span class="historial-texto-bot">${_escaparHtml(textoBot)}</span>
+    `;
+    lista.appendChild(entrada);
+  });
+
+  // Scroll al final automáticamente
+  lista.scrollTop = lista.scrollHeight;
+}
+
+function _escaparHtml(texto) {
+  return texto
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function toggleHistorial() {
+  _historialAbierto = !_historialAbierto;
+  _renderizarHistorial();
+}
+
+function limpiarHistorial(event) {
+  event.stopPropagation();   // no colapsar el panel al limpiar
+  localStorage.removeItem(_CLAVE_HISTORIAL);
+  _renderizarHistorial();
+}
+
 // Exponer al HTML
-window.preguntar                 = preguntar;
-window.copiarRespuesta           = copiarRespuesta;
-window.escribirEnExcel           = escribirEnExcel;
-window.toggleConfig              = toggleConfig;
-window.mostrarEasterEgg          = mostrarEasterEgg;
-window.cerrarEasterEgg           = cerrarEasterEgg;
+window.preguntar                  = preguntar;
+window.copiarRespuesta            = copiarRespuesta;
+window.escribirEnExcel            = escribirEnExcel;
+window.toggleConfig               = toggleConfig;
+window.toggleHistorial            = toggleHistorial;
+window.limpiarHistorial           = limpiarHistorial;
+window.mostrarEasterEgg           = mostrarEasterEgg;
+window.cerrarEasterEgg            = cerrarEasterEgg;
 window.activarZeldaDesdeEasterEgg = activarZeldaDesdeEasterEgg;
