@@ -18,8 +18,8 @@
 // Dominios / correos autorizados (igual que en whitelist, como segundo filtro
 // por si el token SSO se obtiene pero queremos restringir aún más)
 const DOMINIOS_PERMITIDOS = [
-  "launioncorp.eu",
-  "launioncorp.com",
+  "empresa.eu",
+  "empresa.com",
 ];
 
 const CORREOS_PERMITIDOS = [

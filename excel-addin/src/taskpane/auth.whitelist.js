@@ -8,7 +8,7 @@
  * El fichero .env está en .gitignore y NUNCA se sube al repositorio.
  *
  * Variables necesarias en .env:
- *   ALLOWED_DOMAINS=launioncorp.eu,launioncorp.com
+ *   ALLOWED_DOMAINS=empresa.eu,empresa.com
  *   ALLOWED_EMAILS=usuario@ejemplo.com,otro@ejemplo.com
  */
 

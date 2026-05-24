@@ -53,10 +53,10 @@ export const TEMAS = [
   },
   {
     id: "empresa",
-    nombre: "La Unión",
+    nombre: "Empresa",
     activo: true,
-    logo: "assets/logo_union.png",
-    subtitulo: "La Unión",
+    logo: "assets/logo_empresa.png",
+    subtitulo: "Empresa",
     vars: {
       "--color-primario":          "#D42B2B",
       "--color-acento":            "#F4941D",
@@ -74,7 +74,7 @@ export const TEMAS = [
 const CLAVE_STORAGE        = "asistente-excel-tema";
 const CLAVE_ZELDA          = "asistente-excel-zelda-desbloqueado";
 const TEMA_DEFECTO         = "default";
-const DOMINIOS_EMPRESA     = ["launioncorp.eu", "launioncorp.com"];
+const DOMINIOS_EMPRESA     = ["empresa.eu", "empresa.com"];
 
 // ── Easter egg ────────────────────────────────────────────────────────────────
 
