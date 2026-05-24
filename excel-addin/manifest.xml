@@ -7,7 +7,7 @@
 
   <Id>9e2e251d-2774-4658-906e-09078683c419</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>La Unión</ProviderName>
+  <ProviderName>Asistente Excel</ProviderName>
   <DefaultLocale>es-ES</DefaultLocale>
   <DisplayName DefaultValue="Asistente Excel"/>
   <Description DefaultValue="Asistente de Excel con IA: analiza, edita y consulta tus datos en lenguaje natural."/>

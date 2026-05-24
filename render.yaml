@@ -48,7 +48,7 @@ services:
         value: whitelist
 
       - key: ALLOWED_DOMAINS
-        sync: false   # dominios permitidos, ej: launioncorp.eu,launioncorp.com
+        sync: false   # dominios permitidos, ej: empresa.eu,empresa.com
 
       - key: ALLOWED_EMAILS
         sync: false   # correos individuales extra, ej: roberto.chapado@gmail.com
