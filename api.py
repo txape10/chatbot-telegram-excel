@@ -43,6 +43,10 @@ _API_KEY     = os.getenv("API_KEY", "")
 _WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
 _BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 
+# Módulos activables (por defecto ambos activos)
+_ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "true").lower() == "true"
+_ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
+
 # ---------------------------------------------------------------------------
 # Bot de Telegram — modo webhook o polling según configuración
 # ---------------------------------------------------------------------------
@@ -50,10 +54,12 @@ _BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 _ptb_app  = None
 _bot_mode = "none"
 
-if _BOT_TOKEN:
+if _ENABLE_TELEGRAM and _BOT_TOKEN:
     from telegram_app import crear_aplicacion
     _ptb_app = crear_aplicacion()
     _bot_mode = "webhook" if _WEBHOOK_URL else "polling"
+elif not _ENABLE_TELEGRAM:
+    logger.info("Módulo Telegram desactivado (ENABLE_TELEGRAM=false)")
 
 
 @asynccontextmanager
@@ -172,11 +178,23 @@ async def telegram_webhook(request: Request):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "modo_bot": _bot_mode}
+    return {
+        "status": "ok",
+        "modo_bot":  _bot_mode,
+        "telegram":  _ENABLE_TELEGRAM,
+        "addin":     _ENABLE_ADDIN,
+        "llm":       os.getenv("LLM_PROVIDER", "groq"),
+    }
+
+
+def _verificar_addin_activo():
+    if not _ENABLE_ADDIN:
+        raise HTTPException(status_code=503, detail="Módulo Add-in desactivado (ENABLE_ADDIN=false)")
 
 
 @app.post("/ask")
-def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave)) -> dict:
+def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
+        __: None = Depends(_verificar_addin_activo)) -> dict:
     df = _a_dataframe(peticion.datos)
 
     query = extraer_query_dsl(df, peticion.pregunta)
@@ -198,7 +216,8 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave)) -> dict
 
 
 @app.post("/edit")
-def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave)) -> dict:
+def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
+         __: None = Depends(_verificar_addin_activo)) -> dict:
     df = _a_dataframe(peticion.datos)
 
     op = extraer_operacion_edicion(df, peticion.instruccion)
@@ -226,7 +245,8 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave)) -> dict
 
 
 @app.post("/analizar")
-def analizar(peticion: PeticionAnalisis, _: None = Depends(_verificar_clave)) -> dict:
+def analizar(peticion: PeticionAnalisis, _: None = Depends(_verificar_clave),
+             __: None = Depends(_verificar_addin_activo)) -> dict:
     df = _a_dataframe(peticion.datos)
     return {"resumen": resumir(df, "Datos de Excel")}
 

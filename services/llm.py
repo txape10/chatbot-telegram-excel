@@ -2,18 +2,11 @@ import base64
 import json
 import logging
 import pandas as pd
-from groq import Groq
-from config import GROQ_API_KEY, SYSTEM_PROMPT
+
+from config import SYSTEM_PROMPT
+from services.llm_provider import obtener_proveedor
 
 logger = logging.getLogger(__name__)
-
-_cliente = Groq(api_key=GROQ_API_KEY, timeout=60.0)
-MODELO        = "llama-3.3-70b-versatile"
-MODELO_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
-MODELO_AUDIO  = "whisper-large-v3-turbo"
-
-# Margen de seguridad bajo el límite de 12 000 TPM del tier gratuito de Groq
-_MAX_TOKENS_PETICION = 9_000
 
 
 def _estimar_tokens(texto: str) -> int:
@@ -23,15 +16,15 @@ def _estimar_tokens(texto: str) -> int:
 
 def _construir_mensajes(historial: list[dict], pregunta: str) -> list[dict]:
     """Construye la lista de mensajes ajustando el historial si la petición
-    supera el presupuesto de tokens."""
+    supera el presupuesto de tokens del proveedor activo."""
+    proveedor = obtener_proveedor()
     mensajes_sistema = [{"role": "system", "content": SYSTEM_PROMPT}]
     tokens_fijos = _estimar_tokens(SYSTEM_PROMPT) + _estimar_tokens(pregunta)
-    presupuesto_historial = _MAX_TOKENS_PETICION - tokens_fijos
+    presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
 
-    # Recortar historial por el principio (mensajes más antiguos) hasta que quepa
     historial_valido = list(historial)
     while historial_valido and _estimar_tokens(str(historial_valido)) > presupuesto_historial:
-        historial_valido = historial_valido[2:]   # eliminar par user+model más antiguo
+        historial_valido = historial_valido[2:]
         logger.debug("Historial recortado a %d mensajes por límite de tokens", len(historial_valido))
 
     mensajes_historial = []
@@ -46,21 +39,22 @@ def obtener_respuesta(historial: list[dict], pregunta: str) -> str:
     mensajes = _construir_mensajes(historial, pregunta)
     tokens_estimados = _estimar_tokens(str(mensajes))
     logger.info("Petición LLM — tokens estimados: %d", tokens_estimados)
+    return obtener_proveedor().chat(mensajes)
 
-    respuesta = _cliente.chat.completions.create(
-        model=MODELO,
-        messages=mensajes,
-    )
-    return respuesta.choices[0].message.content
+
+def _limpiar_json(texto: str) -> str:
+    """Elimina bloques de código markdown que el LLM añade por error."""
+    if "```" in texto:
+        lineas = [l for l in texto.splitlines() if not l.startswith("```")]
+        texto = "\n".join(lineas).strip()
+    return texto
 
 
 def extraer_estructura_excel(pregunta: str) -> dict | None:
     """Interpreta la descripción del usuario y devuelve la estructura JSON para crear el xlsx."""
     from prompts.excel import CREAR_EXCEL_SISTEMA, CREAR_EXCEL_USUARIO
-
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": CREAR_EXCEL_SISTEMA},
                 {"role": "user",   "content": CREAR_EXCEL_USUARIO.format(pregunta=pregunta)},
@@ -68,15 +62,8 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
             temperature=0,
             max_tokens=800,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Estructura Excel del LLM: %s", texto)
-
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        return json.loads(texto)
-
+        return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
         logger.warning("Error extrayendo estructura Excel: %s", error)
         return None
@@ -93,82 +80,51 @@ def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
-    mensaje_usuario = EDITOR_DSL_USUARIO.format(
-        columnas=columnas,
-        tipos=tipos,
-        muestra=muestra,
-        pregunta=pregunta,
-    )
-
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": EDITOR_DSL_SISTEMA},
-                {"role": "user",   "content": mensaje_usuario},
+                {"role": "user",   "content": EDITOR_DSL_USUARIO.format(
+                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
+                )},
             ],
             temperature=0,
             max_tokens=400,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Respuesta editor DSL del LLM: %s", texto)
-
+        texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
-
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        return json.loads(texto)
-
+        return json.loads(_limpiar_json(texto))
     except Exception as error:
         logger.warning("Error extrayendo operación de edición: %s", error)
         return None
 
 
 def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
-    """Llama al LLM con el prompt DSL y parsea el JSON resultante.
-
-    Devuelve el dict de query si la pregunta es una consulta de datos,
-    o None si el LLM responde RESPUESTA_LIBRE o si falla el parseo.
-    """
+    """Llama al LLM con el prompt DSL y parsea el JSON resultante."""
     from prompts.excel import QUERY_DSL_SISTEMA, QUERY_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
-    mensaje_usuario = QUERY_DSL_USUARIO.format(
-        columnas=columnas,
-        tipos=tipos,
-        muestra=muestra,
-        pregunta=pregunta,
-    )
-
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": QUERY_DSL_SISTEMA},
-                {"role": "user",   "content": mensaje_usuario},
+                {"role": "user",   "content": QUERY_DSL_USUARIO.format(
+                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
+                )},
             ],
             temperature=0,
             max_tokens=300,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Respuesta DSL del LLM: %s", texto)
-
+        texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
-
-        # Limpiar posibles bloques de código markdown que el LLM añada por error
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        return json.loads(texto)
-
+        return json.loads(_limpiar_json(texto))
     except Exception as error:
         logger.warning("Error extrayendo query DSL: %s", error)
         return None
@@ -176,99 +132,62 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
 
 def extraer_operacion_combinar(df1: pd.DataFrame, df2: pd.DataFrame,
                                pregunta: str) -> dict:
-    """Extrae la columna clave y tipo de join para combinar dos DataFrames.
-
-    Devuelve siempre un dict (puede tener col=None si no se especificó columna).
-    """
+    """Extrae la columna clave y tipo de join para combinar dos DataFrames."""
     from prompts.excel import COMBINAR_DSL_SISTEMA, COMBINAR_DSL_USUARIO
 
-    cols_a      = ", ".join(f"'{c}'" for c in df1.columns)
-    cols_b      = ", ".join(f"'{c}'" for c in df2.columns)
-    cols_comunes = ", ".join(
-        f"'{c}'" for c in df1.columns if c in df2.columns
-    ) or "ninguna"
-
-    mensaje_usuario = COMBINAR_DSL_USUARIO.format(
-        cols_a=cols_a,
-        cols_b=cols_b,
-        cols_comunes=cols_comunes,
-        pregunta=pregunta,
-    )
+    cols_a       = ", ".join(f"'{c}'" for c in df1.columns)
+    cols_b       = ", ".join(f"'{c}'" for c in df2.columns)
+    cols_comunes = ", ".join(f"'{c}'" for c in df1.columns if c in df2.columns) or "ninguna"
 
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": COMBINAR_DSL_SISTEMA},
-                {"role": "user",   "content": mensaje_usuario},
+                {"role": "user",   "content": COMBINAR_DSL_USUARIO.format(
+                    cols_a=cols_a, cols_b=cols_b, cols_comunes=cols_comunes, pregunta=pregunta,
+                )},
             ],
             temperature=0,
             max_tokens=100,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Respuesta combinar DSL del LLM: %s", texto)
-
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        return json.loads(texto)
-
+        return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
         logger.warning("Error extrayendo operación combinar: %s", error)
         return {"col": None, "como": "inner"}
 
 
 def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
-    """Extrae los parámetros del gráfico pedido en lenguaje natural.
-
-    Devuelve un dict {col_x, col_y, tipo, agregar} o None si falla el parseo.
-    """
+    """Extrae los parámetros del gráfico pedido en lenguaje natural."""
     from prompts.excel import GRAFICO_DSL_SISTEMA, GRAFICO_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
 
-    mensaje_usuario = GRAFICO_DSL_USUARIO.format(
-        columnas=columnas,
-        tipos=tipos,
-        pregunta=pregunta,
-    )
-
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": GRAFICO_DSL_SISTEMA},
-                {"role": "user",   "content": mensaje_usuario},
+                {"role": "user",   "content": GRAFICO_DSL_USUARIO.format(
+                    columnas=columnas, tipos=tipos, pregunta=pregunta,
+                )},
             ],
             temperature=0,
             max_tokens=150,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Respuesta gráfico DSL del LLM: %s", texto)
-
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        return json.loads(texto)
-
+        return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
         logger.warning("Error extrayendo petición de gráfico: %s", error)
         return None
 
 
 def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
-    """Convierte una descripción de macro en una lista de operaciones DSL.
-
-    Devuelve una lista de dicts o None si falla el parseo.
-    """
+    """Convierte una descripción de macro en una lista de operaciones DSL."""
     from prompts.excel import MACRO_DSL_SISTEMA, MACRO_DSL_USUARIO
 
     try:
-        respuesta = _cliente.chat.completions.create(
-            model=MODELO,
+        texto = obtener_proveedor().chat(
             messages=[
                 {"role": "system", "content": MACRO_DSL_SISTEMA},
                 {"role": "user",   "content": MACRO_DSL_USUARIO.format(descripcion=descripcion)},
@@ -276,44 +195,26 @@ def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
             temperature=0,
             max_tokens=400,
         )
-        texto = respuesta.choices[0].message.content.strip()
         logger.debug("Operaciones macro del LLM: %s", texto)
-
-        if "```" in texto:
-            lineas = [l for l in texto.splitlines() if not l.startswith("```")]
-            texto = "\n".join(lineas).strip()
-
-        ops = json.loads(texto)
-        if isinstance(ops, list):
-            return ops
-        return None
-
+        ops = json.loads(_limpiar_json(texto.strip()))
+        return ops if isinstance(ops, list) else None
     except Exception as error:
         logger.warning("Error extrayendo operaciones de macro: %s", error)
         return None
 
 
 def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
-    """Transcribe un mensaje de voz usando Groq Whisper.
-
-    Devuelve el texto transcrito. Lanza excepción si el audio no es válido.
-    """
-    transcripcion = _cliente.audio.transcriptions.create(
-        file=(filename, audio_bytes),
-        model=MODELO_AUDIO,
-        language="es",
-    )
-    return transcripcion.text.strip()
+    """Transcribe un mensaje de voz usando el proveedor activo."""
+    return obtener_proveedor().transcribir(audio_bytes, filename)
 
 
 def analizar_imagen(imagen_bytes: bytes, pregunta: str = "") -> str:
-    """Analiza una captura de pantalla de Excel usando un modelo con visión."""
+    """Analiza una captura de pantalla de Excel usando visión IA."""
     imagen_b64 = base64.standard_b64encode(imagen_bytes).decode("utf-8")
     texto_usuario = (
         pregunta if pregunta
         else "Analiza esta captura de Excel y explica qué hace, qué fórmulas usa y cómo podría mejorarla."
     )
-
     mensajes = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -324,9 +225,4 @@ def analizar_imagen(imagen_bytes: bytes, pregunta: str = "") -> str:
             ],
         },
     ]
-
-    respuesta = _cliente.chat.completions.create(
-        model=MODELO_VISION,
-        messages=mensajes,
-    )
-    return respuesta.choices[0].message.content
+    return obtener_proveedor().vision(mensajes)
