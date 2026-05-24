@@ -7,3 +7,6 @@ matplotlib==3.9.4
 pillow==11.2.1
 edge-tts==6.1.12
 pytest==8.3.5
+fastapi==0.115.12
+uvicorn==0.34.3
+aiofiles==24.1.0

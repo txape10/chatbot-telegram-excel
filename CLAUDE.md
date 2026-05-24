@@ -24,6 +24,13 @@ Un bot de Telegram que:
 - Permite guardar y ejecutar macros personales (secuencias de operaciones con nombre)
 - Es accesible desde cualquier dispositivo con Telegram instalado
 
+## Principios Karpathy
+
+- No asumo ni complico sin preguntar
+- Código mínimo que resuelve el problema (sin abstracciones especulativas)
+- Cambios quirúrgicos: solo toco lo solicitado, respeto código existente
+- Define éxito con tests/verificación antes de empezar
+
 ## HOW — Stack técnico y decisiones tomadas
 
 ### Lenguaje

@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from utils.history import limpiar_historial
 from utils.excel_context import borrar_contexto
 from utils.df_context import borrar_todo
-from utils.file_meta import borrar_meta
+from utils.file_meta import borrar_meta, obtener_meta
 from utils.auth import solo_autorizados
 from services.llm import obtener_respuesta
 from excel.exporter import crear_ejemplo as crear_ejemplo_xlsx, crear_plantilla, crear_tabla_dinamica

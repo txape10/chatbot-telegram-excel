@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: asistente-excel
+    runtime: python
+    pythonVersion: "3.11.0"
+    buildCommand: pip install -r requirements.txt && cd excel-addin && npm install && npm run build
+    startCommand: python api.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
