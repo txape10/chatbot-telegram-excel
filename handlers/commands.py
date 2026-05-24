@@ -35,13 +35,16 @@ MENSAJE_BIENVENIDA = (
     "/estado — ver qué archivo tienes activo en sesión\n"
     "/limpiar — borrar historial y archivo activo\n\n"
     "🔌 *Instalar el Add-in de Excel (una sola vez):*\n\n"
-    "*Paso 1* — Abre PowerShell como Administrador:\n"
-    "Inicio → busca PowerShell → botón derecho → _Ejecutar como administrador_\n\n"
-    "*Paso 2* — Pega y ejecuta este comando:\n"
-    "`powershell -ExecutionPolicy Bypass -c \"iex (iwr 'https://raw.githubusercontent.com/txape10/chatbot-telegram-excel/main/scripts/instalar_addin.ps1' -UseBasicParsing).Content\"`\n\n"
-    "*Paso 3* — El script descarga el complemento, comparte la carpeta "
-    "y te muestra los pasos exactos a seguir en Excel.\n\n"
-    "✅ Cuando termines verás el botón *Abrir asistente* en la pestaña Inicio de Excel."
+    "*Paso 1* — Descarga el instalador:\n"
+    "https://raw.githubusercontent.com/txape10/chatbot-telegram-excel/main/scripts/instalar_addin.bat\n\n"
+    "*Paso 2* — Doble clic en el archivo descargado\n"
+    "→ Acepta el aviso de UAC (control de cuentas) si aparece\n\n"
+    "*Paso 3* — El instalador hace todo automáticamente:\n"
+    "crea la carpeta, descarga el complemento, lo comparte en red "
+    "y lo registra en el Centro de confianza de Excel.\n\n"
+    "✅ Cierra Excel y vuelve a abrirlo.\n"
+    "Insertar → Mis complementos → Mi organización → Asistente Excel → Agregar\n\n"
+    "El botón *Abrir asistente* aparecerá en la pestaña Inicio."
 )
 
 MENSAJE_AYUDA = (

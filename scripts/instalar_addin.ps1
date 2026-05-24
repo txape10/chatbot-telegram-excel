@@ -1,81 +1,119 @@
 # ==============================================================================
-# Instalador del Add-in "Asistente Excel"
-# ==============================================================================
-# Ejecutar en PowerShell como Administrador:
-#   powershell -ExecutionPolicy Bypass -c "iex (iwr 'https://raw.githubusercontent.com/txape10/chatbot-telegram-excel/main/scripts/instalar_addin.ps1' -UseBasicParsing).Content"
+# Instalador automatico del Add-in "Asistente Excel"
+# Ejecutado por instalar_addin.bat con privilegios de administrador
 # ==============================================================================
 
-$carpeta    = "C:\Complementos\AsistenteExcel"
-$destino    = "$carpeta\manifest.xml"
+$carpeta     = "C:\Complementos\AsistenteExcel"
+$destino     = "$carpeta\manifest.xml"
 $urlManifest = "https://asistente-excel.onrender.com/manifest.xml"
-$nombreShare = "AsistenteExcel"
+$shareName   = "AsistenteExcel"
+
+# Versiones de Office a registrar (16.0 = 2016/2019/2021/365)
+$officeVersions = @("16.0", "15.0")
+
+function Write-Ok($msg)    { Write-Host "[OK] $msg"    -ForegroundColor Green  }
+function Write-Warn($msg)  { Write-Host "[AVISO] $msg" -ForegroundColor Yellow }
+function Write-Fail($msg)  { Write-Host "[ERROR] $msg" -ForegroundColor Red    }
+function Write-Step($msg)  { Write-Host "`n--- $msg" -ForegroundColor Cyan    }
 
 Write-Host ""
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   Instalador -- Asistente Excel Add-in    " -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "   Instalador -- Asistente Excel Add-in   " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
 
 # ── 1. Crear carpeta ──────────────────────────────────────────────────────────
+Write-Step "Creando carpeta"
 if (-not (Test-Path $carpeta)) {
     New-Item -ItemType Directory -Path $carpeta -Force | Out-Null
-    Write-Host "[OK] Carpeta creada: $carpeta" -ForegroundColor Green
+    Write-Ok "Carpeta creada: $carpeta"
 } else {
-    Write-Host "[OK] Carpeta ya existe: $carpeta" -ForegroundColor Green
+    Write-Ok "Carpeta ya existe: $carpeta"
 }
 
 # ── 2. Descargar manifest.xml ─────────────────────────────────────────────────
-Write-Host "     Descargando manifest.xml desde Render..." -ForegroundColor Yellow
+Write-Step "Descargando complemento desde Render"
 try {
     Invoke-WebRequest -Uri $urlManifest -OutFile $destino -UseBasicParsing -ErrorAction Stop
-    Write-Host "[OK] Archivo descargado correctamente" -ForegroundColor Green
+    Write-Ok "manifest.xml descargado correctamente"
 } catch {
-    Write-Host "[ERROR] No se pudo descargar el archivo: $_" -ForegroundColor Red
-    Write-Host "        Comprueba que tienes conexion a Internet e intentalo de nuevo." -ForegroundColor Red
-    Read-Host "Pulsa Intro para salir"
+    Write-Fail "No se pudo descargar: $_"
+    Write-Host "`nComprueba que tienes conexion a Internet e intentalo de nuevo." -ForegroundColor Red
+    Read-Host "`nPulsa Intro para salir"
     exit 1
 }
 
 # ── 3. Compartir la carpeta como recurso de red ───────────────────────────────
-$rutaCatalogo = $carpeta   # ruta local como fallback
+Write-Step "Compartiendo carpeta en red"
+$rutaCatalogo = $carpeta   # fallback: ruta local
 
 try {
-    $shareExiste = Get-SmbShare -Name $nombreShare -ErrorAction SilentlyContinue
+    $shareExiste = Get-SmbShare -Name $shareName -ErrorAction SilentlyContinue
     if ($shareExiste) {
-        Write-Host "[OK] Recurso compartido ya existe: \\$env:COMPUTERNAME\$nombreShare" -ForegroundColor Green
-        $rutaCatalogo = "\\$env:COMPUTERNAME\$nombreShare"
+        Write-Ok "Recurso compartido ya existe"
+        $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
     } else {
-        New-SmbShare -Name $nombreShare -Path $carpeta -ReadAccess "Everyone" -ErrorAction Stop | Out-Null
-        Write-Host "[OK] Carpeta compartida: \\$env:COMPUTERNAME\$nombreShare" -ForegroundColor Green
-        $rutaCatalogo = "\\$env:COMPUTERNAME\$nombreShare"
+        New-SmbShare -Name $shareName -Path $carpeta -ReadAccess "Everyone" -ErrorAction Stop | Out-Null
+        Write-Ok "Carpeta compartida como \\$env:COMPUTERNAME\$shareName"
+        $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
     }
 } catch {
-    Write-Host "[AVISO] No se pudo compartir la carpeta automaticamente." -ForegroundColor Yellow
-    Write-Host "        Se usara la ruta local: $carpeta" -ForegroundColor Yellow
-    Write-Host "        (Esto funciona igualmente si solo lo usas tu en este PC)" -ForegroundColor Yellow
+    Write-Warn "No se pudo compartir automaticamente. Se registrara la ruta local."
+    $rutaCatalogo = $carpeta
 }
 
-# ── 4. Instrucciones finales ──────────────────────────────────────────────────
+# ── 4. Registrar catalogo en el Centro de confianza de Excel ─────────────────
+Write-Step "Registrando catalogo en Excel (Centro de confianza)"
+
+$registrado = $false
+foreach ($ver in $officeVersions) {
+    $basePath = "HKCU:\Software\Microsoft\Office\$ver"
+    if (-not (Test-Path $basePath)) { continue }
+
+    $catalogPath = "$basePath\WEF\TrustedCatalogs"
+    if (-not (Test-Path $catalogPath)) {
+        New-Item -Path $catalogPath -Force | Out-Null
+    }
+
+    # Comprobar si ya esta registrado con esta URL
+    $yaExiste = Get-ChildItem $catalogPath -ErrorAction SilentlyContinue | Where-Object {
+        (Get-ItemProperty $_.PSPath -Name "Url" -ErrorAction SilentlyContinue).Url -eq $rutaCatalogo
+    }
+
+    if ($yaExiste) {
+        Write-Ok "Catalogo ya registrado en Office $ver"
+        $registrado = $true
+        continue
+    }
+
+    # Crear nueva entrada con GUID unico
+    $guid     = [System.Guid]::NewGuid().ToString("B").ToUpper()
+    $entryPath = "$catalogPath\$guid"
+    New-Item -Path $entryPath -Force | Out-Null
+    Set-ItemProperty -Path $entryPath -Name "Id"    -Value $guid
+    Set-ItemProperty -Path $entryPath -Name "Url"   -Value $rutaCatalogo
+    Set-ItemProperty -Path $entryPath -Name "Flags" -Value 1 -Type DWord
+
+    Write-Ok "Catalogo registrado en Office $ver → $rutaCatalogo"
+    $registrado = $true
+}
+
+if (-not $registrado) {
+    Write-Warn "No se encontro ninguna instalacion de Office/Excel en el registro."
+    Write-Warn "Anade el catalogo manualmente: Archivo > Opciones > Centro de confianza"
+}
+
+# ── 5. Resultado ──────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   Instalacion completada. Pasos en Excel  " -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "   Instalacion completada correctamente   " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  1. Abre Excel y ve a:" -ForegroundColor White
-Write-Host "     Archivo > Opciones > Centro de confianza" -ForegroundColor White
-Write-Host "     > Configuracion del Centro de confianza" -ForegroundColor White
-Write-Host "     > Catalogos de complementos de confianza" -ForegroundColor White
+Write-Host "Ultimo paso:" -ForegroundColor White
 Write-Host ""
-Write-Host "  2. En 'URL del catalogo' escribe exactamente:" -ForegroundColor White
-Write-Host "     $rutaCatalogo" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "  3. Haz clic en 'Agregar catalogo'" -ForegroundColor White
-Write-Host "     Marca 'Mostrar en menu' > Aceptar" -ForegroundColor White
-Write-Host ""
-Write-Host "  4. CIERRA Excel y vuelve a abrirlo" -ForegroundColor White
-Write-Host ""
-Write-Host "  5. Insertar > Mis complementos > Mi organizacion" -ForegroundColor White
-Write-Host "     > Asistente Excel > Agregar" -ForegroundColor White
+Write-Host "  1. CIERRA Excel completamente si esta abierto" -ForegroundColor Yellow
+Write-Host "  2. Vuelve a abrir Excel" -ForegroundColor Yellow
+Write-Host "  3. Insertar > Mis complementos > Mi organizacion" -ForegroundColor Yellow
+Write-Host "     > Asistente Excel > Agregar" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  El boton 'Abrir asistente' aparecera en la pestana Inicio." -ForegroundColor Green
 Write-Host ""
