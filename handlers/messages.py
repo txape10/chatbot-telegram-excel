@@ -5,7 +5,7 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
-from services.llm import (obtener_respuesta, extraer_query_dsl,
+from services.llm import (LLMError, obtener_respuesta, extraer_query_dsl,
                           extraer_operacion_edicion, extraer_estructura_excel,
                           extraer_operacion_combinar, extraer_peticion_grafico,
                           extraer_operaciones_macro)
@@ -472,6 +472,9 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     except TelegramError as error:
         logger.error("Error de Telegram para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ Error al enviar la respuesta. Inténtalo de nuevo.")
+    except LLMError as error:
+        logger.warning("Error LLM para user_id %s [%s]: %s", user_id, error.tipo, error)
+        await mensaje_carga.edit_text(error.mensaje_usuario)
     except Exception as error:
         logger.error("Error inesperado para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text(
@@ -562,6 +565,9 @@ async def _responder_con_llm(update: Update, user_id: int, pregunta: str,
         agregar_mensaje(user_id, "user", pregunta)
         agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
+    except LLMError as error:
+        logger.warning("Error LLM fallback para user_id %s [%s]: %s", user_id, error.tipo, error)
+        await mensaje_carga.edit_text(error.mensaje_usuario)
     except Exception as error:
         logger.error("Error LLM fallback para user_id %s: %s", user_id, error)
         await mensaje_carga.edit_text("⚠️ Error al obtener respuesta. Inténtalo de nuevo.")
@@ -1147,6 +1153,12 @@ async def _explicar_archivo(update: Update, user_id: int, df) -> None:
         agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
 
+    except LLMError as error:
+        logger.warning("Error LLM explicando archivo para user_id %s [%s]: %s", user_id, error.tipo, error)
+        try:
+            await mensaje_carga.edit_text(error.mensaje_usuario)
+        except Exception:
+            pass
     except Exception as error:
         logger.error("Error explicando archivo para user_id %s: %s", user_id, error, exc_info=True)
         try:

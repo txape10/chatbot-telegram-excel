@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes
 
 from utils.auth import solo_autorizados
 from utils.user_prefs import ya_fue_preguntado_modo, marcar_preguntado_modo
-from services.llm import transcribir_audio
+from services.llm import LLMError, transcribir_audio
 from handlers.messages import procesar_pregunta
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,12 @@ async def recibir_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 reply_markup=_TECLADO_MODO,
             )
 
+    except LLMError as error:
+        logger.warning("Error LLM voz para user_id %s [%s]: %s", update.effective_user.id, error.tipo, error)
+        try:
+            await mensaje_carga.edit_text(error.mensaje_usuario)
+        except Exception:
+            pass
     except Exception as error:
         logger.error("Error transcribiendo voz para user_id %s: %s",
                      update.effective_user.id, error, exc_info=True)
@@ -103,6 +109,12 @@ async def recibir_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         await procesar_pregunta(update, context, texto)
 
+    except LLMError as error:
+        logger.warning("Error LLM audio para user_id %s [%s]: %s", update.effective_user.id, error.tipo, error)
+        try:
+            await mensaje_carga.edit_text(error.mensaje_usuario)
+        except Exception:
+            pass
     except Exception as error:
         logger.error("Error transcribiendo audio para user_id %s: %s",
                      update.effective_user.id, error, exc_info=True)

@@ -30,6 +30,47 @@ from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Excepción propia — errores controlados del proveedor de IA
+# ---------------------------------------------------------------------------
+
+class LLMError(Exception):
+    """Error del proveedor de IA con mensaje listo para mostrar al usuario."""
+
+    # Mensajes por tipo de error
+    _MENSAJES = {
+        "rate_limit":  "⏳ El servicio de IA está saturado ahora mismo. Espera unos segundos e inténtalo de nuevo.",
+        "timeout":     "⏰ La IA tardó demasiado en responder. Inténtalo de nuevo.",
+        "conexion":    "🌐 No se pudo conectar con el servicio de IA. Comprueba tu conexión a Internet.",
+        "auth":        "🔑 Error de autenticación con el servicio de IA. Contacta con el administrador.",
+        "limite":      "📏 El texto es demasiado largo para procesarlo de una vez. Prueba con una pregunta más corta o sube un archivo más pequeño.",
+        "generico":    "⚠️ El servicio de IA no está disponible en este momento. Inténtalo de nuevo en unos segundos.",
+    }
+
+    def __init__(self, tipo: str = "generico", detalle: str = ""):
+        self.tipo = tipo
+        self.mensaje_usuario = self._MENSAJES.get(tipo, self._MENSAJES["generico"])
+        super().__init__(detalle or self.mensaje_usuario)
+
+
+def _manejar_error_groq(error: Exception) -> None:
+    """Convierte errores del SDK de Groq en LLMError con mensaje descriptivo."""
+    nombre = type(error).__name__
+    texto  = str(error).lower()
+
+    if nombre == "RateLimitError":
+        raise LLMError("rate_limit", str(error)) from error
+    if nombre == "APITimeoutError":
+        raise LLMError("timeout", str(error)) from error
+    if nombre == "APIConnectionError":
+        raise LLMError("conexion", str(error)) from error
+    if nombre == "AuthenticationError":
+        raise LLMError("auth", str(error)) from error
+    if nombre == "BadRequestError" and ("413" in texto or "too large" in texto or "tokens" in texto):
+        raise LLMError("limite", str(error)) from error
+    raise LLMError("generico", str(error)) from error
+
 # Presupuesto de tokens por petición.
 # Groq free tier: ~12 000 TPM → margen de 9 000.
 # Otros proveedores: límite mucho más alto.
@@ -81,26 +122,44 @@ class GroqProvider(LLMProvider):
         self.modelo_audio   = os.getenv("LLM_MODEL_AUDIO",  "whisper-large-v3-turbo")
 
     def chat(self, messages, temperature=0.7, max_tokens=None):
-        kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
-        respuesta = self._cliente.chat.completions.create(**kwargs)
-        return respuesta.choices[0].message.content
+        try:
+            kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
+            if max_tokens:
+                kwargs["max_tokens"] = max_tokens
+            respuesta = self._cliente.chat.completions.create(**kwargs)
+            return respuesta.choices[0].message.content
+        except LLMError:
+            raise
+        except Exception as error:
+            logger.warning("Groq chat error: %s", error)
+            _manejar_error_groq(error)
 
     def transcribir(self, audio_bytes, filename="audio.ogg"):
-        transcripcion = self._cliente.audio.transcriptions.create(
-            file=(filename, audio_bytes),
-            model=self.modelo_audio,
-            language="es",
-        )
-        return transcripcion.text.strip()
+        try:
+            transcripcion = self._cliente.audio.transcriptions.create(
+                file=(filename, audio_bytes),
+                model=self.modelo_audio,
+                language="es",
+            )
+            return transcripcion.text.strip()
+        except LLMError:
+            raise
+        except Exception as error:
+            logger.warning("Groq transcripción error: %s", error)
+            _manejar_error_groq(error)
 
     def vision(self, messages):
-        respuesta = self._cliente.chat.completions.create(
-            model=self.modelo_vision,
-            messages=messages,
-        )
-        return respuesta.choices[0].message.content
+        try:
+            respuesta = self._cliente.chat.completions.create(
+                model=self.modelo_vision,
+                messages=messages,
+            )
+            return respuesta.choices[0].message.content
+        except LLMError:
+            raise
+        except Exception as error:
+            logger.warning("Groq vision error: %s", error)
+            _manejar_error_groq(error)
 
 
 # ---------------------------------------------------------------------------

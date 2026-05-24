@@ -4,7 +4,9 @@ import logging
 import pandas as pd
 
 from config import SYSTEM_PROMPT
-from services.llm_provider import obtener_proveedor
+from services.llm_provider import LLMError, obtener_proveedor  # noqa: F401 — re-exportado
+
+__all__ = ["LLMError"]
 
 logger = logging.getLogger(__name__)
 
