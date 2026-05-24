@@ -557,19 +557,19 @@ Borra el historial de conversación y libera los archivos activos (activo, secun
 No de forma permanente. Los archivos se procesan en memoria y se eliminan al limpiar la sesión o al reiniciar el bot. Solo se guardan en SQLite las preferencias de usuario, el historial de conversación y las macros que tú guardes explícitamente. Si activas el modo privado (`/privado`), ni siquiera el historial se guarda.
 
 **¿Qué pasa si subo un archivo muy grande?**
-El bot tiene límites configurables (por defecto: 500.000 filas, 200 columnas, 10 hojas). Si tu archivo los supera, recibirás un mensaje de aviso.
+El bot tiene límites de seguridad (por defecto: 50.000 filas, 100 columnas, 10 hojas). Si tu archivo los supera, recibirás un mensaje de aviso.
 
 **¿El bot puede ejecutar código en mi PC?**
 No. Todas las operaciones sobre datos usan un lenguaje de instrucciones estructurado (DSL). El LLM extrae la intención y la convierte en una operación concreta, pero nunca se ejecuta código arbitrario.
 
 **¿Funciona si el PC está apagado?**
-No. El bot corre en local. Para que esté disponible 24/7 habría que desplegarlo en un servidor (está en el roadmap).
+Sí. El bot está desplegado en la nube y funciona 24/7 sin necesidad de tener ningún PC encendido. La primera respuesta del día puede tardar unos segundos mientras el servicio se activa.
 
 **¿El bot entiende español con acento?**
 Sí, tanto el texto como el audio. La transcripción de voz usa Groq Whisper con idioma configurado en español.
 
 **¿Puedo usarlo desde el móvil?**
-Sí. Al estar el bot en Telegram, funciona desde cualquier dispositivo (móvil, tablet, otro PC) donde tengas Telegram instalado, siempre que el PC donde corre el bot esté encendido.
+Sí. Al estar el bot en Telegram, funciona desde cualquier dispositivo (móvil, tablet, otro PC) donde tengas Telegram instalado.
 
 **El bot tardó mucho en responder, ¿es normal?**
 Las operaciones sobre archivos grandes (estadísticas, correlaciones, tendencias) pueden tardar unos segundos. El bot siempre envía un mensaje de "⏳ Procesando…" mientras trabaja. Las preguntas simples de texto suelen responderse en menos de 2 segundos.
