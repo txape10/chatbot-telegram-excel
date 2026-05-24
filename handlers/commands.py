@@ -23,27 +23,25 @@ MENSAJE_BIENVENIDA = (
     "Puedo ayudarte con fórmulas, tablas dinámicas, formato condicional, "
     "gráficos, macros/VBA, Power Query y mucho más.\n\n"
     "📎 *También puedes subir archivos:*\n"
-    "· Sube un `.xlsx` o `.csv` → analizo, resumo y genero un gráfico\n"
+    "· Sube un .xlsx o .csv → analizo, resumo y genero un gráfico\n"
     "· Luego pregúntame sobre los datos en lenguaje natural\n"
     "· Puedo modificar el archivo y devolvértelo\n\n"
     "📌 *Comandos disponibles:*\n"
     "/ayuda — categorías de temas con ejemplos\n"
     "/ejemplo — función de Excel explicada paso a paso\n"
-    "/generar — genera un `.xlsx` de ejemplo de una función\n"
+    "/generar — genera un .xlsx de ejemplo de una función\n"
     "/plantilla — plantillas listas (presupuesto, KPIs, gastos...)\n"
     "/version — indica tu versión de Excel para respuestas exactas\n"
     "/estado — ver qué archivo tienes activo en sesión\n"
     "/limpiar — borrar historial y archivo activo\n\n"
-    "🔌 *Add-in de Excel — instalación:*\n\n"
-    "*Paso 1* — Descarga el archivo del complemento:\n"
-    "https://asistente-excel\\.onrender\\.com/manifest\\.xml\n"
-    "\\(clic derecho → Guardar como → guárdalo en el escritorio\\)\n\n"
-    "*Paso 2* — En Excel:\n"
-    "Insertar → Mis complementos → botón de tres puntos ⋯ o *Cargar complemento*\n"
-    "→ selecciona el archivo `manifest.xml` que acabas de guardar\n\n"
-    "*Paso 3* — El botón *Abrir asistente* aparece en la pestaña Inicio\n\n"
-    "⚠️ Si no ves *Cargar complemento*: Archivo → Opciones → Centro de confianza "
-    "→ Configuración → Catálogos de complementos de confianza → activa *Mostrar en menú*"
+    "🔌 *Instalar el Add-in de Excel (una sola vez):*\n\n"
+    "*Paso 1* — Abre PowerShell como Administrador:\n"
+    "Inicio → busca PowerShell → botón derecho → _Ejecutar como administrador_\n\n"
+    "*Paso 2* — Pega y ejecuta este comando:\n"
+    "`powershell -ExecutionPolicy Bypass -c \"iex (iwr 'https://raw.githubusercontent.com/txape10/chatbot-telegram-excel/main/scripts/instalar_addin.ps1' -UseBasicParsing).Content\"`\n\n"
+    "*Paso 3* — El script descarga el complemento, comparte la carpeta "
+    "y te muestra los pasos exactos a seguir en Excel.\n\n"
+    "✅ Cuando termines verás el botón *Abrir asistente* en la pestaña Inicio de Excel."
 )
 
 MENSAJE_AYUDA = (
@@ -71,7 +69,7 @@ FUNCIONES_EXCEL = [
 
 @solo_autorizados
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(MENSAJE_BIENVENIDA)
+    await update.message.reply_text(MENSAJE_BIENVENIDA, parse_mode="Markdown")
 
 
 @solo_autorizados
