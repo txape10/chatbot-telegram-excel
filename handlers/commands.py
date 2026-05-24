@@ -34,12 +34,16 @@ MENSAJE_BIENVENIDA = (
     "/version — indica tu versión de Excel para respuestas exactas\n"
     "/estado — ver qué archivo tienes activo en sesión\n"
     "/limpiar — borrar historial y archivo activo\n\n"
-    "🔌 *Add-in de Excel — instalación:*\n"
-    "1\\. Abre Excel → Insertar → Complementos → Mis complementos\n"
-    "2\\. Elige *Cargar complemento* e introduce esta URL:\n"
-    "`https://asistente-excel.onrender.com/manifest.xml`\n"
-    "3\\. Aparecerá el botón *Abrir asistente* en la cinta Inicio\n\n"
-    "⚠️ Necesitas usar el correo de tu cuenta de Microsoft para que el sistema te reconozca."
+    "🔌 *Add-in de Excel — instalación:*\n\n"
+    "*Paso 1* — Descarga el archivo del complemento:\n"
+    "https://asistente-excel\\.onrender\\.com/manifest\\.xml\n"
+    "\\(clic derecho → Guardar como → guárdalo en el escritorio\\)\n\n"
+    "*Paso 2* — En Excel:\n"
+    "Insertar → Mis complementos → botón de tres puntos ⋯ o *Cargar complemento*\n"
+    "→ selecciona el archivo `manifest.xml` que acabas de guardar\n\n"
+    "*Paso 3* — El botón *Abrir asistente* aparece en la pestaña Inicio\n\n"
+    "⚠️ Si no ves *Cargar complemento*: Archivo → Opciones → Centro de confianza "
+    "→ Configuración → Catálogos de complementos de confianza → activa *Mostrar en menú*"
 )
 
 MENSAJE_AYUDA = (
