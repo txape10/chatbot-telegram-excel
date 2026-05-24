@@ -210,7 +210,7 @@ ADDIN_URL=
 
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
 - Panel de administración (estadísticas, gestión usuarios)
-- Tablas dinámicas interactivas nativas (evaluar xlwings vs XML injection)
+- Tablas dinámicas interactivas nativas con **xlwings** (gratuito, requiere Windows + Excel en el servidor). Activación automática: al arrancar se detecta `platform.system() == "Windows"` + `xlwings` disponible → flag `PIVOT_NATIVO_DISPONIBLE`. En Linux (Render) sigue usando la alternativa actual de openpyxl. Implementar cuando esté disponible el servidor Windows de empresa.
 
 ---
 
