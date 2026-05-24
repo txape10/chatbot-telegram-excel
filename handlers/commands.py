@@ -22,11 +22,11 @@ MENSAJE_BIENVENIDA = (
     "👋 ¡Hola! Soy tu asistente personal de Excel con IA.\n\n"
     "Puedo ayudarte con fórmulas, tablas dinámicas, formato condicional, "
     "gráficos, macros/VBA, Power Query y mucho más.\n\n"
-    "📎 *También puedes subir archivos:*\n"
+    "📎 <b>También puedes subir archivos:</b>\n"
     "· Sube un .xlsx o .csv → analizo, resumo y genero un gráfico\n"
     "· Luego pregúntame sobre los datos en lenguaje natural\n"
     "· Puedo modificar el archivo y devolvértelo\n\n"
-    "📌 *Comandos disponibles:*\n"
+    "📌 <b>Comandos disponibles:</b>\n"
     "/ayuda — categorías de temas con ejemplos\n"
     "/ejemplo — función de Excel explicada paso a paso\n"
     "/generar — genera un .xlsx de ejemplo de una función\n"
@@ -34,17 +34,17 @@ MENSAJE_BIENVENIDA = (
     "/version — indica tu versión de Excel para respuestas exactas\n"
     "/estado — ver qué archivo tienes activo en sesión\n"
     "/limpiar — borrar historial y archivo activo\n\n"
-    "🔌 *Instalar el Add-in de Excel (una sola vez):*\n\n"
-    "*Paso 1* — Descarga el instalador:\n"
+    "🔌 <b>Instalar el Add-in de Excel (una sola vez):</b>\n\n"
+    "<b>Paso 1</b> — Descarga el instalador:\n"
     "https://raw.githubusercontent.com/txape10/chatbot-telegram-excel/main/scripts/instalar_addin.bat\n\n"
-    "*Paso 2* — Doble clic en el archivo descargado\n"
+    "<b>Paso 2</b> — Doble clic en el archivo descargado\n"
     "→ Acepta el aviso de UAC (control de cuentas) si aparece\n\n"
-    "*Paso 3* — El instalador hace todo automáticamente:\n"
+    "<b>Paso 3</b> — El instalador hace todo automáticamente:\n"
     "crea la carpeta, descarga el complemento, lo comparte en red "
     "y lo registra en el Centro de confianza de Excel.\n\n"
     "✅ Cierra Excel y vuelve a abrirlo.\n"
     "Insertar → Mis complementos → Mi organización → Asistente Excel → Agregar\n\n"
-    "El botón *Abrir asistente* aparecerá en la pestaña Inicio."
+    "El botón <b>Abrir asistente</b> aparecerá en la pestaña Inicio."
 )
 
 MENSAJE_AYUDA = (
@@ -72,7 +72,7 @@ FUNCIONES_EXCEL = [
 
 @solo_autorizados
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(MENSAJE_BIENVENIDA, parse_mode="Markdown")
+    await update.message.reply_text(MENSAJE_BIENVENIDA, parse_mode="HTML")
 
 
 @solo_autorizados
