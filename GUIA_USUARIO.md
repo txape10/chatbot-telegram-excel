@@ -150,6 +150,17 @@ Con un archivo activo, puedes hacer preguntas directamente sobre los datos:
 
 El bot usa un motor interno estructurado, **no ejecuta código libre**, lo que garantiza que no se modifica nada sin tu permiso.
 
+### Aclaración inteligente
+
+Si tu petición es ambigua o le falta información, el bot no fallará en silencio: te preguntará con botones para que elijas la opción correcta con un clic.
+
+> 🤔 *¿Qué columna quieres ordenar?*
+> - Ordenar por Fecha descendente
+> - Ordenar por Ventas descendente
+> - Ordenar por Nombre ascendente
+
+Si ninguna opción encaja, escribe tu petición con más detalle y el bot lo intentará de nuevo.
+
 ### Previsualizar filas
 
 ```
@@ -564,6 +575,9 @@ No. Todas las operaciones sobre datos usan un lenguaje de instrucciones estructu
 
 **¿Funciona si el PC está apagado?**
 Sí. El bot está desplegado en la nube y funciona 24/7 sin necesidad de tener ningún PC encendido. La primera respuesta del día puede tardar unos segundos mientras el servicio se activa.
+
+**¿El bot solo habla español?**
+No. Detecta automáticamente el idioma en que escribe el usuario y responde en ese mismo idioma. Si escribes en inglés, responde en inglés; si escribes en alemán, responde en alemán. Los comandos del sistema siguen siendo los mismos independientemente del idioma.
 
 **¿El bot entiende español con acento?**
 Sí, tanto el texto como el audio. La transcripción de voz usa Groq Whisper con idioma configurado en español.

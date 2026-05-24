@@ -81,11 +81,12 @@ La empresa puede optar por desplegar solo el Add-in sin el bot de Telegram.
 ## Funcionalidades del bot
 
 ### Conversación y consultas
-- Responde preguntas sobre Excel en español con ejemplos prácticos
+- Responde preguntas sobre Excel en el idioma del usuario (multiidioma automático)
 - Mantiene historial de conversación por usuario (SQLite)
 - Se adapta a la versión de Excel del usuario (`/version`: 365, 2021, 2019, 2016)
 - Escribe `=FORMULA(...)` → explicación paso a paso
 - Mensajes de voz → transcripción Whisper → respuesta en texto o voz (`/modo`)
+- Cuando una petición es ambigua, pregunta con botones en lugar de fallar
 
 ### Análisis de archivos
 - Sube `.xlsx`, `.xls` o `.csv` → resumen, calidad de datos, gráfico automático
@@ -237,6 +238,9 @@ pytest
 - [x] Macros personales, modo privado, deshacer
 - [x] Add-in de Excel (panel lateral, temas visuales, Easter egg)
 - [x] Autenticación por dominio corporativo (sin Azure AD)
+- [x] Aclaración inteligente con InlineKeyboard cuando la petición es ambigua
+- [x] Detección automática del idioma del usuario (multiidioma sin coste adicional)
+- [x] API_KEY del Add-in inyectada en build time (sin valores hardcodeados)
 - [x] Despliegue en Render (cloud gratuito, 24/7)
 - [x] Abstracción de proveedor de IA (Groq/Ollama/Gemini/Mistral/OpenAI/Azure)
 - [x] Módulos activables independientemente (Telegram / Add-in)

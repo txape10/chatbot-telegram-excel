@@ -188,7 +188,7 @@ ADDIN_URL=
 
 ### ✅ Completado
 
-- Bot Telegram con todas las funcionalidades (Fases 1-6 + Sprints A-F4)
+- Bot Telegram con todas las funcionalidades (Fases 1-6 + Sprints A-G)
 - Add-in Excel (temas, autenticación por dominio, Easter egg Zelda)
 - Despliegue en Render (cloud gratuito, 24/7) — betatester activo
 - Abstracción de proveedor IA (6 proveedores)
@@ -197,6 +197,9 @@ ADDIN_URL=
 - Scripts por modo de despliegue (`scripts/`)
 - README completo
 - Documentación para reunión con administrador (`docs/`)
+- **Sprint G**: aclaración inteligente con InlineKeyboard cuando la petición es ambigua
+- **Sprint G**: detección automática de idioma del usuario (multiidioma sin coste)
+- **Fix Add-in**: API_KEY inyectada por webpack DefinePlugin (ya no hardcodeada)
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
