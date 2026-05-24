@@ -24,5 +24,4 @@ Plan_Pruebas_Chatbot_Excel.xlsx
 *.bak
 
 # Documentación interna (no subir a GitHub)
-REUNION_ADMINISTRADOR.md
-PARA_EL_ADMINISTRADOR.md
+docs/
