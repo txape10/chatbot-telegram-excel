@@ -245,7 +245,12 @@ pytest
 - [x] Abstracción de proveedor de IA (Groq/Ollama/Gemini/Mistral/OpenAI/Azure)
 - [x] Módulos activables independientemente (Telegram / Add-in)
 - [x] Instalador interactivo con checklist
+- [x] Instalador one-click del Add-in (`.bat` auto-elevado, SMB share, registro Centro de confianza)
+- [x] Mensajes de error descriptivos cuando el proveedor de IA falla (saturación, timeout, auth…)
+- [x] Add-in UI: barra de archivo activo (libro/hoja/rango en tiempo real) e historial colapsable
+- [ ] Add-in: subir archivo Excel directamente al bot desde el panel lateral
+- [ ] Tests para sprints recientes (G, D1, D2, E1-E3, F1-F4)
 - [ ] Autenticación SSO con Azure Active Directory
 - [ ] Despliegue en servidor de empresa con Cloudflare Tunnel
-- [ ] Tablas dinámicas interactivas nativas
+- [ ] Tablas dinámicas interactivas nativas (Windows + Excel en servidor)
 - [ ] Panel de administración (estadísticas de uso, gestión de usuarios)

@@ -200,6 +200,10 @@ ADDIN_URL=
 - **Sprint G**: aclaración inteligente con InlineKeyboard cuando la petición es ambigua
 - **Sprint G**: detección automática de idioma del usuario (multiidioma sin coste)
 - **Fix Add-in**: API_KEY inyectada por webpack DefinePlugin (ya no hardcodeada)
+- **Seguridad**: eliminadas todas las referencias a empresa/dominios corporativos de archivos públicos
+- **Instalador Add-in**: `scripts/instalar_addin.bat` + `instalar_addin.ps1` — un doble clic instala el complemento, comparte carpeta SMB y registra el catálogo en el Centro de confianza de Excel automáticamente (con opción manual si el antivirus lo bloquea)
+- **Errores LLM**: `LLMError` con mensajes descriptivos por tipo (saturación, timeout, conexión, autenticación, límite de tokens) en todos los handlers
+- **Add-in UI**: barra de archivo activo (libro, hoja, rango en tiempo real) + historial de conversación colapsable con persistencia en localStorage
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 

@@ -17,8 +17,9 @@ Esta guía explica cómo sacar el máximo partido al bot. No hace falta saber pr
 9. [Combinar y comparar archivos](#9-combinar-y-comparar-archivos)
 10. [Macros personales](#10-macros-personales)
 11. [Entrada y respuesta por voz](#11-entrada-y-respuesta-por-voz)
-12. [Comandos de referencia](#12-comandos-de-referencia)
-13. [Preguntas frecuentes](#13-preguntas-frecuentes)
+12. [Add-in de Excel](#12-add-in-de-excel)
+13. [Comandos de referencia](#13-comandos-de-referencia)
+14. [Preguntas frecuentes](#14-preguntas-frecuentes)
 
 ---
 
@@ -528,7 +529,75 @@ En cualquier momento:
 
 ---
 
-## 12. Comandos de referencia
+## 12. Add-in de Excel
+
+El Add-in es un panel lateral dentro de Excel que te permite consultar y modificar tus datos sin salir de la aplicación.
+
+### Instalación (una sola vez)
+
+1. En el bot de Telegram escribe `/start` y descarga el archivo **instalar_addin.bat**
+2. Haz doble clic en el archivo descargado
+3. Acepta el aviso de control de cuentas (UAC) — el instalador necesita permisos de administrador
+4. El instalador realiza todo automáticamente:
+   - Crea la carpeta `C:\Complementos\AsistenteExcel`
+   - Descarga el complemento desde el servidor
+   - Comparte la carpeta en red
+   - Registra el catálogo en el Centro de confianza de Excel
+5. Cierra Excel completamente y vuelve a abrirlo
+6. Ve a **Insertar → Mis complementos → Mi organización → Asistente Excel → Agregar**
+7. El botón **Abrir asistente** aparecerá en la pestaña Inicio
+
+> ⚠️ Si el antivirus bloquea el registro automático, el instalador te ofrecerá la opción **Manual** y te indicará exactamente qué ruta escribir en el Centro de confianza de Excel.
+
+### Panel lateral — qué ves
+
+```
+┌────────────────────────────────┐
+│ 📊 Asistente Excel         ⚙️  │
+├────────────────────────────────┤
+│ 📄 Ventas_2024.xlsx · Enero    │  ← libro y hoja activa
+│ 📍 B2:F45                      │  ← rango seleccionado (en tiempo real)
+├────────────────────────────────┤
+│ [Escribe tu pregunta...]       │
+│ [Preguntar]          Ctrl+↵   │
+├────────────────────────────────┤
+│ [Respuesta]  [Copiar]          │
+├────────────────────────────────┤
+│ 💬 Historial (3)  🗑  ▲        │  ← colapsable, persiste entre sesiones
+└────────────────────────────────┘
+```
+
+### Cómo usarlo
+
+1. **Selecciona un rango** en Excel (una tabla, varias columnas…)
+2. Escribe tu pregunta o instrucción en el cuadro de texto
+3. Pulsa **Preguntar** o `Ctrl + Enter`
+4. Si la respuesta es texto → aparece en el panel con botón **Copiar**
+5. Si la respuesta es una edición → el panel te pregunta **dónde escribir** el resultado:
+   - *Sustituir selección* — sobreescribe el rango original
+   - *A la derecha* — escribe justo a la derecha del rango
+   - *Debajo* — escribe debajo del rango
+   - *Nueva hoja* — crea una hoja nueva con el resultado
+
+### Barra de archivo activo
+
+La barra superior del panel muestra en todo momento:
+- 📄 **Nombre del libro** y **hoja activa**
+- 📍 **Rango seleccionado** — se actualiza automáticamente al cambiar la selección en Excel
+
+### Historial de conversación
+
+El panel guarda tus últimas 20 preguntas y respuestas en el navegador (localStorage). Puedes:
+- **Plegar/desplegar** el historial haciendo clic en la cabecera `💬 Historial`
+- **Limpiar** el historial con el botón 🗑
+
+### Temas visuales
+
+Pulsa ⚙️ en la cabecera para cambiar entre los temas disponibles. Hay un tema secreto que se desbloquea escribiendo una palabra mágica en el cuadro de pregunta. 🎮
+
+---
+
+## 13. Comandos de referencia
 
 | Comando | Descripción |
 |---|---|
@@ -562,7 +631,7 @@ Borra el historial de conversación y libera los archivos activos (activo, secun
 
 ---
 
-## 13. Preguntas frecuentes
+## 14. Preguntas frecuentes
 
 **¿El bot guarda mis archivos?**
 No de forma permanente. Los archivos se procesan en memoria y se eliminan al limpiar la sesión o al reiniciar el bot. Solo se guardan en SQLite las preferencias de usuario, el historial de conversación y las macros que tú guardes explícitamente. Si activas el modo privado (`/privado`), ni siquiera el historial se guarda.
@@ -590,3 +659,12 @@ Las operaciones sobre archivos grandes (estadísticas, correlaciones, tendencias
 
 **¿Cómo sé qué archivo está activo?**
 Usa `/estado` para ver el nombre del archivo activo, sus dimensiones y si hay un archivo secundario o undo disponibles.
+
+**¿El bot da mensajes de error útiles cuando falla?**
+Sí. Si el servicio de IA está saturado verás "⏳ El servicio de IA está saturado ahora mismo. Espera unos segundos e inténtalo de nuevo." Si hay un problema de conexión o la clave ha caducado, el mensaje lo indica explícitamente para que puedas actuar en consecuencia.
+
+**¿El Add-in funciona sin conexión a Internet?**
+No. El panel lateral se conecta al mismo servidor en la nube que el bot de Telegram para procesar las preguntas. Necesita conexión activa.
+
+**El instalador del Add-in dio error de antivirus, ¿qué hago?**
+Vuelve a ejecutar el archivo `.bat`, cuando el instalador pregunte elige la opción **M (Manual)** y te mostrará exactamente la ruta que tienes que pegar en Archivo → Opciones → Centro de confianza → Catálogos de complementos de confianza.
