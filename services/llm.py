@@ -72,7 +72,10 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
 def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
     """Llama al LLM con el prompt de edición y parsea el JSON.
 
-    Devuelve el dict de operación o None si es RESPUESTA_LIBRE o falla el parseo.
+    Devuelve:
+      - dict con la operación DSL     → aplicar edición
+      - {"aclaracion_necesaria": True, "pregunta": ..., "opciones": [...]}  → pedir aclaración
+      - None                           → RESPUESTA_LIBRE o error de parseo
     """
     from prompts.excel import EDITOR_DSL_SISTEMA, EDITOR_DSL_USUARIO
 
@@ -89,20 +92,28 @@ def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
                 )},
             ],
             temperature=0,
-            max_tokens=400,
+            max_tokens=500,
         )
         logger.debug("Respuesta editor DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
-        return json.loads(_limpiar_json(texto))
+        parsed = json.loads(_limpiar_json(texto))
+        # Propagar aclaración tal cual — el handler decide qué hacer
+        return parsed
     except Exception as error:
         logger.warning("Error extrayendo operación de edición: %s", error)
         return None
 
 
 def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
-    """Llama al LLM con el prompt DSL y parsea el JSON resultante."""
+    """Llama al LLM con el prompt DSL y parsea el JSON resultante.
+
+    Devuelve:
+      - dict con la query DSL          → ejecutar consulta
+      - {"aclaracion_necesaria": True, "pregunta": ..., "opciones": [...]}  → pedir aclaración
+      - None                           → RESPUESTA_LIBRE o error de parseo
+    """
     from prompts.excel import QUERY_DSL_SISTEMA, QUERY_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
@@ -118,13 +129,15 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
                 )},
             ],
             temperature=0,
-            max_tokens=300,
+            max_tokens=400,
         )
         logger.debug("Respuesta DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
-        return json.loads(_limpiar_json(texto))
+        parsed = json.loads(_limpiar_json(texto))
+        # Propagar aclaración tal cual — el handler decide qué hacer
+        return parsed
     except Exception as error:
         logger.warning("Error extrayendo query DSL: %s", error)
         return None

@@ -6,8 +6,9 @@ import {
 } from "./themes.js";
 import { estaAutorizado, obtenerEmailUsuario } from "./auth.js";
 
-const API_URL = "";        // relativo: webpack hace de proxy hacia localhost:8000
-const API_KEY = "test123";
+const API_URL = "";          // relativo: misma origin que el servidor FastAPI
+/* global __API_KEY__ */
+const API_KEY = __API_KEY__; // inyectada por webpack DefinePlugin desde .env — nunca en el repo
 
 // Estado de la edición pendiente de ubicar
 let _datosModificados = null;

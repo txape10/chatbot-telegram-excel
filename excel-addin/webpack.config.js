@@ -71,6 +71,8 @@ module.exports = async (env, options) => {
       new webpack.DefinePlugin({
         __ALLOWED_DOMAINS__: JSON.stringify(allowedDomains),
         __ALLOWED_EMAILS__:  JSON.stringify(allowedEmails),
+        // API_KEY inyectada en build time — nunca hardcodeada en el código
+        __API_KEY__: JSON.stringify(process.env.API_KEY || ""),
       }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",

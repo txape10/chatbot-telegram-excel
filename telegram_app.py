@@ -22,7 +22,7 @@ from handlers.commands import (
 )
 from handlers.documents import callback_chart, callback_sheet, recibir_documento
 from handlers.images import recibir_imagen
-from handlers.messages import callback_confirmacion, responder_mensaje
+from handlers.messages import callback_aclaracion, callback_confirmacion, responder_mensaje
 
 
 async def _registrar_comandos(app):
@@ -69,6 +69,7 @@ def crear_aplicacion():
     app.add_handler(CallbackQueryHandler(callback_plantilla,     pattern="^plantilla_"))
     app.add_handler(CallbackQueryHandler(callback_modo,          pattern="^modo_"))
     app.add_handler(CallbackQueryHandler(callback_confirmacion,  pattern="^confirmar_op_"))
+    app.add_handler(CallbackQueryHandler(callback_aclaracion,    pattern="^aclaracion_"))
     app.add_handler(CallbackQueryHandler(callback_sheet,         pattern="^sheet_"))
     app.add_handler(CallbackQueryHandler(callback_chart,         pattern="^chart_"))
 

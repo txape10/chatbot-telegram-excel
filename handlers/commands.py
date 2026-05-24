@@ -19,13 +19,24 @@ from prompts.excel import EJEMPLO_FUNCION
 logger = logging.getLogger(__name__)
 
 MENSAJE_BIENVENIDA = (
-    "👋 ¡Hola! Soy tu asistente personal de Excel.\n\n"
-    "Hazme cualquier pregunta sobre Excel: fórmulas, tablas dinámicas, "
-    "formato condicional, gráficos, macros/VBA, Power Query...\n\n"
-    "Comandos disponibles:\n"
-    "/ayuda — categorías de temas\n"
-    "/ejemplo — función aleatoria de Excel con ejemplo\n"
-    "/limpiar — borrar el historial de conversación"
+    "👋 ¡Hola! Soy tu asistente personal de Excel con IA.\n\n"
+    "Puedo ayudarte con fórmulas, tablas dinámicas, formato condicional, "
+    "gráficos, macros/VBA, Power Query y mucho más.\n\n"
+    "📎 *También puedes subir archivos:*\n"
+    "· Sube un `.xlsx` o `.csv` → analizo, resumo y genero un gráfico\n"
+    "· Luego pregúntame sobre los datos en lenguaje natural\n"
+    "· Puedo modificar el archivo y devolvértelo\n\n"
+    "📌 *Comandos disponibles:*\n"
+    "/ayuda — categorías de temas con ejemplos\n"
+    "/ejemplo — función de Excel explicada paso a paso\n"
+    "/generar — genera un `.xlsx` de ejemplo de una función\n"
+    "/plantilla — plantillas listas (presupuesto, KPIs, gastos...)\n"
+    "/version — indica tu versión de Excel para respuestas exactas\n"
+    "/estado — ver qué archivo tienes activo en sesión\n"
+    "/limpiar — borrar historial y archivo activo\n\n"
+    "🔌 *Add-in de Excel disponible:*\n"
+    "Puedes usar este mismo asistente como panel lateral dentro de Excel. "
+    "Escríbeme si quieres instalarlo."
 )
 
 MENSAJE_AYUDA = (

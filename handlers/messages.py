@@ -222,6 +222,63 @@ _RE_SOLO_INFORMATIVA = re.compile(
 
 logger = logging.getLogger(__name__)
 
+# ── Sentinel para detectar respuestas de aclaración del LLM ──────────────────
+_CLAVE_ACLARACION = "aclaracion_necesaria"
+
+
+async def _pedir_aclaracion(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                             user_id: int, tipo: str, aclaracion: dict) -> None:
+    """Muestra al usuario un InlineKeyboard con las opciones de aclaración.
+
+    tipo: "edicion" | "dsl"
+    aclaracion: {"aclaracion_necesaria": True, "pregunta": "...", "opciones": [...]}
+    """
+    pregunta_texto = aclaracion.get("pregunta", "¿Puedes concretar más?")
+    opciones       = aclaracion.get("opciones", [])[:3]  # máximo 3
+
+    # Guardar opciones en user_data para recuperarlas en el callback
+    context.user_data["aclaracion_pendiente"] = {
+        "tipo":    tipo,
+        "opciones": opciones,
+    }
+
+    botones = [
+        [InlineKeyboardButton(opt, callback_data=f"aclaracion_{i}")]
+        for i, opt in enumerate(opciones)
+    ]
+    teclado = InlineKeyboardMarkup(botones)
+
+    await update.message.reply_text(
+        f"🤔 {pregunta_texto}",
+        reply_markup=teclado,
+    )
+
+
+async def callback_aclaracion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """El usuario eligió una opción de aclaración → re-procesar como nueva pregunta."""
+    query = update.callback_query
+    await query.answer()
+
+    pendiente = context.user_data.get("aclaracion_pendiente")
+    if not pendiente:
+        await query.edit_message_text("⚠️ La sesión de aclaración expiró. Repite la pregunta.")
+        return
+
+    indice = int(query.data.split("_")[1])
+    opciones = pendiente.get("opciones", [])
+
+    if indice >= len(opciones):
+        await query.edit_message_text("⚠️ Opción no válida.")
+        return
+
+    opcion_elegida = opciones[indice]
+    context.user_data.pop("aclaracion_pendiente", None)
+
+    await query.edit_message_text(f"✅ Entendido: *{opcion_elegida}*", parse_mode="Markdown")
+
+    # Re-procesar la opción elegida como si el usuario la hubiera escrito
+    await procesar_pregunta(update, context, opcion_elegida)
+
 
 async def _enviar_respuesta(update: Update, user_id: int,
                              mensaje_carga, texto: str,
@@ -391,7 +448,7 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if df_activo is not None and contexto_excel:
             respuesta = await _intentar_dsl(
                 update, user_id, df_activo, pregunta, historial,
-                pregunta_completa, mensaje_carga,
+                pregunta_completa, mensaje_carga, context=context,
             )
             if respuesta is not None:
                 return
@@ -437,6 +494,13 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
             # El LLM dijo RESPUESTA_LIBRE → dejar que el flujo normal responda
             await mensaje_carga.delete()
             await _responder_con_llm(update, user_id, pregunta, mensaje_carga=None)
+            return
+
+        # El LLM necesita aclaración antes de ejecutar
+        if op.get(_CLAVE_ACLARACION) and context is not None:
+            logger.info("Aclaración solicitada (edición) para user_id %s", user_id)
+            await mensaje_carga.delete()
+            await _pedir_aclaracion(update, context, user_id, "edicion", op)
             return
 
         # Operaciones destructivas: pedir confirmación primero
@@ -551,15 +615,23 @@ async def _generar_tabla_dinamica(update: Update, user_id: int) -> None:
 
 
 async def _intentar_dsl(update, user_id, df, pregunta, historial,
-                        pregunta_completa, mensaje_carga):
+                        pregunta_completa, mensaje_carga, context=None):
     """Intenta resolver la pregunta mediante el motor DSL.
 
     Devuelve la respuesta si tuvo éxito, o None si debe continuar por LLM normal.
+    Cuando el LLM devuelve una aclaración, muestra el teclado y devuelve el sentinel "aclaracion".
     """
     try:
         query = await asyncio.to_thread(extraer_query_dsl, df, pregunta)
         if query is None:
             return None   # el LLM decidió RESPUESTA_LIBRE → flujo normal
+
+        # El LLM necesita aclaración antes de ejecutar
+        if query.get(_CLAVE_ACLARACION) and context is not None:
+            logger.info("Aclaración solicitada (DSL) para user_id %s", user_id)
+            await mensaje_carga.delete()
+            await _pedir_aclaracion(update, context, user_id, "dsl", query)
+            return "aclaracion"  # señal para que el caller no continúe con LLM normal
 
         resultado, descripcion = await asyncio.to_thread(ejecutar_query, df, query)
         texto = formatear_resultado(resultado, descripcion)

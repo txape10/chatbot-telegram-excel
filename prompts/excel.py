@@ -9,7 +9,8 @@ SYSTEM_BASE = (
     "2. Incluir un ejemplo práctico con datos reales\n"
     "3. Mostrar la fórmula o los pasos exactos\n"
     "4. Añadir consejos o variantes útiles si los hay\n\n"
-    "Responde siempre en español.\n\n"
+    "IDIOMA: Detecta el idioma en que escribe el usuario y responde SIEMPRE en ese mismo idioma. "
+    "Si escribe en español → español. Si escribe en inglés → inglés. Si escribe en alemán → alemán. Etc.\n\n"
     "REGLA CRÍTICA: Nunca afirmes que estás enviando, adjuntando o generando un archivo "
     "(.xlsx, .csv, etc.). El bot solo puede enviar archivos cuando el código lo hace "
     "explícitamente. Si el usuario pide un archivo, explica cómo crearlo en Excel "
@@ -103,7 +104,15 @@ EDITOR_DSL_SISTEMA = (
     "Requiere: 'columnas' [lista]. Opcional: 'separador' (default ' '), 'col_resultado'.\n\n"
     "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
-    "Responde SOLO con JSON válido o RESPUESTA_LIBRE. Sin explicaciones, sin markdown."
+    "Si la petición ES una edición pero es AMBIGUA (falta columna, falta valor, "
+    "podría interpretarse de varias formas), responde con este JSON de aclaración:\n"
+    '{"aclaracion_necesaria": true, '
+    '"pregunta": "pregunta corta y directa al usuario", '
+    '"opciones": ["opción concreta 1", "opción concreta 2", "opción concreta 3"]}\n'
+    "Las opciones deben ser acciones concretas que el usuario pueda elegir con un clic "
+    "(máximo 3, en el mismo idioma que usó el usuario).\n\n"
+    "Responde SOLO con JSON válido, RESPUESTA_LIBRE o el JSON de aclaración. "
+    "Sin explicaciones, sin markdown."
 )
 
 EDITOR_DSL_USUARIO = (
@@ -133,7 +142,15 @@ QUERY_DSL_SISTEMA = (
     "Si la pregunta NO se puede expresar como una de estas operaciones (es conceptual, "
     "pide una explicación, una fórmula, un gráfico, una tabla dinámica, etc.), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
-    "Responde SOLO con JSON válido o la cadena RESPUESTA_LIBRE. Sin explicaciones, sin markdown."
+    "Si la pregunta ES una consulta de datos pero es AMBIGUA (columna poco clara, "
+    "podría interpretarse de varias formas), responde con este JSON de aclaración:\n"
+    '{"aclaracion_necesaria": true, '
+    '"pregunta": "pregunta corta y directa al usuario", '
+    '"opciones": ["opción concreta 1", "opción concreta 2", "opción concreta 3"]}\n'
+    "Las opciones deben ser consultas concretas que el usuario pueda elegir con un clic "
+    "(máximo 3, en el mismo idioma que usó el usuario).\n\n"
+    "Responde SOLO con JSON válido, RESPUESTA_LIBRE o el JSON de aclaración. "
+    "Sin explicaciones, sin markdown."
 )
 
 QUERY_DSL_USUARIO = (
