@@ -1,0 +1,29 @@
+# ============================================================
+# Servicio systemd — Asistente Excel (servidor empresa Linux)
+#
+# Instalación:
+#   sudo cp scripts/asistente-excel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable asistente-excel
+#   sudo systemctl start asistente-excel
+#
+# Estado:   sudo systemctl status asistente-excel
+# Logs:     sudo journalctl -u asistente-excel -f
+# Reiniciar: sudo systemctl restart asistente-excel
+# ============================================================
+
+[Unit]
+Description=Asistente Excel — Bot Telegram + API REST
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/asistente-excel
+EnvironmentFile=/opt/asistente-excel/.env
+ExecStart=/opt/asistente-excel/.venv/bin/python api.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

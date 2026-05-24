@@ -3,9 +3,52 @@ services:
     name: asistente-excel
     runtime: python
     pythonVersion: "3.11.0"
+
+    # Render ejecuta este comando antes de arrancar
+    # Las variables de entorno del dashboard están disponibles durante el build
     buildCommand: pip install -r requirements.txt && cd excel-addin && npm install && npm run build
+
+    # Render lanza este comando para arrancar el servidor
     startCommand: python api.py
+
+    # Render llama a este endpoint para verificar que la app está lista
     healthCheckPath: /health
+
     envVars:
+      # ─── Versión de Python ─────────────────────────────────
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
+
+      # ─── Bot Telegram (SECRETOS — rellenar en el dashboard) ─
+      - key: TELEGRAM_TOKEN
+        sync: false   # token de @BotFather
+
+      - key: AUTHORIZED_USERS
+        sync: false   # IDs de Telegram separados por comas (ej: 123456789,987654321)
+
+      # ─── IA / LLM ──────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false   # clave de console.groq.com (gratuito)
+
+      # ─── API REST del Add-in ────────────────────────────────
+      - key: API_KEY
+        sync: false   # generar con: python3 -c "import secrets; print(secrets.token_hex(32))"
+
+      # ─── URL pública del servicio en Render ─────────────────
+      # WEBHOOK_URL y ADDIN_URL son la misma URL (la que Render asigna).
+      # Ej: https://asistente-excel.onrender.com
+      - key: WEBHOOK_URL
+        sync: false   # URL completa SIN barra final
+
+      - key: ADDIN_URL
+        sync: false   # misma URL CON barra final (ej: https://asistente-excel.onrender.com/)
+
+      # ─── Control de acceso al Add-in ────────────────────────
+      - key: AUTH_MODE
+        value: whitelist
+
+      - key: ALLOWED_DOMAINS
+        sync: false   # dominios permitidos, ej: launioncorp.eu,launioncorp.com
+
+      - key: ALLOWED_EMAILS
+        sync: false   # correos individuales extra, ej: roberto.chapado@gmail.com
