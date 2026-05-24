@@ -57,52 +57,87 @@ try {
         $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
     }
 } catch {
-    Write-Warn "No se pudo compartir automaticamente. Se registrara la ruta local."
+    Write-Warn "No se pudo compartir automaticamente. Se usara la ruta local."
     $rutaCatalogo = $carpeta
 }
 
-# ── 4. Registrar catalogo en el Centro de confianza de Excel ─────────────────
-Write-Step "Registrando catalogo en Excel (Centro de confianza)"
+# ── 4. Centro de confianza — preguntar al usuario ─────────────────────────────
+Write-Step "Centro de confianza de Excel"
+Write-Host ""
+Write-Host "  El instalador puede registrar el complemento automaticamente" -ForegroundColor White
+Write-Host "  modificando el registro de Windows, o puedes hacerlo tu mismo" -ForegroundColor White
+Write-Host "  desde los menus de Excel si lo prefieres." -ForegroundColor White
+Write-Host ""
+Write-Host "  [A] Automatico — el instalador lo configura solo (recomendado)" -ForegroundColor Green
+Write-Host "  [M] Manual     — me indicas los pasos a seguir en Excel" -ForegroundColor Yellow
+Write-Host ""
 
-$registrado = $false
-foreach ($ver in $officeVersions) {
-    $basePath = "HKCU:\Software\Microsoft\Office\$ver"
-    if (-not (Test-Path $basePath)) { continue }
+do {
+    $opcion = (Read-Host "  Elige una opcion [A/M]").Trim().ToUpper()
+} while ($opcion -ne "A" -and $opcion -ne "M")
 
-    $catalogPath = "$basePath\WEF\TrustedCatalogs"
-    if (-not (Test-Path $catalogPath)) {
-        New-Item -Path $catalogPath -Force | Out-Null
-    }
+if ($opcion -eq "A") {
 
-    # Comprobar si ya esta registrado con esta URL
-    $yaExiste = Get-ChildItem $catalogPath -ErrorAction SilentlyContinue | Where-Object {
-        (Get-ItemProperty $_.PSPath -Name "Url" -ErrorAction SilentlyContinue).Url -eq $rutaCatalogo
-    }
+    # ── 4a. Registro automatico ───────────────────────────────────────────────
+    $registrado = $false
+    foreach ($ver in $officeVersions) {
+        $basePath = "HKCU:\Software\Microsoft\Office\$ver"
+        if (-not (Test-Path $basePath)) { continue }
 
-    if ($yaExiste) {
-        Write-Ok "Catalogo ya registrado en Office $ver"
+        $catalogPath = "$basePath\WEF\TrustedCatalogs"
+        if (-not (Test-Path $catalogPath)) {
+            New-Item -Path $catalogPath -Force | Out-Null
+        }
+
+        # Comprobar si ya esta registrado con esta URL
+        $yaExiste = Get-ChildItem $catalogPath -ErrorAction SilentlyContinue | Where-Object {
+            (Get-ItemProperty $_.PSPath -Name "Url" -ErrorAction SilentlyContinue).Url -eq $rutaCatalogo
+        }
+
+        if ($yaExiste) {
+            Write-Ok "Catalogo ya registrado en Office $ver"
+            $registrado = $true
+            continue
+        }
+
+        # Crear nueva entrada con GUID unico
+        $guid      = [System.Guid]::NewGuid().ToString("B").ToUpper()
+        $entryPath = "$catalogPath\$guid"
+        New-Item -Path $entryPath -Force | Out-Null
+        Set-ItemProperty -Path $entryPath -Name "Id"    -Value $guid
+        Set-ItemProperty -Path $entryPath -Name "Url"   -Value $rutaCatalogo
+        Set-ItemProperty -Path $entryPath -Name "Flags" -Value 1 -Type DWord
+
+        Write-Ok "Catalogo registrado en Office $ver"
         $registrado = $true
-        continue
     }
 
-    # Crear nueva entrada con GUID unico
-    $guid     = [System.Guid]::NewGuid().ToString("B").ToUpper()
-    $entryPath = "$catalogPath\$guid"
-    New-Item -Path $entryPath -Force | Out-Null
-    Set-ItemProperty -Path $entryPath -Name "Id"    -Value $guid
-    Set-ItemProperty -Path $entryPath -Name "Url"   -Value $rutaCatalogo
-    Set-ItemProperty -Path $entryPath -Name "Flags" -Value 1 -Type DWord
+    if (-not $registrado) {
+        Write-Warn "No se encontro ninguna instalacion de Office en el registro."
+        Write-Warn "Usa la opcion manual la proxima vez."
+    }
 
-    Write-Ok "Catalogo registrado en Office $ver → $rutaCatalogo"
-    $registrado = $true
+} else {
+
+    # ── 4b. Instrucciones manuales ────────────────────────────────────────────
+    Write-Host ""
+    Write-Host "  Sigue estos pasos en Excel:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  1. Abre Excel y ve a:" -ForegroundColor White
+    Write-Host "        Archivo  >  Opciones  >  Centro de confianza" -ForegroundColor Yellow
+    Write-Host "        >  Configuracion del Centro de confianza" -ForegroundColor Yellow
+    Write-Host "        >  Catalogos de complementos de confianza" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  2. En el campo 'URL del catalogo' escribe exactamente:" -ForegroundColor White
+    Write-Host "        $rutaCatalogo" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  3. Haz clic en 'Agregar catalogo'" -ForegroundColor White
+    Write-Host "     Marca la casilla 'Mostrar en menu'  >  Aceptar" -ForegroundColor White
+    Write-Host ""
+
 }
 
-if (-not $registrado) {
-    Write-Warn "No se encontro ninguna instalacion de Office/Excel en el registro."
-    Write-Warn "Anade el catalogo manualmente: Archivo > Opciones > Centro de confianza"
-}
-
-# ── 5. Resultado ──────────────────────────────────────────────────────────────
+# ── 5. Resultado final ────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "   Instalacion completada correctamente   " -ForegroundColor Cyan
@@ -112,8 +147,8 @@ Write-Host "Ultimo paso:" -ForegroundColor White
 Write-Host ""
 Write-Host "  1. CIERRA Excel completamente si esta abierto" -ForegroundColor Yellow
 Write-Host "  2. Vuelve a abrir Excel" -ForegroundColor Yellow
-Write-Host "  3. Insertar > Mis complementos > Mi organizacion" -ForegroundColor Yellow
-Write-Host "     > Asistente Excel > Agregar" -ForegroundColor Yellow
+Write-Host "  3. Insertar  >  Mis complementos  >  Mi organizacion" -ForegroundColor Yellow
+Write-Host "     >  Asistente Excel  >  Agregar" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  El boton 'Abrir asistente' aparecera en la pestana Inicio." -ForegroundColor Green
 Write-Host ""
