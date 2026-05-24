@@ -21,7 +21,9 @@ fi
 
 source .venv/bin/activate
 echo ""
-echo "Arrancando Asistente Excel [modo empresa - polling + API]..."
-echo "Puerto: ${PORT:-8000}  |  Pulsa Ctrl+C para detener"
+echo "Arrancando Asistente Excel [modo empresa - polling + API REST]..."
+echo "  Bot Telegram: polling (sin puertos entrantes)"
+echo "  API Add-in:   puerto ${PORT:-8000} (tunelado por cloudflared)"
+echo "  Pulsa Ctrl+C para detener"
 echo ""
 python api.py

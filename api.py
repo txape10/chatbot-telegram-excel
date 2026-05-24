@@ -1,10 +1,21 @@
-"""API REST para el Asistente Excel + webhook de Telegram (modo cloud).
+"""API REST para el Asistente Excel + bot de Telegram integrado.
 
-Modos de ejecución:
-  - Local:  python api.py  (bot en proceso separado con bot.py, polling)
-  - Cloud:  python api.py  con WEBHOOK_URL definido en .env
-            → arranca el bot en modo webhook dentro del mismo proceso
+Modos de ejecución (se detectan automáticamente por las variables de entorno):
+
+  Modo WEBHOOK  (Render / cloud)
+    → WEBHOOK_URL definida en .env
+    → Telegram envía los mensajes al endpoint /telegram/webhook
+    → Ideal para despliegues en la nube
+
+  Modo POLLING  (servidor empresa / pruebas locales con API)
+    → WEBHOOK_URL vacía o ausente, TELEGRAM_TOKEN presente
+    → El bot hace polling a Telegram cada pocos segundos
+    → Sin puertos entrantes, ideal para servidores internos
+
+  Para uso personal sin API (solo bot, sin Add-in):
+    → Usa bot.py directamente en lugar de api.py
 """
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -28,37 +39,51 @@ configurar_logging()
 
 logger = logging.getLogger(__name__)
 
-_API_KEY    = os.getenv("API_KEY", "")
-_WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")   # ej: https://my-app.railway.app
+_API_KEY     = os.getenv("API_KEY", "")
+_WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
+_BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 
 # ---------------------------------------------------------------------------
-# Bot de Telegram (solo en modo webhook)
+# Bot de Telegram — modo webhook o polling según configuración
 # ---------------------------------------------------------------------------
 
-_ptb_app = None
+_ptb_app  = None
+_bot_mode = "none"
 
-if _WEBHOOK_URL:
+if _BOT_TOKEN:
     from telegram_app import crear_aplicacion
     _ptb_app = crear_aplicacion()
+    _bot_mode = "webhook" if _WEBHOOK_URL else "polling"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Arranca y detiene el bot PTB junto con FastAPI."""
-    if _ptb_app:
+    if _ptb_app and _bot_mode == "webhook":
         await _ptb_app.initialize()
         await _ptb_app.bot.set_webhook(
             url=f"{_WEBHOOK_URL}/telegram/webhook",
             allowed_updates=Update.ALL_TYPES,
         )
         await _ptb_app.start()
-        logger.info("Webhook de Telegram registrado en %s/telegram/webhook", _WEBHOOK_URL)
+        logger.info("Bot Telegram arrancado en modo WEBHOOK → %s/telegram/webhook", _WEBHOOK_URL)
+
+    elif _ptb_app and _bot_mode == "polling":
+        await _ptb_app.initialize()
+        await _ptb_app.start()
+        await _ptb_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Bot Telegram arrancado en modo POLLING (sin puertos entrantes)")
+
     else:
-        logger.info("WEBHOOK_URL no definida — modo local (usa bot.py para el bot)")
+        logger.info("TELEGRAM_TOKEN no definido — bot desactivado en esta instancia")
 
     yield   # ← la app está corriendo
 
-    if _ptb_app:
+    if _ptb_app and _bot_mode == "polling":
+        await _ptb_app.updater.stop()
+        await _ptb_app.stop()
+        await _ptb_app.shutdown()
+    elif _ptb_app and _bot_mode == "webhook":
         await _ptb_app.stop()
         await _ptb_app.shutdown()
 
@@ -147,8 +172,7 @@ async def telegram_webhook(request: Request):
 
 @app.get("/health")
 def health():
-    modo = "webhook" if _WEBHOOK_URL else "local"
-    return {"status": "ok", "modo_bot": modo}
+    return {"status": "ok", "modo_bot": _bot_mode}
 
 
 @app.post("/ask")
