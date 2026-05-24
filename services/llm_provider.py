@@ -2,18 +2,26 @@
 
 Configura el proveedor activo con LLM_PROVIDER en .env:
 
-  groq    → Groq (llama-3.3-70b-versatile) — gratuito, datos en EE.UU.
-  ollama  → Ollama local — gratuito, sin datos fuera de la red
-  openai  → OpenAI (gpt-4o-mini) — de pago, datos en EE.UU.
+  groq    → Groq (llama-3.3-70b-versatile)   0$  gratuito, datos en EE.UU.
+  ollama  → Ollama local                      0$  sin datos fuera de la red
+  gemini  → Google Gemini 1.5 Flash           0$  free tier generoso, datos en EE.UU.
+  mistral → Mistral (Mistral Small)           0$  free tier, empresa europea
+  openai  → OpenAI (gpt-4o-mini)             💲  de pago, datos en EE.UU.
+  azure   → Azure OpenAI                     💲  de pago, datos en UE, cumple RGPD
 
 Variables de entorno relevantes:
-  LLM_PROVIDER        groq | ollama | openai   (por defecto: groq)
-  LLM_MODEL           nombre del modelo de chat (por defecto: según proveedor)
-  LLM_MODEL_VISION    modelo con visión         (solo groq/openai)
-  LLM_MODEL_AUDIO     modelo de transcripción   (solo groq/openai)
+  LLM_PROVIDER        groq|ollama|gemini|mistral|openai|azure  (por defecto: groq)
+  LLM_MODEL           nombre del modelo de chat  (por defecto: según proveedor)
+  LLM_MODEL_VISION    modelo con visión          (groq/openai/azure/gemini)
+  LLM_MODEL_AUDIO     modelo de transcripción    (groq/openai/azure)
   GROQ_API_KEY        clave de Groq
+  GEMINI_API_KEY      clave de Google AI Studio  (aistudio.google.com — gratuito)
+  MISTRAL_API_KEY     clave de Mistral           (console.mistral.ai — gratuito)
   OPENAI_API_KEY      clave de OpenAI
-  OLLAMA_URL          URL de Ollama             (por defecto: http://localhost:11434)
+  AZURE_OPENAI_KEY    clave de Azure OpenAI
+  AZURE_OPENAI_URL    endpoint Azure             (https://<recurso>.openai.azure.com)
+  AZURE_API_VERSION   versión API Azure          (por defecto: 2024-02-01)
+  OLLAMA_URL          URL de Ollama              (por defecto: http://localhost:11434)
 """
 
 import logging
@@ -170,6 +178,118 @@ class OpenAIProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
+# Google Gemini (API compatible con OpenAI)
+# ---------------------------------------------------------------------------
+
+class GeminiProvider(LLMProvider):
+    """Google Gemini — free tier generoso, datos en EE.UU.
+
+    Obtén tu clave gratuita en: https://aistudio.google.com/app/apikey
+    """
+
+    max_tokens_peticion = _MAX_TOKENS_OTROS
+
+    def __init__(self):
+        from openai import OpenAI
+        self._cliente = OpenAI(
+            api_key=os.getenv("GEMINI_API_KEY", ""),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            timeout=60.0,
+        )
+        self.modelo        = os.getenv("LLM_MODEL",        "gemini-1.5-flash")
+        self.modelo_vision = os.getenv("LLM_MODEL_VISION", "gemini-1.5-flash")
+
+    def chat(self, messages, temperature=0.7, max_tokens=None):
+        kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+        respuesta = self._cliente.chat.completions.create(**kwargs)
+        return respuesta.choices[0].message.content
+
+    def vision(self, messages):
+        respuesta = self._cliente.chat.completions.create(
+            model=self.modelo_vision, messages=messages,
+        )
+        return respuesta.choices[0].message.content
+
+
+# ---------------------------------------------------------------------------
+# Mistral (API compatible con OpenAI)
+# ---------------------------------------------------------------------------
+
+class MistralProvider(LLMProvider):
+    """Mistral — free tier disponible, empresa europea.
+
+    Obtén tu clave en: https://console.mistral.ai  (plan free disponible)
+    """
+
+    max_tokens_peticion = _MAX_TOKENS_OTROS
+
+    def __init__(self):
+        from openai import OpenAI
+        self._cliente = OpenAI(
+            api_key=os.getenv("MISTRAL_API_KEY", ""),
+            base_url="https://api.mistral.ai/v1",
+            timeout=60.0,
+        )
+        self.modelo = os.getenv("LLM_MODEL", "mistral-small-latest")
+
+    def chat(self, messages, temperature=0.7, max_tokens=None):
+        kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+        respuesta = self._cliente.chat.completions.create(**kwargs)
+        return respuesta.choices[0].message.content
+
+
+# ---------------------------------------------------------------------------
+# Azure OpenAI (datos en UE, cumple RGPD)
+# ---------------------------------------------------------------------------
+
+class AzureOpenAIProvider(LLMProvider):
+    """Azure OpenAI — de pago, datos en la UE, cumple RGPD.
+
+    Requiere: cuenta Azure + recurso Azure OpenAI desplegado.
+    Variables: AZURE_OPENAI_KEY, AZURE_OPENAI_URL, AZURE_API_VERSION
+    """
+
+    max_tokens_peticion = _MAX_TOKENS_OTROS
+
+    def __init__(self):
+        from openai import AzureOpenAI
+        self._cliente = AzureOpenAI(
+            api_key=os.getenv("AZURE_OPENAI_KEY", ""),
+            azure_endpoint=os.getenv("AZURE_OPENAI_URL", ""),
+            api_version=os.getenv("AZURE_API_VERSION", "2024-02-01"),
+            timeout=60.0,
+        )
+        self.modelo        = os.getenv("LLM_MODEL",        "gpt-4o-mini")
+        self.modelo_vision = os.getenv("LLM_MODEL_VISION", "gpt-4o-mini")
+        self.modelo_audio  = os.getenv("LLM_MODEL_AUDIO",  "whisper")
+
+    def chat(self, messages, temperature=0.7, max_tokens=None):
+        kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+        respuesta = self._cliente.chat.completions.create(**kwargs)
+        return respuesta.choices[0].message.content
+
+    def transcribir(self, audio_bytes, filename="audio.ogg"):
+        transcripcion = self._cliente.audio.transcriptions.create(
+            file=(filename, audio_bytes),
+            model=self.modelo_audio,
+            language="es",
+        )
+        return transcripcion.text.strip()
+
+    def vision(self, messages):
+        respuesta = self._cliente.chat.completions.create(
+            model=self.modelo_vision, messages=messages,
+        )
+        return respuesta.choices[0].message.content
+
+
+# ---------------------------------------------------------------------------
 # Factory / singleton
 # ---------------------------------------------------------------------------
 
@@ -182,9 +302,12 @@ def obtener_proveedor() -> LLMProvider:
     if _proveedor is None:
         nombre = os.getenv("LLM_PROVIDER", "groq").lower()
         proveedores = {
-            "groq":   GroqProvider,
-            "ollama": OllamaProvider,
-            "openai": OpenAIProvider,
+            "groq":    GroqProvider,
+            "ollama":  OllamaProvider,
+            "gemini":  GeminiProvider,
+            "mistral": MistralProvider,
+            "openai":  OpenAIProvider,
+            "azure":   AzureOpenAIProvider,
         }
         clase = proveedores.get(nombre)
         if clase is None:

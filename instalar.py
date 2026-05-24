@@ -107,12 +107,15 @@ def main():
     # ── 2. Proveedor de IA ────────────────────────────────────────────────────
     titulo("2. ¿Qué proveedor de IA quieres usar?")
     ia_opts = [
-        ("Groq",    "Gratuito · Rápido · Datos enviados a EE.UU. · Recomendado para empezar"),
-        ("Ollama",  "Gratuito · Local · Sin datos fuera de la red · Requiere GPU o CPU potente"),
-        ("OpenAI",  "De pago · GPT-4o · Datos en EE.UU."),
+        ("Groq",    "0$  · Gratuito · Rápido · Recomendado para empezar · Datos en EE.UU."),
+        ("Ollama",  "0$  · Local · Sin datos fuera de la red · Requiere GPU/CPU potente"),
+        ("Gemini",  "0$  · Google Gemini 1.5 Flash · Free tier generoso · Datos en EE.UU."),
+        ("Mistral", "0$  · Free tier · Empresa europea · Datos en la UE"),
+        ("OpenAI",  "💲  · De pago · GPT-4o-mini · Datos en EE.UU."),
+        ("Azure",   "💲  · De pago · Datos en la UE · Cumple RGPD · Recomendado para empresa"),
     ]
     ia_idx = elegir("Proveedor", ia_opts, por_defecto=1)
-    proveedor = ["groq", "ollama", "openai"][ia_idx]
+    proveedor = ["groq", "ollama", "gemini", "mistral", "openai", "azure"][ia_idx]
     config["LLM_PROVIDER"] = proveedor
     ok(f"Proveedor: {proveedor}")
 
@@ -130,13 +133,27 @@ def main():
         config["OLLAMA_URL"] = preguntar("URL de Ollama", "http://localhost:11434")
         config["LLM_MODEL"]  = preguntar("Modelo", "llama3.2")
 
+    elif proveedor == "gemini":
+        info("Obtén tu clave gratuita en: https://aistudio.google.com/app/apikey")
+        config["GEMINI_API_KEY"] = preguntar("GEMINI_API_KEY")
+        config["LLM_MODEL"]      = preguntar("Modelo", "gemini-1.5-flash")
+
+    elif proveedor == "mistral":
+        info("Obtén tu clave en: https://console.mistral.ai  (plan free disponible)")
+        config["MISTRAL_API_KEY"] = preguntar("MISTRAL_API_KEY")
+        config["LLM_MODEL"]       = preguntar("Modelo", "mistral-small-latest")
+
     elif proveedor == "openai":
         info("Obtén tu clave en: https://platform.openai.com/api-keys")
         config["OPENAI_API_KEY"] = preguntar("OPENAI_API_KEY")
         config["LLM_MODEL"]      = preguntar("Modelo", "gpt-4o-mini")
-        azure = preguntar("¿Usar Azure OpenAI? (s/N)", "N")
-        if azure.lower() == "s":
-            config["OPENAI_BASE_URL"] = preguntar("Azure endpoint URL")
+
+    elif proveedor == "azure":
+        info("Requiere: cuenta Azure + recurso Azure OpenAI desplegado")
+        config["AZURE_OPENAI_KEY"] = preguntar("AZURE_OPENAI_KEY")
+        config["AZURE_OPENAI_URL"] = preguntar("Endpoint Azure (https://<recurso>.openai.azure.com)")
+        config["AZURE_API_VERSION"] = preguntar("Versión API", "2024-02-01")
+        config["LLM_MODEL"]         = preguntar("Deployment name (modelo)", "gpt-4o-mini")
 
     # ── 4. Bot de Telegram ────────────────────────────────────────────────────
     if enable_telegram:
@@ -200,10 +217,18 @@ def main():
         lineas += [f"GROQ_API_KEY={config.get('GROQ_API_KEY', '')}\n"]
     elif proveedor == "ollama":
         lineas += [f"OLLAMA_URL={config.get('OLLAMA_URL', 'http://localhost:11434')}\n"]
+    elif proveedor == "gemini":
+        lineas += [f"GEMINI_API_KEY={config.get('GEMINI_API_KEY', '')}\n"]
+    elif proveedor == "mistral":
+        lineas += [f"MISTRAL_API_KEY={config.get('MISTRAL_API_KEY', '')}\n"]
     elif proveedor == "openai":
         lineas += [f"OPENAI_API_KEY={config.get('OPENAI_API_KEY', '')}\n"]
-        if config.get("OPENAI_BASE_URL"):
-            lineas += [f"OPENAI_BASE_URL={config['OPENAI_BASE_URL']}\n"]
+    elif proveedor == "azure":
+        lineas += [
+            f"AZURE_OPENAI_KEY={config.get('AZURE_OPENAI_KEY', '')}\n",
+            f"AZURE_OPENAI_URL={config.get('AZURE_OPENAI_URL', '')}\n",
+            f"AZURE_API_VERSION={config.get('AZURE_API_VERSION', '2024-02-01')}\n",
+        ]
 
     if enable_telegram:
         lineas += [
