@@ -65,10 +65,13 @@
       <button id="btn-preguntar" class="ms-Button ms-Button--primary btn-principal" onclick="preguntar()">
         <span class="ms-Button-label">Preguntar</span>
       </button>
-      <button id="btn-enviar-bot" class="ms-Button btn-enviar-bot" onclick="enviarAlBot()" title="Enviar datos seleccionados al chat de Telegram">
+      <button id="btn-enviar-bot" class="ms-Button btn-enviar-bot" onclick="enviarAlBot()" title="Enviar datos seleccionados al chat de Telegram" style="display:none;">
         <span class="ms-Button-label">📤 Enviar al bot</span>
       </button>
     </div>
+    <p id="info-telegram" class="ms-font-s info-telegram" style="display:none;">
+      Para enviar datos al bot, escribe <strong>/vincular tu@email.com</strong> en el chat de Telegram.
+    </p>
 
     <div id="estado" class="ms-font-s estado"></div>
 

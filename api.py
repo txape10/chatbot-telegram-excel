@@ -259,6 +259,15 @@ def analizar(peticion: PeticionAnalisis, _: None = Depends(_verificar_clave),
     return {"resumen": resumir(df, "Datos de Excel")}
 
 
+@app.get("/tiene-vinculo")
+def tiene_vinculo(email: str = Query(...),
+                  _: None = Depends(_verificar_clave),
+                  __: None = Depends(_verificar_addin_activo)) -> dict:
+    """Comprueba si el email tiene una cuenta de Telegram vinculada."""
+    from utils.user_links import obtener_telegram_id
+    return {"vinculado": obtener_telegram_id(email) is not None}
+
+
 @app.post("/enviar-al-bot")
 async def enviar_al_bot(peticion: PeticionEnviarAlBot,
                         _: None = Depends(_verificar_clave),

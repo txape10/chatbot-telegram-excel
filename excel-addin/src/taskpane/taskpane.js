@@ -40,6 +40,7 @@ Office.onReady(() => {
   construirSelectorTemas();
   _inicializarBarraArchivo();
   _renderizarHistorial();
+  comprobarVinculo();
 
   document.getElementById("pregunta").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.ctrlKey) {
@@ -133,6 +134,18 @@ async function leerRangoSeleccionado() {
     await context.sync();
     return { valores: rango.values, direccion: rango.address };
   });
+}
+
+async function llamarApiGet(endpoint) {
+  const respuesta = await fetch(API_URL + endpoint, {
+    method: "GET",
+    headers: { "X-API-Key": API_KEY },
+  });
+  if (!respuesta.ok) {
+    const error = await respuesta.json().catch(() => ({}));
+    throw new Error(error.detail || "HTTP " + respuesta.status);
+  }
+  return respuesta.json();
 }
 
 async function llamarApi(endpoint, payload) {
@@ -508,6 +521,33 @@ function limpiarHistorial(event) {
   event.stopPropagation();   // no colapsar el panel al limpiar
   localStorage.removeItem(_CLAVE_HISTORIAL);
   _renderizarHistorial();
+}
+
+// ── Vínculo Telegram ──────────────────────────────────────────────────────────
+
+async function comprobarVinculo() {
+  const email  = obtenerEmailUsuario();
+  const boton  = document.getElementById("btn-enviar-bot");
+  const info   = document.getElementById("info-telegram");
+
+  if (!email) return; // sin email de Office: botón oculto por defecto en el HTML
+
+  try {
+    const resultado = await llamarApiGet(
+      "/tiene-vinculo?email=" + encodeURIComponent(email)
+    );
+    if (resultado.vinculado) {
+      boton.style.display = "";
+      info.style.display  = "none";
+    } else {
+      boton.style.display = "none";
+      info.style.display  = "";
+    }
+  } catch {
+    // Error de red: mostrar el botón (mejor falso positivo que ocultar la función)
+    boton.style.display = "";
+    info.style.display  = "none";
+  }
 }
 
 // ── Enviar al bot ─────────────────────────────────────────────────────────────

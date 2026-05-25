@@ -327,6 +327,13 @@ textarea:focus {
   cursor: not-allowed;
 }
 
+.info-telegram {
+  margin: 4px 0 0;
+  color: var(--color-texto-suave);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 /* --- Botón Preguntar --- */
 .ms-Button--primary {
   width: 100%;
