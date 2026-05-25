@@ -37,6 +37,10 @@ class _ConnWrapper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             self._conn.commit()
+            try:
+                self._conn.sync()   # propaga los cambios a Turso cloud
+            except Exception as exc:
+                logger.warning("Turso sync tras escritura falló: %s", exc)
         return False   # no suprime la excepción
 
     def __getattr__(self, name):
