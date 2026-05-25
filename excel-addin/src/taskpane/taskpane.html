@@ -61,9 +61,14 @@
     <textarea id="pregunta" class="ms-font-m" rows="4"
       placeholder="Ej: ¿Cuánto suma la columna Ventas? (Ctrl+Enter para enviar)"></textarea>
 
-    <button id="btn-preguntar" class="ms-Button ms-Button--primary" onclick="preguntar()">
-      <span class="ms-Button-label">Preguntar</span>
-    </button>
+    <div class="fila-botones">
+      <button id="btn-preguntar" class="ms-Button ms-Button--primary btn-principal" onclick="preguntar()">
+        <span class="ms-Button-label">Preguntar</span>
+      </button>
+      <button id="btn-enviar-bot" class="ms-Button btn-enviar-bot" onclick="enviarAlBot()" title="Enviar datos seleccionados al chat de Telegram">
+        <span class="ms-Button-label">📤 Enviar al bot</span>
+      </button>
+    </div>
 
     <div id="estado" class="ms-font-s estado"></div>
 

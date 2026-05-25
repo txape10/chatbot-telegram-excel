@@ -294,6 +294,39 @@ textarea:focus {
   box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
 }
 
+/* --- Fila de botones (Preguntar + Enviar al bot) --- */
+.fila-botones {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-principal {
+  flex: 1;
+}
+
+.btn-enviar-bot {
+  flex: 0 0 auto;
+  background-color: #2c6daf !important;
+  border-color: #2c6daf !important;
+  white-space: nowrap;
+}
+
+.btn-enviar-bot:hover {
+  background-color: #1a5a9e !important;
+  border-color: #1a5a9e !important;
+}
+
+.btn-enviar-bot .ms-Button-label {
+  color: #fff !important;
+  font-size: 0.82rem;
+}
+
+.btn-enviar-bot:disabled {
+  background-color: #a0a0a0 !important;
+  border-color: #a0a0a0 !important;
+  cursor: not-allowed;
+}
+
 /* --- Botón Preguntar --- */
 .ms-Button--primary {
   width: 100%;

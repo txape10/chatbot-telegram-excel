@@ -510,6 +510,65 @@ function limpiarHistorial(event) {
   _renderizarHistorial();
 }
 
+// ── Enviar al bot ─────────────────────────────────────────────────────────────
+
+async function enviarAlBot() {
+  const email = obtenerEmailUsuario();
+  if (!email) {
+    mostrarEstado("No se pudo obtener tu email de Office. Asegúrate de estar conectado con tu cuenta.");
+    return;
+  }
+
+  const boton = document.getElementById("btn-enviar-bot");
+  boton.disabled = true;
+  mostrarEstado("Leyendo selección...");
+
+  try {
+    const { valores, direccion } = await leerRangoSeleccionado();
+
+    if (valores.length < 2) {
+      mostrarEstado("Selecciona al menos una fila de cabeceras y una de datos.");
+      return;
+    }
+
+    // Intentar obtener el nombre del libro
+    let nombreArchivo = "datos_excel.xlsx";
+    try {
+      await Excel.run(async (context) => {
+        const workbook = context.workbook;
+        workbook.load("name");
+        await context.sync();
+        if (workbook.name) {
+          const base = workbook.name.replace(/\.xlsx?$/i, "");
+          nombreArchivo = base + ".xlsx";
+        }
+      });
+    } catch (_e) { /* usar nombre por defecto */ }
+
+    mostrarEstado(`Enviando ${valores.length - 1} filas al bot...`);
+
+    const resultado = await llamarApi("/enviar-al-bot", {
+      datos:          valores,
+      nombre_archivo: nombreArchivo,
+      email:          email,
+    });
+
+    mostrarEstado("✅ " + (resultado.mensaje || "Archivo enviado a Telegram."));
+
+  } catch (error) {
+    const msg = error.message || "Error desconocido";
+    if (msg.includes("vinculada") || msg.includes("vincular")) {
+      mostrarEstado(
+        "⚠️ Cuenta no vinculada. Escribe /vincular " + email + " en el bot de Telegram primero."
+      );
+    } else {
+      mostrarEstado("Error al enviar: " + msg);
+    }
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 // Exponer al HTML
 window.preguntar                  = preguntar;
 window.copiarRespuesta            = copiarRespuesta;
@@ -520,3 +579,4 @@ window.limpiarHistorial           = limpiarHistorial;
 window.mostrarEasterEgg           = mostrarEasterEgg;
 window.cerrarEasterEgg            = cerrarEasterEgg;
 window.activarZeldaDesdeEasterEgg = activarZeldaDesdeEasterEgg;
+window.enviarAlBot                 = enviarAlBot;

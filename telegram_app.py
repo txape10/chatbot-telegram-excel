@@ -19,6 +19,7 @@ from handlers.commands import (
     ayuda, callback_ayuda, callback_modo, callback_plantilla,
     callback_version, ejemplo, estado, generar, limpiar,
     modo, pivote, plantilla, privado, start, version,
+    vincular, desvincular,
 )
 from handlers.documents import callback_chart, callback_sheet, recibir_documento
 from handlers.images import recibir_imagen
@@ -37,7 +38,9 @@ async def _registrar_comandos(app):
         BotCommand("modo",      "Elige si quieres respuestas por voz o texto"),
         BotCommand("estado",    "Ver el estado actual de tu sesión"),
         BotCommand("privado",   "Activar/desactivar modo privado (sin historial)"),
-        BotCommand("limpiar",   "Borrar el historial de conversación"),
+        BotCommand("limpiar",    "Borrar el historial de conversación"),
+        BotCommand("vincular",   "Vincular con el Add-in de Excel: /vincular email"),
+        BotCommand("desvincular","Eliminar la vinculación con el Add-in"),
     ])
 
 
@@ -61,7 +64,9 @@ def crear_aplicacion():
     app.add_handler(CommandHandler("version",   version))
     app.add_handler(CommandHandler("modo",      modo))
     app.add_handler(CommandHandler("estado",    estado))
-    app.add_handler(CommandHandler("privado",   privado))
+    app.add_handler(CommandHandler("privado",     privado))
+    app.add_handler(CommandHandler("vincular",    vincular))
+    app.add_handler(CommandHandler("desvincular", desvincular))
 
     # Callbacks InlineKeyboard
     app.add_handler(CallbackQueryHandler(callback_ayuda,         pattern="^cat_"))
