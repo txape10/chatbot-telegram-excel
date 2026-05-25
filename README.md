@@ -140,6 +140,32 @@ Las operaciones destructivas piden confirmación. "Deshacer" restaura el estado 
 
 ---
 
+## Add-in de Excel
+
+Panel lateral dentro de Excel (Office.js + webpack) que comparte el mismo motor de IA que el bot de Telegram.
+
+- **Chat integrado** — escribe preguntas sin salir de Excel
+- **Barra de contexto** — muestra el libro, hoja y rango seleccionado en tiempo real
+- **Historial colapsable** — conversación persistida en localStorage
+- **Temas visuales** — Default (verde Excel), Oscuro, Empresa, y Zelda (Easter egg 🎮)
+- **Autenticación** — whitelist por dominio corporativo + correos individuales, verificada por el servidor
+- **📤 Enviar al bot** — envía el rango seleccionado como archivo `.xlsx` directamente a tu chat de Telegram (requiere `/vincular`)
+
+Para instalar el Add-in en Windows: `scripts\instalar_addin.bat` (doble clic, auto-elevado).
+
+---
+
+## Panel de administración
+
+Disponible en `/admin?key=ADMIN_KEY` cuando `ENABLE_ADDIN=true`.
+
+- Mensajes totales, mensajes hoy, usuarios activos
+- Actividad de los últimos 7 días (gráfico de barras inline)
+- Tabla por usuario: mensajes totales, último mensaje, cuenta vinculada al Add-in
+- Endpoint JSON: `GET /admin/stats?key=ADMIN_KEY`
+
+---
+
 ## Comandos
 
 | Comando | Descripción |
@@ -155,6 +181,8 @@ Las operaciones destructivas piden confirmación. "Deshacer" restaura el estado 
 | `/estado` | Estado de la sesión actual |
 | `/privado` | Activa/desactiva historial en SQLite |
 | `/limpiar` | Borra historial y contexto de archivo |
+| `/vincular email` | Vincula tu cuenta de Telegram con el Add-in de Excel |
+| `/desvincular` | Elimina la vinculación con el Add-in |
 
 ---
 
@@ -248,9 +276,10 @@ pytest
 - [x] Instalador one-click del Add-in (`.bat` auto-elevado, SMB share, registro Centro de confianza)
 - [x] Mensajes de error descriptivos cuando el proveedor de IA falla (saturación, timeout, auth…)
 - [x] Add-in UI: barra de archivo activo (libro/hoja/rango en tiempo real) e historial colapsable
-- [ ] Add-in: subir archivo Excel directamente al bot desde el panel lateral
+- [x] Add-in: botón "📤 Enviar al bot" — envía el rango seleccionado al chat de Telegram sin salir de Excel
+- [x] Vinculación Telegram ↔ Add-in con `/vincular email` y `/desvincular`
+- [x] Panel de administración: estadísticas de uso, gráfico de actividad, gestión de usuarios (`/admin`)
 - [x] Tests completos para todos los sprints (352/352 ✅)
 - [ ] Autenticación SSO con Azure Active Directory
 - [ ] Despliegue en servidor de empresa con Cloudflare Tunnel
 - [ ] Tablas dinámicas interactivas nativas (Windows + Excel en servidor)
-- [ ] Panel de administración (estadísticas de uso, gestión de usuarios)
