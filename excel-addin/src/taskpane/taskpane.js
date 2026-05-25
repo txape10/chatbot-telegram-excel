@@ -126,6 +126,7 @@ async function preguntar() {
 
       const respuesta = await llamarApi("/edit", {
         datos: valores, instruccion, historial: _historialLLM,
+        device_id: _obtenerOCrearDeviceId(),
       });
 
       if (respuesta.tipo === "edicion") {
@@ -151,6 +152,7 @@ async function preguntar() {
       mostrarEstado("Consultando al asistente...");
       const respuesta = await llamarApi("/ask", {
         pregunta: instruccion, historial: _historialLLM,
+        device_id: _obtenerOCrearDeviceId(),
       });
 
       if (respuesta.tipo === "datos" && respuesta.datos_modificados) {

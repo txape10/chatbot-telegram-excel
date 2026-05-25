@@ -258,6 +258,7 @@ class PeticionPregunta(BaseModel):
     datos: list[list] | None = None
     pregunta: str
     historial: list[dict] = []
+    device_id: str | None = None
 
 
 class PeticionAnalisis(BaseModel):
@@ -268,6 +269,7 @@ class PeticionEdicion(BaseModel):
     datos: list[list]
     instruccion: str
     historial: list[dict] = []
+    device_id: str | None = None
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -339,6 +341,29 @@ def health():
     }
 
 
+# user_id sintético para peticiones del Add-in sin vincular a Telegram
+_ADDIN_ANON_ID = 0
+
+
+def _usuario_addin(device_id: str | None) -> int:
+    """Devuelve el telegram_id vinculado al device_id, o _ADDIN_ANON_ID si no hay vínculo."""
+    if device_id:
+        from utils.user_links import obtener_device_link
+        link = obtener_device_link(device_id)
+        if link:
+            return link["telegram_id"]
+    return _ADDIN_ANON_ID
+
+
+def _registrar_addin(device_id: str | None, texto: str) -> None:
+    """Escribe la pregunta del Add-in en historial para que el usuario aparezca en el panel."""
+    try:
+        from utils.history import agregar_mensaje
+        agregar_mensaje(_usuario_addin(device_id), "user", texto[:2000])
+    except Exception as exc:
+        logger.warning("No se pudo registrar uso del Add-in: %s", exc)
+
+
 def _verificar_addin_activo():
     if not _ENABLE_ADDIN:
         raise HTTPException(status_code=503, detail="Módulo Add-in desactivado (ENABLE_ADDIN=false)")
@@ -347,6 +372,7 @@ def _verificar_addin_activo():
 @app.post("/ask")
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
+    _registrar_addin(peticion.device_id, peticion.pregunta)
     # Sin datos: pregunta general o creación desde cero
     if not peticion.datos or len(peticion.datos) < 2:
         if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
@@ -395,6 +421,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
 @app.post("/edit")
 def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
          __: None = Depends(_verificar_addin_activo)) -> dict:
+    _registrar_addin(peticion.device_id, peticion.instruccion)
     df = _a_dataframe(peticion.datos)
 
     op = extraer_operacion_edicion(df, peticion.instruccion)
@@ -840,6 +867,7 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     filas_usuarios = ""
     for u in stats["usuarios"]:
         uid  = u["user_id"]
+        uid_label = "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
         email = u["email"] or "—"
         ver  = u["version_excel"] or "—"
         modo = "🔊" if u["modo_respuesta"] == "voz" else "💬"
@@ -847,7 +875,7 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
         ts   = u["ultima_actividad"][:16].replace("T", " ") if u["ultima_actividad"] != "—" else "—"
         filas_usuarios += (
             f"<tr>"
-            f"  <td><code>{uid}</code></td>"
+            f"  <td>{uid_label}</td>"
             f"  <td>{email}</td>"
             f"  <td class='num'>{u['mensajes_enviados']}</td>"
             f"  <td class='num'>{u['total_mensajes']}</td>"
