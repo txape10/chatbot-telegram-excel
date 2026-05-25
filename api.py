@@ -49,6 +49,15 @@ _BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 _ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "true").lower() == "true"
 _ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
 
+# ID de Telegram al que enviar alertas del sistema (por defecto el primer AUTHORIZED_USER)
+_ids_autorizados  = [u.strip() for u in os.getenv("AUTHORIZED_USERS", "").split(",") if u.strip()]
+_ALERT_TELEGRAM_ID = int(os.getenv("ALERT_TELEGRAM_ID", _ids_autorizados[0] if _ids_autorizados else "0") or "0")
+
+# Umbrales de alerta (% sobre el límite de Render free)
+_ALERTA_PCT       = 80.0    # rojo a partir del 80 %
+_ALERTA_COOLDOWN  = 3600    # segundos entre avisos del mismo tipo (evita spam)
+_MONITOR_INTERVALO = 600    # comprobar cada 10 minutos
+
 # ---------------------------------------------------------------------------
 # Bot de Telegram — modo webhook o polling según configuración
 # ---------------------------------------------------------------------------
@@ -62,6 +71,74 @@ if _ENABLE_TELEGRAM and _BOT_TOKEN:
     _bot_mode = "webhook" if _WEBHOOK_URL else "polling"
 elif not _ENABLE_TELEGRAM:
     logger.info("Módulo Telegram desactivado (ENABLE_TELEGRAM=false)")
+
+
+async def _notificar_telegram(texto: str) -> None:
+    """Envía un mensaje de alerta al administrador por Telegram."""
+    if not _ptb_app or not _ALERT_TELEGRAM_ID:
+        return
+    try:
+        await _ptb_app.bot.send_message(
+            chat_id=_ALERT_TELEGRAM_ID,
+            text=texto,
+            parse_mode="Markdown",
+        )
+    except Exception as exc:
+        logger.warning("No se pudo enviar alerta Telegram: %s", exc)
+
+
+async def _monitor_alertas_sistema() -> None:
+    """Comprueba RAM y disco cada 10 min y avisa si superan el umbral rojo."""
+    import time
+    _ultima: dict[str, float] = {}
+
+    await asyncio.sleep(60)   # espera inicial para dejar que el servidor arranque
+    while True:
+        try:
+            ahora   = time.time()
+            sistema = _obtener_info_sistema()
+            alertas = []
+
+            ram_pct = sistema.get("ram_pct_render")
+            if ram_pct and ram_pct >= _ALERTA_PCT:
+                if ahora - _ultima.get("ram", 0) > _ALERTA_COOLDOWN:
+                    alertas.append(
+                        f"🔴 *RAM al {ram_pct:.0f}%*\n"
+                        f"   {sistema['ram_usado_mb']} MB / {_RENDER_RAM_MB} MB (límite Render)"
+                    )
+                    _ultima["ram"] = ahora
+
+            disco_pct = min(sistema["disco_usado_mb"] / _RENDER_DISK_MB * 100, 100.0)
+            if disco_pct >= _ALERTA_PCT:
+                if ahora - _ultima.get("disco", 0) > _ALERTA_COOLDOWN:
+                    alertas.append(
+                        f"🔴 *Disco al {disco_pct:.0f}%*\n"
+                        f"   {sistema['disco_usado_mb']} MB / {_RENDER_DISK_MB} MB (límite Render)"
+                    )
+                    _ultima["disco"] = ahora
+
+            if alertas:
+                await _notificar_telegram(
+                    "⚠️ *Alerta del servidor — Asistente Excel*\n\n" + "\n\n".join(alertas)
+                )
+                logger.warning("Alerta sistema: %s", alertas)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Monitor alertas sistema: %s", exc)
+
+        await asyncio.sleep(_MONITOR_INTERVALO)
+
+
+async def _manejador_error_bot(update: object, context: object) -> None:
+    """Handler de errores de python-telegram-bot — notifica al administrador."""
+    error = context.error  # type: ignore[attr-defined]
+    logger.error("Error PTB: %s", error, exc_info=error)
+    nombre = type(error).__name__
+    asyncio.create_task(_notificar_telegram(
+        f"🤖 *Error en el bot de Telegram*\n`{nombre}: {str(error)[:350]}`"
+    ))
 
 
 @asynccontextmanager
@@ -89,7 +166,27 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("TELEGRAM_TOKEN no definido — bot desactivado en esta instancia")
 
+    if _ptb_app:
+        _ptb_app.add_error_handler(_manejador_error_bot)
+
+    # Monitor de alertas del sistema (RAM / disco)
+    _task_monitor = asyncio.create_task(_monitor_alertas_sistema())
+
+    # Notificación de arranque — también avisa de reinicios/caídas previas
+    modo_str = _bot_mode.upper() if _ptb_app else "SIN BOT"
+    ia_str   = os.getenv("LLM_PROVIDER", "?").upper()
+    asyncio.create_task(_notificar_telegram(
+        f"🟢 *Asistente Excel — servidor online*\n"
+        f"Modo: `{modo_str}` · IA: `{ia_str}`"
+    ))
+
     yield   # ← la app está corriendo
+
+    _task_monitor.cancel()
+    try:
+        await _task_monitor
+    except asyncio.CancelledError:
+        pass
 
     if _ptb_app and _bot_mode == "polling":
         await _ptb_app.updater.stop()
@@ -105,6 +202,25 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Asistente Excel API", version="1.0", lifespan=lifespan)
+
+
+# Middleware: detecta errores HTTP 500 y avisa por Telegram (cooldown 5 min por ruta)
+_errores_500_vistos: dict[str, float] = {}
+_COOLDOWN_500 = 300  # segundos
+
+@app.middleware("http")
+async def _middleware_errores_500(request: Request, call_next):
+    import time
+    response = await call_next(request)
+    if response.status_code == 500:
+        clave = f"{request.method} {request.url.path}"
+        ahora = time.time()
+        if ahora - _errores_500_vistos.get(clave, 0) > _COOLDOWN_500:
+            _errores_500_vistos[clave] = ahora
+            asyncio.create_task(_notificar_telegram(
+                f"💥 *Error 500 en el servidor*\n`{clave}`"
+            ))
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -505,22 +621,123 @@ def admin_crear_vinculo(peticion: PeticionVinculo,
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
     from utils.stats import obtener_estadisticas
-    stats = obtener_estadisticas()
-    return _renderizar_admin_html(stats)
+    stats   = obtener_estadisticas()
+    sistema = _obtener_info_sistema()
+    logs    = _leer_logs_recientes(150)
+    return _renderizar_admin_html(stats, sistema, logs)
 
 
-def _renderizar_admin_html(stats: dict) -> str:
+# ── Helpers del panel ────────────────────────────────────────────────────────
+
+_RENDER_RAM_MB  = 512
+_RENDER_DISK_MB = 1024
+
+
+def _obtener_info_sistema() -> dict:
+    import shutil, sys
     from datetime import datetime
+
+    def _mb_dir(ruta: str) -> float:
+        total = 0
+        try:
+            for r, _, files in os.walk(ruta):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(r, f))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        return round(total / (1024 * 1024), 1)
+
+    disco = shutil.disk_usage("/")
+    resultado: dict = {
+        "disco_total_mb":  disco.total // (1024 * 1024),
+        "disco_usado_mb":  disco.used  // (1024 * 1024),
+        "disco_libre_mb":  disco.free  // (1024 * 1024),
+        "disco_pct":       round(disco.used / disco.total * 100, 1),
+        "data_mb":         _mb_dir("data"),
+        "logs_mb":         _mb_dir("data/logs"),
+        "temp_mb":         _mb_dir("data/temp"),
+        "python_version":  sys.version.split()[0],
+        "ram_usado_mb":    None,
+        "ram_pct_render":  None,
+        "cpu_pct":         None,
+        "uptime_seg":      None,
+    }
+    try:
+        import psutil
+        ram = psutil.virtual_memory()
+        resultado["ram_usado_mb"]   = ram.used // (1024 * 1024)
+        resultado["ram_pct_render"] = min(round(ram.used / (1024 * 1024) / _RENDER_RAM_MB * 100, 1), 100)
+        resultado["cpu_pct"]        = psutil.cpu_percent(interval=0.2)
+        resultado["uptime_seg"]     = int(datetime.now().timestamp() - psutil.Process().create_time())
+    except Exception:
+        pass
+    return resultado
+
+
+def _formato_uptime(seg: int | None) -> str:
+    if seg is None:
+        return "—"
+    d, rem  = divmod(seg, 86400)
+    h, rem  = divmod(rem, 3600)
+    m       = rem // 60
+    if d:
+        return f"{d}d {h}h {m}m"
+    if h:
+        return f"{h}h {m}m"
+    return f"{m}m"
+
+
+def _color_pct(pct: float | None) -> str:
+    if pct is None:
+        return "#aaa"
+    if pct < 60:
+        return "#27ae60"
+    if pct < 80:
+        return "#e67e22"
+    return "#e74c3c"
+
+
+def _leer_logs_recientes(n: int = 150) -> list[str]:
+    ruta = os.path.join("data", "logs", "bot.log")
+    if not os.path.exists(ruta):
+        return []
+    try:
+        with open(ruta, encoding="utf-8", errors="replace") as f:
+            lineas = f.readlines()
+        return [l.rstrip() for l in lineas[-n:]]
+    except Exception:
+        return []
+
+
+def _html_linea_log(linea: str) -> str:
+    import html as _html
+    if "ERROR" in linea:
+        cls, nivel = "log-error", "error"
+    elif "WARNING" in linea or "WARN" in linea:
+        cls, nivel = "log-warn", "warn"
+    elif "DEBUG" in linea:
+        cls, nivel = "log-debug", "other"
+    else:
+        cls, nivel = "log-info", "other"
+    return f'<div class="{cls}" data-lvl="{nivel}">{_html.escape(linea)}</div>'
+
+
+# ── Renderizado HTML ─────────────────────────────────────────────────────────
+
+def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
+    from datetime import datetime, timezone
     from utils.user_links import obtener_todos_los_vinculos
     from utils.db import estado as _estado_db
 
-    # Barra de mensajes por día (últimos 7 días)
+    # ── Gráfico de actividad ────────────────────────────────────────────────
     max_n = max((d["n"] for d in stats["mensajes_por_dia"]), default=1)
-
     barras_html = ""
     for d in stats["mensajes_por_dia"]:
-        pct  = int(d["n"] / max_n * 100)
-        dia  = d["dia"][5:]   # MM-DD
+        pct = int(d["n"] / max_n * 100)
+        dia = d["dia"][5:]
         barras_html += (
             f'<div class="bar-item">'
             f'  <div class="bar-fill" style="height:{pct}%" title="{d["n"]} mensajes"></div>'
@@ -529,15 +746,20 @@ def _renderizar_admin_html(stats: dict) -> str:
             f'</div>'
         )
 
-    # Filas de usuarios
+    # ── Tabla de usuarios ───────────────────────────────────────────────────
+    hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    usuarios_hoy = sum(
+        1 for u in stats["usuarios"]
+        if u["ultima_actividad"] != "—" and u["ultima_actividad"][:10] == hoy_str
+    )
     filas_usuarios = ""
     for u in stats["usuarios"]:
-        uid   = u["user_id"]
+        uid  = u["user_id"]
         email = u["email"] or "—"
-        ver   = u["version_excel"] or "—"
-        modo  = "🔊" if u["modo_respuesta"] == "voz" else "💬"
-        priv  = "🔒" if u["modo_privado"] else ""
-        ts    = u["ultima_actividad"][:16].replace("T", " ") if u["ultima_actividad"] != "—" else "—"
+        ver  = u["version_excel"] or "—"
+        modo = "🔊" if u["modo_respuesta"] == "voz" else "💬"
+        priv = "🔒" if u["modo_privado"] else ""
+        ts   = u["ultima_actividad"][:16].replace("T", " ") if u["ultima_actividad"] != "—" else "—"
         filas_usuarios += (
             f"<tr>"
             f"  <td><code>{uid}</code></td>"
@@ -550,12 +772,12 @@ def _renderizar_admin_html(stats: dict) -> str:
             f"</tr>"
         )
 
-    # Filas de vínculos Telegram ↔ email
+    # ── Vínculos ────────────────────────────────────────────────────────────
     vinculos = obtener_todos_los_vinculos()
     filas_vinculos = ""
     for v in vinculos:
-        tid   = v["telegram_id"]
-        mail  = v["email"]
+        tid  = v["telegram_id"]
+        mail = v["email"]
         fecha = v["creado_en"][:10] if v["creado_en"] else "—"
         filas_vinculos += (
             f"<tr>"
@@ -568,14 +790,42 @@ def _renderizar_admin_html(stats: dict) -> str:
             f"</tr>"
         )
 
-    ahora  = datetime.now().strftime("%d/%m/%Y %H:%M")
+    # ── Base de datos ───────────────────────────────────────────────────────
     db_inf = _estado_db()
-    db_modo_label = "☁️ Turso (cloud)" if db_inf["modo"] == "turso" else "💾 SQLite local"
+    db_modo_label  = "☁️ Turso (cloud)" if db_inf["modo"] == "turso" else "💾 SQLite local"
     db_estado_badge = (
         '<span class="badge-ok">✅ Conectada</span>'
         if db_inf["ok"] else
-        f'<span class="badge-warn">❌ Error: {db_inf["error"]}</span>'
+        f'<span class="badge-warn">❌ {db_inf["error"]}</span>'
     )
+
+    # ── Sistema — barras de progreso ────────────────────────────────────────
+    ram_mb   = sistema["ram_usado_mb"]
+    ram_pct  = sistema["ram_pct_render"]
+    ram_col  = _color_pct(ram_pct)
+    ram_lbl  = f"{ram_mb} MB / {_RENDER_RAM_MB} MB" if ram_mb is not None else "No disponible"
+    ram_bar  = f'<div class="prog-fill" style="width:{ram_pct or 0}%;background:{ram_col}"></div>'
+
+    disco_pct_render = min(round(sistema["disco_usado_mb"] / _RENDER_DISK_MB * 100, 1), 100)
+    disco_col = _color_pct(disco_pct_render)
+    disco_lbl = f'{sistema["disco_usado_mb"]} MB / {_RENDER_DISK_MB} MB'
+    disco_bar = f'<div class="prog-fill" style="width:{disco_pct_render}%;background:{disco_col}"></div>'
+
+    cpu_str    = f'{sistema["cpu_pct"]}%' if sistema["cpu_pct"] is not None else "—"
+    uptime_str = _formato_uptime(sistema["uptime_seg"])
+
+    # ── Bot / IA ────────────────────────────────────────────────────────────
+    proveedor = os.getenv("LLM_PROVIDER", "groq").upper()
+    modelo    = os.getenv("LLM_MODEL", "—")
+    tg_status = "✅ Activo" if _ENABLE_TELEGRAM else "⚪ Desactivado"
+    webhook   = "🌐 Webhook" if _WEBHOOK_URL else "📡 Polling"
+
+    # ── Logs ────────────────────────────────────────────────────────────────
+    n_errores  = sum(1 for l in logs if "ERROR" in l)
+    lineas_log = "".join(_html_linea_log(l) for l in reversed(logs)) if logs else \
+                 '<div style="color:#999;padding:12px">Sin entradas de log</div>'
+
+    ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -591,25 +841,52 @@ def _renderizar_admin_html(stats: dict) -> str:
            display:flex;align-items:center;justify-content:space-between}}
   .topbar h1{{font-size:1.1rem;font-weight:600}}
   .topbar span{{font-size:.8rem;opacity:.7}}
-  .main{{padding:24px;max-width:1100px;margin:0 auto}}
-  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
-          gap:16px;margin-bottom:28px}}
-  .card{{background:#fff;border-radius:10px;padding:20px;
+  .main{{padding:24px;max-width:1200px;margin:0 auto}}
+
+  /* Tarjetas */
+  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+          gap:14px;margin-bottom:24px}}
+  .card{{background:#fff;border-radius:10px;padding:18px 14px;
          box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}}
-  .card .val{{font-size:2rem;font-weight:700;color:#2c3e7a}}
-  .card .lbl{{font-size:.78rem;color:#666;margin-top:4px}}
+  .card .val{{font-size:1.9rem;font-weight:700;color:#2c3e7a}}
+  .card .lbl{{font-size:.75rem;color:#666;margin-top:4px;text-transform:uppercase;
+              letter-spacing:.03em}}
+
+  /* Secciones */
   .section{{background:#fff;border-radius:10px;
-            box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:24px;overflow:hidden}}
-  .section-head{{padding:14px 20px;background:#f8f9fb;
-                 border-bottom:1px solid #eee;font-weight:600;font-size:.9rem}}
+            box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:20px;overflow:hidden}}
+  .section-head{{padding:13px 20px;background:#f8f9fb;
+                 border-bottom:1px solid #eee;font-weight:600;font-size:.9rem;
+                 display:flex;align-items:center;justify-content:space-between}}
+  .section-head .head-actions{{display:flex;gap:8px}}
+
+  /* Grid de 2 columnas */
+  .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}}
+  @media(max-width:700px){{.two-col{{grid-template-columns:1fr}}}}
+
+  /* Métricas simples */
+  .metric-list{{padding:16px 20px;display:flex;flex-direction:column;gap:12px}}
+  .metric-row{{display:flex;justify-content:space-between;align-items:center;
+               font-size:.85rem}}
+  .metric-row .mk{{color:#666}}
+  .metric-row .mv{{font-weight:600;color:#1a1a2e}}
+
+  /* Barra de progreso */
+  .prog-wrap{{margin-top:4px;background:#eee;border-radius:4px;height:10px;overflow:hidden}}
+  .prog-fill{{height:100%;border-radius:4px;transition:width .4s}}
+  .prog-label{{font-size:.75rem;color:#666;margin-top:3px;display:flex;
+               justify-content:space-between}}
+
+  /* Gráfico */
   .chart{{display:flex;align-items:flex-end;gap:8px;
           padding:20px 20px 10px;height:140px}}
-  .bar-item{{display:flex;flex-direction:column;align-items:center;
-             flex:1;height:100%}}
+  .bar-item{{display:flex;flex-direction:column;align-items:center;flex:1;height:100%}}
   .bar-fill{{background:#2c3e7a;border-radius:3px 3px 0 0;width:100%;
              min-height:4px;transition:height .3s}}
   .bar-label,.bar-val{{font-size:.68rem;color:#666;margin-top:3px}}
   .bar-val{{color:#2c3e7a;font-weight:600}}
+
+  /* Tablas */
   table{{width:100%;border-collapse:collapse;font-size:.85rem}}
   th{{padding:10px 14px;text-align:left;font-weight:600;
       background:#f8f9fb;border-bottom:2px solid #eee;color:#444}}
@@ -621,9 +898,17 @@ def _renderizar_admin_html(stats: dict) -> str:
   code{{background:#f0f0f0;padding:2px 5px;border-radius:4px;font-size:.8rem}}
   .badge-ok{{color:#27ae60;font-weight:600}}
   .badge-warn{{color:#e67e22}}
+
+  /* Botones */
   .btn-del{{background:#e74c3c;color:#fff;border:none;border-radius:4px;
             padding:3px 9px;cursor:pointer;font-size:.8rem}}
   .btn-del:hover{{background:#c0392b}}
+  .btn-sm{{padding:4px 12px;border:1px solid #ddd;border-radius:6px;
+           background:#fff;cursor:pointer;font-size:.8rem;color:#444}}
+  .btn-sm.active{{background:#2c3e7a;color:#fff;border-color:#2c3e7a}}
+  .btn-sm:hover:not(.active){{background:#f0f2f5}}
+
+  /* Formulario vínculos */
   .form-vincular{{display:flex;gap:8px;padding:14px 20px;
                   border-top:1px solid #eee;flex-wrap:wrap}}
   .form-vincular input{{flex:1;min-width:140px;padding:6px 10px;
@@ -631,6 +916,18 @@ def _renderizar_admin_html(stats: dict) -> str:
   .form-vincular button{{padding:6px 16px;background:#2c3e7a;color:#fff;
                          border:none;border-radius:6px;cursor:pointer;font-size:.85rem}}
   .form-vincular button:hover{{background:#1a2a5e}}
+
+  /* Visor de logs */
+  .log-box{{height:320px;overflow-y:auto;font-family:'Courier New',monospace;
+            font-size:.75rem;line-height:1.5;padding:12px 16px;background:#fafafa}}
+  .log-error{{color:#c0392b;background:#fdecea;padding:1px 4px;border-radius:2px;margin:1px 0}}
+  .log-warn{{color:#8b6914;background:#fef9e7;padding:1px 4px;border-radius:2px;margin:1px 0}}
+  .log-info{{color:#2c3e7a}}
+  .log-debug{{color:#aaa}}
+  .log-box.only-errors .log-info,
+  .log-box.only-errors .log-debug{{display:none}}
+  .log-count-err{{background:#e74c3c;color:#fff;border-radius:10px;
+                  padding:1px 7px;font-size:.72rem;font-weight:700;margin-left:6px}}
 </style>
 </head>
 <body>
@@ -640,11 +937,11 @@ def _renderizar_admin_html(stats: dict) -> str:
 </div>
 <div class="main">
 
-  <!-- Tarjetas resumen -->
+  <!-- ① Tarjetas KPI -->
   <div class="cards">
     <div class="card">
       <div class="val">{stats['total_usuarios']}</div>
-      <div class="lbl">Usuarios activos</div>
+      <div class="lbl">Usuarios totales</div>
     </div>
     <div class="card">
       <div class="val">{stats['total_mensajes']:,}</div>
@@ -655,12 +952,73 @@ def _renderizar_admin_html(stats: dict) -> str:
       <div class="lbl">Mensajes hoy</div>
     </div>
     <div class="card">
-      <div class="val">{sum(1 for u in stats['usuarios'] if u['email'])}</div>
-      <div class="lbl">Add-in vinculados</div>
+      <div class="val">{usuarios_hoy}</div>
+      <div class="lbl">Usuarios activos hoy</div>
+    </div>
+    <div class="card">
+      <div class="val">{len(vinculos)}</div>
+      <div class="lbl">Vínculos Telegram</div>
+    </div>
+    <div class="card">
+      <div class="val">{uptime_str}</div>
+      <div class="lbl">Uptime servidor</div>
     </div>
   </div>
 
-  <!-- Gráfico de actividad -->
+  <!-- ② Sistema + Bot/IA en dos columnas -->
+  <div class="two-col">
+
+    <!-- Sistema -->
+    <div class="section">
+      <div class="section-head">💻 Sistema <small style="font-weight:400;color:#888">(límites Render free)</small></div>
+      <div class="metric-list">
+
+        <div>
+          <div class="metric-row">
+            <span class="mk">RAM usada</span>
+            <span class="mv">{ram_lbl}</span>
+          </div>
+          <div class="prog-wrap">{ram_bar}</div>
+          <div class="prog-label"><span>0</span><span>límite {_RENDER_RAM_MB} MB</span></div>
+        </div>
+
+        <div>
+          <div class="metric-row">
+            <span class="mk">Disco usado</span>
+            <span class="mv">{disco_lbl}</span>
+          </div>
+          <div class="prog-wrap">{disco_bar}</div>
+          <div class="prog-label"><span>0</span><span>límite {_RENDER_DISK_MB} MB</span></div>
+        </div>
+
+        <div class="metric-row"><span class="mk">CPU</span><span class="mv">{cpu_str}</span></div>
+        <div class="metric-row"><span class="mk">Python</span><span class="mv">{sistema['python_version']}</span></div>
+        <div class="metric-row"><span class="mk">data/ (BD + logs)</span><span class="mv">{sistema['data_mb']} MB</span></div>
+        <div class="metric-row"><span class="mk">└ logs/</span><span class="mv">{sistema['logs_mb']} MB</span></div>
+        <div class="metric-row"><span class="mk">└ temp/</span><span class="mv">{sistema['temp_mb']} MB</span></div>
+
+      </div>
+    </div>
+
+    <!-- Bot / IA -->
+    <div class="section">
+      <div class="section-head">🤖 Bot e IA</div>
+      <div class="metric-list">
+        <div class="metric-row"><span class="mk">Telegram</span><span class="mv">{tg_status}</span></div>
+        <div class="metric-row"><span class="mk">Modo conexión</span><span class="mv">{webhook}</span></div>
+        <div class="metric-row"><span class="mk">Proveedor IA</span><span class="mv">{proveedor}</span></div>
+        <div class="metric-row"><span class="mk">Modelo</span><span class="mv" style="font-size:.8rem">{modelo}</span></div>
+        <div class="metric-row"><span class="mk">Base de datos</span><span class="mv">{db_modo_label}</span></div>
+        <div class="metric-row"><span class="mk">Estado BD</span><span class="mv">{db_estado_badge}</span></div>
+        <div class="metric-row"><span class="mk">URL BD</span>
+          <span class="mv"><code style="font-size:.72rem;word-break:break-all">{db_inf['url']}</code></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ③ Actividad 7 días -->
   <div class="section">
     <div class="section-head">📊 Actividad — últimos 7 días</div>
     <div class="chart">
@@ -668,43 +1026,32 @@ def _renderizar_admin_html(stats: dict) -> str:
     </div>
   </div>
 
-  <!-- Tabla de usuarios -->
+  <!-- ④ Usuarios -->
   <div class="section">
     <div class="section-head">👤 Usuarios ({stats['total_usuarios']})</div>
     <table>
       <thead>
         <tr>
-          <th>Telegram ID</th>
-          <th>Email (Add-in)</th>
-          <th>Msgs enviados</th>
-          <th>Total msgs</th>
-          <th>Última actividad</th>
-          <th>Versión Excel</th>
-          <th>Modo</th>
+          <th>Telegram ID</th><th>Email (Add-in)</th>
+          <th>Msgs enviados</th><th>Total msgs</th>
+          <th>Última actividad</th><th>Versión Excel</th><th>Modo</th>
         </tr>
       </thead>
       <tbody>
-        {filas_usuarios if filas_usuarios else
-         '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Sin usuarios</td></tr>'}
+        {filas_usuarios or '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Sin usuarios</td></tr>'}
       </tbody>
     </table>
   </div>
 
-  <!-- Vinculaciones Telegram ↔ Add-in -->
+  <!-- ⑤ Vínculos -->
   <div class="section">
-    <div class="section-head">🔗 Vinculaciones Telegram ↔ Add-in ({len(vinculos)})</div>
+    <div class="section-head">🔗 Vínculos Telegram ↔ Add-in ({len(vinculos)})</div>
     <table>
       <thead>
-        <tr>
-          <th>Telegram ID</th>
-          <th>Email</th>
-          <th>Vinculado el</th>
-          <th></th>
-        </tr>
+        <tr><th>Telegram ID</th><th>Email</th><th>Vinculado el</th><th></th></tr>
       </thead>
       <tbody>
-        {filas_vinculos if filas_vinculos else
-         '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin vínculos</td></tr>'}
+        {filas_vinculos or '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin vínculos</td></tr>'}
       </tbody>
     </table>
     <form class="form-vincular" onsubmit="agregarVinculo(event)">
@@ -714,33 +1061,43 @@ def _renderizar_admin_html(stats: dict) -> str:
     </form>
   </div>
 
-  <!-- Estado de la base de datos -->
+  <!-- ⑥ Logs -->
   <div class="section">
-    <div class="section-head">🗄 Base de datos</div>
-    <table>
-      <thead>
-        <tr><th>Modo</th><th>URL / Ruta</th><th>Estado</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>{db_modo_label}</td>
-          <td><code style="font-size:.75rem;word-break:break-all">{db_inf["url"]}</code></td>
-          <td>{db_estado_badge}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="section-head">
+      <span>📋 Logs recientes
+        {'<span class="log-count-err">' + str(n_errores) + ' errores</span>' if n_errores else ''}
+      </span>
+      <div class="head-actions">
+        <button class="btn-sm active" id="btn-todos"   onclick="filtrarLogs('todos')">Todos</button>
+        <button class="btn-sm"        id="btn-errores" onclick="filtrarLogs('errores')">Solo errores</button>
+        <button class="btn-sm" onclick="location.reload()">↻ Refrescar</button>
+      </div>
+    </div>
+    <div class="log-box" id="log-box">
+      {lineas_log}
+    </div>
   </div>
 
 </div>
 <script>
   const _key = new URLSearchParams(window.location.search).get("key") || "";
 
+  // Scroll al final de los logs al cargar
+  const lb = document.getElementById("log-box");
+  if (lb) lb.scrollTop = lb.scrollHeight;
+
+  function filtrarLogs(modo) {{
+    const box = document.getElementById("log-box");
+    document.getElementById("btn-todos").classList.toggle("active", modo === "todos");
+    document.getElementById("btn-errores").classList.toggle("active", modo === "errores");
+    box.classList.toggle("only-errors", modo === "errores");
+  }}
+
   async function eliminarVinculo(tid, email) {{
     if (!confirm("¿Eliminar el vínculo de " + email + "?")) return;
     const resp = await fetch(
       "/admin/vinculos?key=" + encodeURIComponent(_key) +
-      "&telegram_id=" + tid +
-      "&email=" + encodeURIComponent(email),
+      "&telegram_id=" + tid + "&email=" + encodeURIComponent(email),
       {{ method: "DELETE" }}
     );
     if (resp.ok) location.reload();
@@ -751,14 +1108,11 @@ def _renderizar_admin_html(stats: dict) -> str:
     e.preventDefault();
     const tid   = document.getElementById("inp-tid").value.trim();
     const email = document.getElementById("inp-email").value.trim();
-    const resp  = await fetch(
-      "/admin/vinculos?key=" + encodeURIComponent(_key),
-      {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{ telegram_id: parseInt(tid), email }})
-      }}
-    );
+    const resp  = await fetch("/admin/vinculos?key=" + encodeURIComponent(_key), {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ telegram_id: parseInt(tid), email }})
+    }});
     if (resp.ok) location.reload();
     else alert("Error al añadir el vínculo");
   }}
