@@ -36,6 +36,7 @@ from excel.query_engine import QueryError, ejecutar_query
 from logging_config import configurar_logging
 from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_estructura_excel, obtener_respuesta)
+from config import SYSTEM_PROMPT_ADDIN
 
 load_dotenv()
 configurar_logging()
@@ -244,6 +245,7 @@ def _verificar_clave(x_api_key: str = Header(...)) -> None:
 class PeticionPregunta(BaseModel):
     datos: list[list] | None = None
     pregunta: str
+    historial: list[dict] = []
 
 
 class PeticionAnalisis(BaseModel):
@@ -253,6 +255,7 @@ class PeticionAnalisis(BaseModel):
 class PeticionEdicion(BaseModel):
     datos: list[list]
     instruccion: str
+    historial: list[dict] = []
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -349,7 +352,10 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
                     "datos_modificados": matriz,
                     "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
                 }
-        return {"respuesta": obtener_respuesta([], peticion.pregunta)}
+        return {"respuesta": obtener_respuesta(
+            peticion.historial, peticion.pregunta,
+            system_override=SYSTEM_PROMPT_ADDIN,
+        )}
 
     df = _a_dataframe(peticion.datos)
 
@@ -368,7 +374,10 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         f"Primeras filas:\n{muestra}\n\n"
         f"Pregunta: {peticion.pregunta}"
     )
-    return {"respuesta": obtener_respuesta([], contexto)}
+    return {"respuesta": obtener_respuesta(
+        peticion.historial, contexto,
+        system_override=SYSTEM_PROMPT_ADDIN,
+    )}
 
 
 @app.post("/edit")
@@ -414,7 +423,10 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
         f"Primeras filas:\n{muestra}\n\n"
         f"Pregunta: {peticion.instruccion}"
     )
-    return {"tipo": "texto", "respuesta": obtener_respuesta([], contexto)}
+    return {"tipo": "texto", "respuesta": obtener_respuesta(
+        peticion.historial, contexto,
+        system_override=SYSTEM_PROMPT_ADDIN,
+    )}
 
 
 @app.post("/analizar")

@@ -19,12 +19,14 @@ def _estimar_tokens(texto: str) -> int:
 
 
 def _construir_mensajes(historial: list[dict], pregunta: str,
-                         proveedor: LLMProvider | None = None) -> list[dict]:
+                         proveedor: LLMProvider | None = None,
+                         system_override: str | None = None) -> list[dict]:
     """Construye la lista de mensajes ajustando el historial si la petición
     supera el presupuesto de tokens del proveedor activo."""
     proveedor = proveedor or obtener_proveedor()
-    mensajes_sistema = [{"role": "system", "content": SYSTEM_PROMPT}]
-    tokens_fijos = _estimar_tokens(SYSTEM_PROMPT) + _estimar_tokens(pregunta)
+    prompt_sistema = system_override or SYSTEM_PROMPT
+    mensajes_sistema = [{"role": "system", "content": prompt_sistema}]
+    tokens_fijos = _estimar_tokens(prompt_sistema) + _estimar_tokens(pregunta)
     presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
 
     historial_valido = list(historial)
@@ -41,15 +43,16 @@ def _construir_mensajes(historial: list[dict], pregunta: str,
 
 
 def obtener_respuesta(historial: list[dict], pregunta: str,
-                       proveedor: LLMProvider | None = None) -> str:
+                       proveedor: LLMProvider | None = None,
+                       system_override: str | None = None) -> str:
     """Envía la pregunta al LLM y devuelve la respuesta.
 
     Args:
-        proveedor: si se indica, usa ese proveedor en lugar del activo
-                   (útil para modo privado → Mistral EU).
+        proveedor: si se indica, usa ese proveedor en lugar del activo.
+        system_override: reemplaza el system prompt por defecto.
     """
     proveedor_activo = proveedor or obtener_proveedor()
-    mensajes = _construir_mensajes(historial, pregunta, proveedor_activo)
+    mensajes = _construir_mensajes(historial, pregunta, proveedor_activo, system_override)
     tokens_estimados = _estimar_tokens(str(mensajes))
     logger.info("Petición LLM — tokens estimados: %d", tokens_estimados)
     return proveedor_activo.chat(mensajes)

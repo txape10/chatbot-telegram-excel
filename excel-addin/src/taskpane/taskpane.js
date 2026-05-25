@@ -19,10 +19,14 @@ let _rangoCols        = 0;
 // Easter egg
 let _eggInterval = null;
 
-// Historial local
+// Historial local (UI)
 const _CLAVE_HISTORIAL   = "asistente-excel-historial";
 const _MAX_HISTORIAL     = 20;
 let _historialAbierto    = true;
+
+// Historial de conversación enviado al LLM (contexto multi-turno)
+let _historialLLM        = [];
+const _MAX_TURNOS_LLM    = 6; // 3 turnos (user+model) para no saturar el contexto
 
 Office.onReady(() => {
   if (!estaAutorizado()) {
@@ -120,7 +124,9 @@ async function preguntar() {
       _rangoCols    = (valores[0] || []).length;
       mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
-      const respuesta = await llamarApi("/edit", { datos: valores, instruccion });
+      const respuesta = await llamarApi("/edit", {
+        datos: valores, instruccion, historial: _historialLLM,
+      });
 
       if (respuesta.tipo === "edicion") {
         _datosModificados = respuesta.datos_modificados;
@@ -128,10 +134,12 @@ async function preguntar() {
         mostrarDialogo(respuesta.descripcion);
         mostrarEstado("Edición lista · " + direccion);
         _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else {
         mostrarRespuesta(respuesta.respuesta);
         mostrarEstado("Listo · " + direccion);
         _agregarAlHistorial(instruccion, respuesta.respuesta);
+        _actualizarHistorialLLM(instruccion, respuesta.respuesta);
       }
 
     } else {
@@ -141,7 +149,9 @@ async function preguntar() {
       _rangoFilas   = 0;
       _rangoCols    = 0;
       mostrarEstado("Consultando al asistente...");
-      const respuesta = await llamarApi("/ask", { pregunta: instruccion });
+      const respuesta = await llamarApi("/ask", {
+        pregunta: instruccion, historial: _historialLLM,
+      });
 
       if (respuesta.tipo === "datos" && respuesta.datos_modificados) {
         _datosModificados = respuesta.datos_modificados;
@@ -149,10 +159,12 @@ async function preguntar() {
         mostrarDialogo(respuesta.descripcion);
         mostrarEstado("Tabla lista para escribir.");
         _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else {
         mostrarRespuesta(respuesta.respuesta);
         mostrarEstado("Listo");
         _agregarAlHistorial(instruccion, respuesta.respuesta);
+        _actualizarHistorialLLM(instruccion, respuesta.respuesta);
       }
     }
 
@@ -501,6 +513,17 @@ function _agregarAlHistorial(pregunta, respuesta) {
   _renderizarHistorial();
 }
 
+function _actualizarHistorialLLM(pregunta, respuesta) {
+  _historialLLM.push(
+    { role: "user",  parts: [pregunta]  },
+    { role: "model", parts: [respuesta] },
+  );
+  // Mantener solo los últimos N turnos para no saturar el contexto
+  if (_historialLLM.length > _MAX_TURNOS_LLM) {
+    _historialLLM = _historialLLM.slice(_historialLLM.length - _MAX_TURNOS_LLM);
+  }
+}
+
 function _renderizarHistorial() {
   const entradas  = _cargarHistorial();
   const lista     = document.getElementById("historial-lista");
@@ -563,6 +586,7 @@ function toggleHistorial() {
 function limpiarHistorial(event) {
   event.stopPropagation();   // no colapsar el panel al limpiar
   localStorage.removeItem(_CLAVE_HISTORIAL);
+  _historialLLM = [];        // también limpiar el contexto enviado al LLM
   _renderizarHistorial();
 }
 

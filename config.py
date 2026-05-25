@@ -37,3 +37,12 @@ SYSTEM_PROMPT = (
     + "\n\nGuía de tono y formato:\n\n"
     + _GUIA_ESTILO
 )
+
+# Variante para el Add-in de Excel: mismo conocimiento + nota de contexto
+SYSTEM_PROMPT_ADDIN = (
+    SYSTEM_PROMPT
+    + "\n\nCONTEXTO: Estás integrado en un panel lateral de Microsoft Excel (Add-in). "
+    "El usuario trabaja directamente en su hoja de cálculo. "
+    "Cuando el sistema devuelva datos tabulares, se escribirán automáticamente en las celdas. "
+    "No menciones ni sugieras comandos del bot de Telegram."
+)
