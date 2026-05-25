@@ -1,11 +1,24 @@
 import io
 import logging
-import matplotlib
-matplotlib.use("Agg")  # backend sin pantalla
-import matplotlib.pyplot as plt
+import sys
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _importar_plt():
+    """Importa matplotlib.pyplot de forma lazy.
+
+    matplotlib.use("Agg") debe llamarse antes del primer import de pyplot.
+    El guard sobre sys.modules evita llamarlo de nuevo una vez ya cargado
+    (llamarlo después de pyplot emite un warning en versiones recientes).
+    """
+    if "matplotlib.pyplot" not in sys.modules:
+        import matplotlib as _mpl
+        _mpl.use("Agg")
+    import matplotlib.pyplot as plt
+    return plt
 
 
 class ChartError(ValueError):
@@ -16,6 +29,7 @@ def generar_grafico(df: pd.DataFrame, nombre_archivo: str, tipo: str = "barras")
     """Genera un gráfico con las columnas numéricas del DataFrame.
     tipo: 'barras' | 'lineas' | 'sectores'
     Devuelve un buffer PNG o None si no hay datos numéricos suficientes."""
+    plt = _importar_plt()
 
     # Intentar convertir columnas object a numérico (por si vienen como texto)
     df = df.copy()
@@ -107,6 +121,8 @@ def generar_grafico_personalizado(
     Devuelve (buffer_png, descripcion).
     Lanza ChartError si las columnas no existen o los datos no son válidos.
     """
+    plt = _importar_plt()
+
     # ── Validación ────────────────────────────────────────────────────────────
     if col_y not in df.columns:
         raise ChartError(f"La columna '{col_y}' no existe en el archivo.")
