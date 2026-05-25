@@ -6,7 +6,9 @@ services:
 
     # Render ejecuta este comando antes de arrancar
     # Las variables de entorno del dashboard están disponibles durante el build
-    buildCommand: pip install -r requirements.txt && cd excel-addin && npm install && npm run build
+    # El Add-in (dist/) se compila en local y se sube al repo — nunca compilar en Render
+    # Ver sección "Add-in — flujo de cambios" en CLAUDE.md
+    buildCommand: pip install -r requirements.txt
 
     # Render lanza este comando para arrancar el servidor
     startCommand: python api.py

@@ -243,6 +243,28 @@ ADDIN_URL=
 
 ---
 
+## Add-in — flujo de cambios (IMPORTANTE)
+
+El Add-in se **compila en local** y el `dist/` compilado va al repositorio.
+**Render NO ejecuta npm** — solo `pip install -r requirements.txt`.
+
+### Por qué
+`npm install` consume ~400 MB de RAM en el contenedor de Render (free tier: 512 MB).
+Pre-compilar en local elimina ese problema y hace los deploys más rápidos.
+
+### Flujo obligatorio al tocar el Add-in
+```
+1. Editar archivos en excel-addin/src/
+2. cd excel-addin && npm run build
+3. git add excel-addin/dist/
+4. git commit + git push
+```
+
+> **NUNCA** añadir `npm install` ni `npm run build` al `buildCommand` de `render.yaml`.
+> El `dist/` está excluido de `.gitignore` a propósito — debe subir al repo.
+
+---
+
 ## Control de versiones
 
 - **Usuario GitHub**: txape10
