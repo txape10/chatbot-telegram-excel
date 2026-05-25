@@ -334,6 +334,22 @@ textarea:focus {
   line-height: 1.4;
 }
 
+.fila-email-vinculo {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.fila-email-vinculo input {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 3px 6px;
+  border: 1px solid var(--color-borde);
+  border-radius: 2px;
+  background: var(--color-fondo);
+  color: var(--color-texto);
+}
+
 /* --- Botón Preguntar --- */
 .ms-Button--primary {
   width: 100%;

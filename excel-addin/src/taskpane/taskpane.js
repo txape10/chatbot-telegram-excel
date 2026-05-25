@@ -567,16 +567,44 @@ async function cargarConfigAddin() {
 
 // ── Vínculo Telegram ──────────────────────────────────────────────────────────
 
+const _CLAVE_EMAIL_VINCULO = "asistente-excel-email-vinculo";
+
+/**
+ * Devuelve el email efectivo para comprobar el vínculo Telegram.
+ * Orden de prioridad:
+ *   1. Office.context.userProfile.email  (disponible en Outlook, no en Excel)
+ *   2. localStorage (guardado manualmente por el usuario)
+ *   3. "" — sin email
+ */
+function obtenerEmailEfectivo() {
+  const officeEmail = obtenerEmailUsuario();
+  if (officeEmail) return officeEmail;
+  return localStorage.getItem(_CLAVE_EMAIL_VINCULO) || "";
+}
+
+/** Guarda el email introducido manualmente y recomprueba el vínculo. */
+async function guardarEmailVinculo() {
+  const input = document.getElementById("input-email-vinculo");
+  const email = (input?.value || "").trim().toLowerCase();
+  if (!email) return;
+  localStorage.setItem(_CLAVE_EMAIL_VINCULO, email);
+  await comprobarVinculo();
+}
+
 async function comprobarVinculo() {
-  const email  = obtenerEmailUsuario();
+  const email  = obtenerEmailEfectivo();
   const boton  = document.getElementById("btn-enviar-bot");
   const info   = document.getElementById("info-telegram");
+  const bloque = document.getElementById("bloque-email-vinculo");
 
   if (!email) {
-    // Sin email de Office: mostrar info para que el usuario sepa que puede vincular
-    if (info) info.style.display = "";
+    // Sin email: mostrar info + campo para introducirlo manualmente
+    if (info)   info.style.display   = "";
+    if (bloque) bloque.style.display = "";
     return;
   }
+  // Tenemos email — ocultar el bloque de entrada manual si ya no hace falta
+  if (bloque) bloque.style.display = "none";
 
   try {
     const resultado = await llamarApiGet(
@@ -599,9 +627,9 @@ async function comprobarVinculo() {
 // ── Enviar al bot ─────────────────────────────────────────────────────────────
 
 async function enviarAlBot() {
-  const email = obtenerEmailUsuario();
+  const email = obtenerEmailEfectivo();
   if (!email) {
-    mostrarEstado("No se pudo obtener tu email de Office. Asegúrate de estar conectado con tu cuenta.");
+    mostrarEstado("Introduce tu email primero en el campo de vinculación.");
     return;
   }
 
