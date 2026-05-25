@@ -13,6 +13,7 @@ const API_KEY = __API_KEY__; // inyectada por webpack DefinePlugin desde .env �
 // Estado de la edición pendiente de ubicar
 let _datosModificados = null;
 let _rangoAddress     = null;
+let _rangoHojaNombre  = null;
 let _rangoFilas       = 0;
 let _rangoCols        = 0;
 
@@ -114,14 +115,15 @@ async function preguntar() {
   mostrarEstado("Leyendo selección...");
 
   try {
-    const { valores, direccion } = await leerRangoSeleccionado();
+    const { valores, direccion, hojaNombre } = await leerRangoSeleccionado();
     const tienesDatos = valores && valores.length >= 2;
 
     if (tienesDatos) {
       // ── Flujo con datos: edición / consulta sobre la tabla seleccionada ──
-      _rangoAddress = direccion;
-      _rangoFilas   = valores.length;
-      _rangoCols    = (valores[0] || []).length;
+      _rangoAddress    = direccion;
+      _rangoHojaNombre = hojaNombre;
+      _rangoFilas      = valores.length;
+      _rangoCols       = (valores[0] || []).length;
       mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
       const respuesta = await llamarApi("/edit", {
@@ -148,9 +150,10 @@ async function preguntar() {
     } else {
       // ── Flujo sin datos: pregunta general o creación desde cero ──
       // Guardamos la dirección actual como ancla por si el LLM devuelve datos para escribir
-      _rangoAddress = direccion;
-      _rangoFilas   = 0;
-      _rangoCols    = 0;
+      _rangoAddress    = direccion;
+      _rangoHojaNombre = hojaNombre;
+      _rangoFilas      = 0;
+      _rangoCols       = 0;
       mostrarEstado("Consultando al asistente...");
       const respuesta = await llamarApi("/ask", {
         pregunta: instruccion, historial: _historialLLM,
@@ -187,8 +190,13 @@ async function leerRangoSeleccionado() {
   return Excel.run(async (context) => {
     const rango = context.workbook.getSelectedRange();
     rango.load(["values", "address"]);
+    rango.worksheet.load("name");
     await context.sync();
-    return { valores: rango.values, direccion: rango.address };
+    return {
+      valores:    rango.values,
+      direccion:  rango.address,
+      hojaNombre: rango.worksheet.name,
+    };
   });
 }
 
@@ -236,14 +244,24 @@ async function escribirEnExcel(destino) {
   const filas = datos.length;
   const cols  = (datos[0] || []).length;
 
+  // Dirección local sin prefijo de hoja ("Sheet1!A1:D11" → "A1:D11")
+  const localAddress = _rangoAddress ? _rangoAddress.split("!").pop() : null;
+
   try {
     await Excel.run(async (context) => {
       let targetRange;
+      let sourceRange = null;
 
       if (destino === "nueva_hoja") {
+        // Capturar el rango fuente antes de crear la nueva hoja
+        if (_rangoHojaNombre && localAddress && _rangoFilas > 0) {
+          const srcSheet = context.workbook.worksheets.getItem(_rangoHojaNombre);
+          sourceRange = srcSheet.getRange(localAddress);
+        }
         const nuevaHoja = context.workbook.worksheets.add();
         nuevaHoja.activate();
         targetRange = nuevaHoja.getRangeByIndexes(0, 0, filas, cols);
+
       } else {
         const sheet    = context.workbook.worksheets.getActiveWorksheet();
         const refRange = sheet.getRange(_rangoAddress);
@@ -252,6 +270,10 @@ async function escribirEnExcel(destino) {
 
         const anchorRow = refRange.rowIndex;
         const anchorCol = refRange.columnIndex;
+
+        if (_rangoFilas > 0 && _rangoCols > 0) {
+          sourceRange = sheet.getRangeByIndexes(anchorRow, anchorCol, _rangoFilas, _rangoCols);
+        }
 
         if (destino === "sustituir") {
           targetRange = sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols);
@@ -262,13 +284,20 @@ async function escribirEnExcel(destino) {
         }
       }
 
+      // Copiar formato del rango origen antes de escribir los valores.
+      // copyFrom(source, formats) copia solo el formato (colores, bordes, número),
+      // sin tocar los valores. Si target es más ancho que source, Office.js repite
+      // el patrón (tiling) — aceptable para columnas añadidas.
+      if (sourceRange) {
+        targetRange.copyFrom(sourceRange, Excel.RangeCopyType.formats, false, false);
+      }
+
       targetRange.values = datos;
       await context.sync();
     });
 
     mostrarEstado("✅ Datos escritos correctamente.");
     _datosModificados = null;
-    // El bloque de respuesta ya muestra la descripción — no hace falta ocultarlo
 
   } catch (error) {
     mostrarEstado("Error al escribir: " + error.message);
