@@ -432,18 +432,20 @@ async def vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     Permite usar el botón "Enviar al bot" del Add-in para enviar archivos
     directamente a este chat de Telegram.
     """
-    from utils.user_links import vincular as _vincular, obtener_email
+    from utils.user_links import vincular as _vincular, obtener_emails
 
     user_id = update.effective_user.id
     args    = context.args
 
     if not args:
-        email_actual = obtener_email(user_id)
-        if email_actual:
+        emails = obtener_emails(user_id)
+        if emails:
+            lista = "\n".join(f"• <code>{e}</code>" for e in emails)
             await update.message.reply_text(
-                f"🔗 Tu cuenta está vinculada con:\n<code>{email_actual}</code>\n\n"
-                "Para cambiarla usa <b>/vincular nuevo@email.com</b>\n"
-                "Para desvincular usa <b>/desvincular</b>",
+                f"🔗 Tus cuentas vinculadas:\n{lista}\n\n"
+                "Usa <b>/vincular nuevo@email.com</b> para añadir otra.\n"
+                "Usa <b>/desvincular email</b> para eliminar una específica.\n"
+                "Usa <b>/desvincular</b> para eliminar todas.",
                 parse_mode="HTML",
             )
         else:
@@ -467,12 +469,12 @@ async def vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     _vincular(user_id, email)
+    emails = obtener_emails(user_id)
+    lista  = "\n".join(f"• <code>{e}</code>" for e in emails)
     await update.message.reply_text(
         f"✅ <b>Vinculación completada.</b>\n\n"
-        f"Tu cuenta de Telegram está ahora vinculada con:\n"
-        f"<code>{email}</code>\n\n"
-        f"Desde ahora, el botón <b>📤 Enviar al bot</b> del Add-in de Excel "
-        f"enviará los archivos directamente a este chat.",
+        f"Cuentas vinculadas a este chat:\n{lista}\n\n"
+        f"El botón <b>📤 Enviar al bot</b> del Add-in funcionará con cualquiera de ellas.",
         parse_mode="HTML",
     )
 
@@ -480,22 +482,40 @@ async def vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @solo_autorizados
 async def desvincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Elimina la vinculación entre Telegram y el email del Add-in."""
-    from utils.user_links import desvincular as _desvincular, obtener_email
+    from utils.user_links import desvincular as _desvincular, obtener_emails
 
     user_id = update.effective_user.id
-    email   = obtener_email(user_id)
+    args    = context.args
+    emails  = obtener_emails(user_id)
 
-    if not email:
+    if not emails:
         await update.message.reply_text(
             "ℹ️ No tienes ninguna cuenta vinculada actualmente."
         )
         return
 
-    _desvincular(user_id)
-    await update.message.reply_text(
-        f"🔓 Vinculación eliminada.\n\nYa no está vinculado el email <code>{email}</code>.",
-        parse_mode="HTML",
-    )
+    if args:
+        # Eliminar un email específico
+        email = args[0].strip().lower()
+        if email not in emails:
+            await update.message.reply_text(
+                f"⚠️ El email <code>{email}</code> no está vinculado a tu cuenta.",
+                parse_mode="HTML",
+            )
+            return
+        _desvincular(user_id, email)
+        await update.message.reply_text(
+            f"🔓 Vinculación eliminada: <code>{email}</code>.",
+            parse_mode="HTML",
+        )
+    else:
+        # Eliminar todos
+        _desvincular(user_id)
+        lista = "\n".join(f"• <code>{e}</code>" for e in emails)
+        await update.message.reply_text(
+            f"🔓 Todas las vinculaciones eliminadas:\n{lista}",
+            parse_mode="HTML",
+        )
 
 
 async def callback_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

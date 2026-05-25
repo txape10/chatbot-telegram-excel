@@ -1,11 +1,12 @@
-"""Vinculación entre cuenta de Telegram (user_id) y email del Add-in.
+"""Vinculación entre cuenta de Telegram (user_id) y emails del Add-in.
 
-Permite que el usuario envíe archivos desde el Add-in de Excel directamente
-a su chat de Telegram sin abandonar la aplicación.
+Un usuario de Telegram puede tener varios emails vinculados (p.ej. cuenta
+personal y cuenta de empresa). Cualquiera de ellos sirve para que el Add-in
+envíe archivos directamente a ese chat.
 
 Flujo:
   1. El usuario escribe /vincular email@empresa.com en Telegram.
-  2. El bot almacena la asociación telegram_id ↔ email en user_links.
+  2. El bot inserta la asociación telegram_id ↔ email en user_links.
   3. Desde el Add-in, al pulsar "Enviar al bot" se llama a POST /enviar-al-bot
      con el email del usuario. La API recupera el telegram_id y reenvía el
      archivo al chat correspondiente.
@@ -21,9 +22,10 @@ def _conectar() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_links (
-            telegram_id  INTEGER  PRIMARY KEY,
+            telegram_id  INTEGER  NOT NULL,
             email        TEXT     NOT NULL,
             creado_en    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (telegram_id, email),
             UNIQUE(email)
         )
     """)
@@ -32,21 +34,17 @@ def _conectar() -> sqlite3.Connection:
 
 
 def vincular(telegram_id: int, email: str) -> None:
-    """Vincula (o actualiza) el telegram_id con un email."""
+    """Añade un email vinculado a este telegram_id.
+
+    Si el email ya estaba vinculado a otro telegram_id, se reasigna.
+    Si ya estaba vinculado a este mismo, no hace nada.
+    """
     email = email.lower().strip()
     with _conectar() as conn:
         conn.execute("""
-            INSERT INTO user_links (telegram_id, email)
+            INSERT OR REPLACE INTO user_links (telegram_id, email)
             VALUES (?, ?)
-            ON CONFLICT(telegram_id) DO UPDATE
-                SET email     = excluded.email,
-                    creado_en = CURRENT_TIMESTAMP
         """, (telegram_id, email))
-        # Si el email ya estaba vinculado a otro telegram_id, reasignarlo
-        conn.execute("""
-            UPDATE user_links SET telegram_id = ?, creado_en = CURRENT_TIMESTAMP
-            WHERE email = ? AND telegram_id != ?
-        """, (telegram_id, email, telegram_id))
         conn.commit()
 
 
@@ -60,21 +58,35 @@ def obtener_telegram_id(email: str) -> int | None:
     return fila[0] if fila else None
 
 
-def obtener_email(telegram_id: int) -> str | None:
-    """Devuelve el email vinculado a ese telegram_id, o None si no existe."""
+def obtener_emails(telegram_id: int) -> list[str]:
+    """Devuelve todos los emails vinculados a este telegram_id (puede ser vacío)."""
     with _conectar() as conn:
-        fila = conn.execute(
-            "SELECT email FROM user_links WHERE telegram_id = ?",
+        filas = conn.execute(
+            "SELECT email FROM user_links WHERE telegram_id = ? ORDER BY creado_en",
             (telegram_id,),
-        ).fetchone()
-    return fila[0] if fila else None
+        ).fetchall()
+    return [f[0] for f in filas]
 
 
-def desvincular(telegram_id: int) -> bool:
-    """Elimina el vínculo. Devuelve True si existía."""
+def desvincular(telegram_id: int, email: str | None = None) -> int:
+    """Elimina uno o todos los emails vinculados a este telegram_id.
+
+    Args:
+        email: si se indica, elimina solo ese email; si es None, elimina todos.
+
+    Returns:
+        Número de filas eliminadas.
+    """
     with _conectar() as conn:
-        cur = conn.execute(
-            "DELETE FROM user_links WHERE telegram_id = ?", (telegram_id,)
-        )
+        if email:
+            cur = conn.execute(
+                "DELETE FROM user_links WHERE telegram_id = ? AND email = ?",
+                (telegram_id, email.lower().strip()),
+            )
+        else:
+            cur = conn.execute(
+                "DELETE FROM user_links WHERE telegram_id = ?",
+                (telegram_id,),
+            )
         conn.commit()
-    return cur.rowcount > 0
+    return cur.rowcount
