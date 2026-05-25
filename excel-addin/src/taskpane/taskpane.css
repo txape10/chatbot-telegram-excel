@@ -74,41 +74,58 @@ body {
 }
 #btn-config:hover { opacity: 1; }
 
-/* --- Panel de configuración de temas --- */
+/* --- Panel de configuración --- */
 #panel-config {
   background: var(--color-fondo-panel);
   border: 1px solid var(--color-borde);
   border-radius: 3px;
-  padding: 10px;
+  padding: 10px 12px;
 }
 
-.config-titulo {
-  margin: 0 0 8px 0;
-  color: var(--color-texto-suave);
-}
-
-.selector-temas {
+.config-seccion {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
 
-.boton-tema {
-  border: 1px solid var(--color-borde);
-  background: var(--color-fondo);
-  color: var(--color-texto);
-  border-radius: 3px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.15s;
+.config-etiqueta {
+  margin: 0;
+  color: var(--color-texto-suave);
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
-.boton-tema:hover,
-.boton-tema.tema-activo {
-  background: var(--color-primario);
-  color: var(--color-btn-texto);
+.config-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+}
+
+.config-divisor {
+  border: none;
+  border-top: 1px solid var(--color-borde);
+  margin: 8px 0;
+}
+
+.select-tema {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--color-borde);
+  border-radius: 3px;
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.select-tema:focus {
+  outline: none;
   border-color: var(--color-primario);
+}
+
+.telegram-status-ok {
+  font-size: 0.78rem;
+  color: var(--color-texto-suave);
 }
 
 /* --- Barra de archivo activo --- */

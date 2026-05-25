@@ -36,10 +36,31 @@
       <button id="btn-config" title="Cambiar tema" onclick="toggleConfig()">⚙️</button>
     </div>
 
-    <!-- Selector de temas (oculto por defecto) -->
+    <!-- Panel de configuración (oculto por defecto) -->
     <div id="panel-config" style="display:none;">
-      <p class="ms-font-s config-titulo">Tema visual:</p>
-      <div id="selector-temas" class="selector-temas"></div>
+      <div class="config-seccion">
+        <label class="ms-font-s config-etiqueta" for="select-tema">Tema</label>
+        <select id="select-tema" class="select-tema" onchange="aplicarTemaDesdeSelect(this.value)"></select>
+      </div>
+      <div class="config-divisor"></div>
+      <div class="config-seccion" id="config-telegram">
+        <p class="ms-font-s config-etiqueta">📱 Telegram</p>
+        <div id="config-telegram-vinculado" style="display:none;">
+          <span class="ms-font-xs telegram-status-ok">✅ Dispositivo vinculado</span>
+        </div>
+        <div id="config-telegram-no-vinculado" style="display:none;">
+          <p class="ms-font-xs config-desc">Escribe <strong>/codigo</strong> en el bot e introduce el código:</p>
+          <div class="fila-codigo">
+            <input type="text" id="input-codigo" maxlength="6" placeholder="000000"
+                   class="input-codigo" inputmode="numeric" pattern="\d{6}"
+                   onkeydown="if(event.key==='Enter'){verificarCodigo();}" />
+            <button id="btn-vincular" class="ms-Button btn-vincular" onclick="verificarCodigo()">
+              <span class="ms-Button-label">Vincular</span>
+            </button>
+          </div>
+          <p id="estado-vinculo" class="ms-font-s estado-vinculo"></p>
+        </div>
+      </div>
     </div>
 
     <!-- Barra de archivo activo -->
@@ -69,22 +90,8 @@
         <span class="ms-Button-label">📤 Enviar al bot</span>
       </button>
     </div>
-    <div id="info-telegram" style="display:none;">
-      <p class="ms-font-s info-telegram">
-        Para vincular con Telegram, escribe <strong>/codigo</strong> en el bot e introduce el código:
-      </p>
-      <div class="fila-codigo">
-        <input type="text" id="input-codigo" maxlength="6" placeholder="000000"
-               class="input-codigo" inputmode="numeric" pattern="\d{6}"
-               onkeydown="if(event.key==='Enter'){verificarCodigo();}" />
-        <button id="btn-vincular" class="ms-Button btn-vincular" onclick="verificarCodigo()">
-          <span class="ms-Button-label">Vincular</span>
-        </button>
-      </div>
-      <p id="estado-vinculo" class="ms-font-s estado-vinculo"></p>
-    </div>
 
-    <div id="estado" class="ms-font-s estado"></div>
+<div id="estado" class="ms-font-s estado"></div>
 
     <!-- Diálogo destino de edición -->
     <div id="dialogo-destino" style="display:none;">

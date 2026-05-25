@@ -150,10 +150,14 @@ export function aplicarTema(tema) {
 
   localStorage.setItem(CLAVE_STORAGE, tema.id);
 
-  // Marcar botón activo
-  document.querySelectorAll(".boton-tema").forEach((btn) => {
-    btn.classList.toggle("tema-activo", btn.dataset.temaId === tema.id);
-  });
+  // Sincronizar select de configuración
+  const sel = document.getElementById("select-tema");
+  if (sel) sel.value = tema.id;
+}
+
+export function aplicarTemaId(id) {
+  const tema = TEMAS.find((t) => t.id === id);
+  if (tema) aplicarTema(tema);
 }
 
 export function temasVisibles() {

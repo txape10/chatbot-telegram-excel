@@ -1,7 +1,7 @@
 /* global Office, Excel, fetch, document, localStorage, navigator */
 
 import {
-  cargarTema, aplicarTema, temasVisibles,
+  cargarTema, aplicarTema, aplicarTemaId, temasVisibles,
   TEMAS, desbloquearZelda, estaZeldaDesbloqueado,
 } from "./themes.js";
 import { estaAutorizado, obtenerEmailUsuario } from "./auth.js";
@@ -53,16 +53,21 @@ Office.onReady(() => {
 // ── Temas ─────────────────────────────────────────────────────────────────────
 
 function construirSelectorTemas() {
-  const contenedor = document.getElementById("selector-temas");
-  contenedor.innerHTML = "";
+  const select = document.getElementById("select-tema");
+  if (!select) return;
+  const temaActualId = localStorage.getItem("asistente-excel-tema") || "default";
+  select.innerHTML = "";
   temasVisibles().forEach((tema) => {
-    const btn = document.createElement("button");
-    btn.className      = "boton-tema";
-    btn.dataset.temaId = tema.id;
-    btn.textContent    = tema.nombre;
-    btn.addEventListener("click", () => aplicarTema(tema));
-    contenedor.appendChild(btn);
+    const opt = document.createElement("option");
+    opt.value       = tema.id;
+    opt.textContent = tema.nombre;
+    if (tema.id === temaActualId) opt.selected = true;
+    select.appendChild(opt);
   });
+}
+
+function aplicarTemaDesdeSelect(id) {
+  aplicarTemaId(id);
 }
 
 function toggleConfig() {
@@ -96,14 +101,14 @@ async function preguntar() {
   try {
     const { valores, direccion } = await leerRangoSeleccionado();
 
-    if (valores.length < 2) {
+    if (!valores || valores.length < 2) {
       mostrarEstado("Selecciona al menos una fila de cabeceras y una de datos.");
       return;
     }
 
     _rangoAddress = direccion;
     _rangoFilas   = valores.length;
-    _rangoCols    = valores[0].length;
+    _rangoCols    = (valores[0] || []).length;
 
     mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
@@ -173,8 +178,12 @@ async function escribirEnExcel(destino) {
   mostrarEstado("Escribiendo en Excel...");
 
   const datos = _datosModificados;
+  if (!datos || datos.length === 0) {
+    mostrarEstado("No hay datos modificados para escribir.");
+    return;
+  }
   const filas = datos.length;
-  const cols  = datos[0].length;
+  const cols  = (datos[0] || []).length;
 
   try {
     await Excel.run(async (context) => {
@@ -552,10 +561,10 @@ async function cargarConfigAddin() {
 
     // ── Módulo Telegram ──────────────────────────────────────────────────────
     if (!config.telegram_habilitado) {
-      // Modo empresa sin bot: ocultar permanentemente toda la sección Telegram
       document.getElementById("btn-enviar-bot").style.display = "none";
-      document.getElementById("info-telegram").style.display  = "none";
-      return;  // no llamar a comprobarVinculo
+      const secTelegram = document.getElementById("config-telegram");
+      if (secTelegram) secTelegram.style.display = "none";
+      return;
     }
 
     await comprobarVinculo();
@@ -588,9 +597,10 @@ function _obtenerOCrearDeviceId() {
 // ── Vínculo Telegram ──────────────────────────────────────────────────────────
 
 async function comprobarVinculo() {
-  const deviceId = _obtenerOCrearDeviceId();
-  const boton    = document.getElementById("btn-enviar-bot");
-  const info     = document.getElementById("info-telegram");
+  const deviceId   = _obtenerOCrearDeviceId();
+  const boton      = document.getElementById("btn-enviar-bot");
+  const divSi      = document.getElementById("config-telegram-vinculado");
+  const divNo      = document.getElementById("config-telegram-no-vinculado");
 
   try {
     const resultado = await llamarApiGet(
@@ -598,15 +608,17 @@ async function comprobarVinculo() {
     );
     if (resultado.vinculado) {
       boton.style.display = "";
-      info.style.display  = "none";
+      if (divSi) divSi.style.display = "";
+      if (divNo) divNo.style.display = "none";
     } else {
       boton.style.display = "none";
-      info.style.display  = "";
+      if (divSi) divSi.style.display = "none";
+      if (divNo) divNo.style.display = "";
     }
   } catch {
-    // Error de red: ocultar ambos (no queremos mostrar el botón sin vínculo confirmado)
     boton.style.display = "none";
-    info.style.display  = "none";
+    if (divSi) divSi.style.display = "none";
+    if (divNo) divNo.style.display = "";
   }
 }
 
@@ -658,7 +670,7 @@ async function enviarAlBot() {
   try {
     const { valores } = await leerRangoSeleccionado();
 
-    if (valores.length < 2) {
+    if (!valores || valores.length < 2) {
       mostrarEstado("Selecciona al menos una fila de cabeceras y una de datos.");
       return;
     }
@@ -703,6 +715,7 @@ window.preguntar                  = preguntar;
 window.copiarRespuesta            = copiarRespuesta;
 window.escribirEnExcel            = escribirEnExcel;
 window.toggleConfig               = toggleConfig;
+window.aplicarTemaDesdeSelect     = aplicarTemaDesdeSelect;
 window.toggleHistorial            = toggleHistorial;
 window.limpiarHistorial           = limpiarHistorial;
 window.mostrarEasterEgg           = mostrarEasterEgg;
