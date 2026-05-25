@@ -43,6 +43,16 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 
 
+def _stat(tipo: str, proveedor: str, ok: bool,
+          fallback: bool = False, error_tipo: str | None = None) -> None:
+    """Registra una llamada al LLM en la BD de estadísticas. Falla silenciosamente."""
+    try:
+        from utils.llm_stats import registrar
+        registrar(proveedor, tipo, ok, fallback, error_tipo)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Excepción propia — errores controlados del proveedor de IA
 # ---------------------------------------------------------------------------
@@ -376,28 +386,93 @@ class FallbackProvider(LLMProvider):
     los proveedores de respaldo habituales (Mistral) no los soportan.
     """
 
-    def __init__(self, primario: LLMProvider, secundario: LLMProvider):
-        self._primario           = primario
-        self._secundario         = secundario
-        self.modelo              = primario.modelo
-        self.max_tokens_peticion = primario.max_tokens_peticion
+    def __init__(self, primario: LLMProvider, secundario: LLMProvider,
+                 nombre_primario: str = "primary", nombre_secundario: str = "secondary"):
+        self._primario            = primario
+        self._secundario          = secundario
+        self._nombre_primario     = nombre_primario
+        self._nombre_secundario   = nombre_secundario
+        self.modelo               = primario.modelo
+        self.max_tokens_peticion  = primario.max_tokens_peticion
 
     def chat(self, messages, temperature=0.7, max_tokens=None):
         try:
-            return self._primario.chat(messages, temperature, max_tokens)
+            resultado = self._primario.chat(messages, temperature, max_tokens)
+            _stat("chat", self._nombre_primario, ok=True)
+            return resultado
         except LLMError as error:
+            _stat("chat", self._nombre_primario, ok=False, error_tipo=error.tipo)
             if error.tipo not in _ERRORES_RECUPERABLES:
                 raise
             logger.warning(
                 "Proveedor primario falló (%s) — reintentando con respaldo", error.tipo
             )
-            return self._secundario.chat(messages, temperature, max_tokens)
+            try:
+                resultado = self._secundario.chat(messages, temperature, max_tokens)
+                _stat("chat", self._nombre_secundario, ok=True, fallback=True)
+                return resultado
+            except LLMError as error2:
+                _stat("chat", self._nombre_secundario, ok=False, fallback=True, error_tipo=error2.tipo)
+                raise
 
     def transcribir(self, audio_bytes, filename="audio.ogg"):
-        return self._primario.transcribir(audio_bytes, filename)
+        try:
+            r = self._primario.transcribir(audio_bytes, filename)
+            _stat("audio", self._nombre_primario, ok=True)
+            return r
+        except Exception as exc:
+            _stat("audio", self._nombre_primario, ok=False)
+            raise exc
 
     def vision(self, messages):
-        return self._primario.vision(messages)
+        try:
+            r = self._primario.vision(messages)
+            _stat("vision", self._nombre_primario, ok=True)
+            return r
+        except Exception as exc:
+            _stat("vision", self._nombre_primario, ok=False)
+            raise exc
+
+
+# ---------------------------------------------------------------------------
+# Wrapper estadístico para proveedores directos (sin FallbackProvider)
+# ---------------------------------------------------------------------------
+
+class _ProveedorInstrumentado(LLMProvider):
+    """Envuelve un proveedor directo añadiendo registro de estadísticas."""
+
+    def __init__(self, inner: LLMProvider, nombre: str):
+        self._inner              = inner
+        self._nombre             = nombre
+        self.modelo              = inner.modelo
+        self.max_tokens_peticion = inner.max_tokens_peticion
+
+    def chat(self, messages, temperature=0.7, max_tokens=None):
+        try:
+            r = self._inner.chat(messages, temperature, max_tokens)
+            _stat("chat", self._nombre, ok=True)
+            return r
+        except LLMError as exc:
+            _stat("chat", self._nombre, ok=False, error_tipo=exc.tipo)
+            raise
+
+    def transcribir(self, audio_bytes, filename="audio.ogg"):
+        try:
+            r = self._inner.transcribir(audio_bytes, filename)
+            _stat("audio", self._nombre, ok=True)
+            return r
+        except Exception as exc:
+            _stat("audio", self._nombre, ok=False)
+            raise exc
+
+    def vision(self, messages):
+        try:
+            r = self._inner.vision(messages)
+            _stat("vision", self._nombre, ok=True)
+            return r
+        except Exception as exc:
+            _stat("vision", self._nombre, ok=False)
+            raise exc
 
 
 # ---------------------------------------------------------------------------
@@ -463,13 +538,13 @@ def obtener_proveedor() -> LLMProvider:
             else:
                 secundario = _instanciar_proveedor(nombre_fallback, override)
 
-            _proveedor = FallbackProvider(primario, secundario)
+            _proveedor = FallbackProvider(primario, secundario, nombre, nombre_fallback)
             logger.info(
                 "Proveedor IA: %s (%s) | Respaldo: %s (%s)",
                 nombre, primario.modelo, nombre_fallback, secundario.modelo,
             )
         else:
-            _proveedor = primario
+            _proveedor = _ProveedorInstrumentado(primario, nombre)
             logger.info("Proveedor IA: %s | Modelo: %s", nombre, primario.modelo)
 
     return _proveedor

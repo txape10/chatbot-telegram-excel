@@ -709,10 +709,12 @@ def admin_notificaciones_toggle(telegram_id: int,
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
     from utils.stats import obtener_estadisticas
+    from utils.llm_stats import obtener_stats_ia
     stats   = obtener_estadisticas()
+    stats_ia = obtener_stats_ia()
     sistema = _obtener_info_sistema()
     logs    = _leer_logs_recientes(150)
-    return _renderizar_admin_html(stats, sistema, logs)
+    return _renderizar_admin_html(stats, stats_ia, sistema, logs)
 
 
 # ── Helpers del panel ────────────────────────────────────────────────────────
@@ -838,7 +840,7 @@ def _html_linea_log(linea: str) -> str:
 
 # ── Renderizado HTML ─────────────────────────────────────────────────────────
 
-def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
+def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: list[str]) -> str:
     from datetime import datetime, timezone
     from utils.user_links import obtener_todos_los_vinculos
     from utils.db import estado as _estado_db
@@ -957,6 +959,46 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     modelo    = os.getenv("LLM_MODEL", "—")
     tg_status = "✅ Activo" if _ENABLE_TELEGRAM else "⚪ Desactivado"
     webhook   = "🌐 Webhook" if _WEBHOOK_URL else "📡 Polling"
+
+    # ── Estadísticas IA ─────────────────────────────────────────────────────
+    def _badge_pct(pct):
+        col = "#27ae60" if pct >= 95 else "#e67e22" if pct >= 80 else "#e74c3c"
+        return f'<span style="color:{col};font-weight:700">{pct}%</span>'
+
+    filas_proveedores = ""
+    for p in stats_ia["por_proveedor"]:
+        es_fallback = any(r["n"] > 0 for r in [{"n": p["fallbacks"]}])
+        tag_fallback = ' <small style="color:#e67e22">(secundario)</small>' if p["fallbacks"] > 0 else ""
+        filas_proveedores += (
+            f"<tr>"
+            f"<td><strong>{p['proveedor']}</strong>{tag_fallback}</td>"
+            f"<td class='num'>{p['total']}</td>"
+            f"<td class='num' style='color:#27ae60'>{p['exitosas']}</td>"
+            f"<td class='num' style='color:#e74c3c'>{p['errores']}</td>"
+            f"<td class='num' style='color:#e67e22'>{p['fallbacks']}</td>"
+            f"<td class='num'>{_badge_pct(p['pct_ok'])}</td>"
+            f"</tr>"
+        )
+
+    filas_errores_ia = ""
+    _etiquetas_error = {
+        "rate_limit": "⏳ Límite de tasa",
+        "timeout":    "⏰ Timeout",
+        "conexion":   "🌐 Conexión",
+        "auth":       "🔑 Autenticación",
+        "limite":     "📏 Tokens excedidos",
+        "generico":   "⚠️ Genérico",
+    }
+    for e in stats_ia["errores_por_tipo"]:
+        label = _etiquetas_error.get(e["tipo"], e["tipo"])
+        filas_errores_ia += (
+            f"<tr><td>{label}</td><td class='num'>{e['n']}</td></tr>"
+        )
+    if not filas_errores_ia:
+        filas_errores_ia = "<tr><td colspan='2' style='color:#27ae60;text-align:center'>✅ Sin errores registrados</td></tr>"
+
+    ia_sin_datos = stats_ia["total"] == 0
+    ia_nota = "<div style='padding:16px;color:#999;text-align:center'>Sin llamadas registradas aún — los datos aparecerán tras las primeras peticiones.</div>" if ia_sin_datos else ""
 
     # ── Logs ────────────────────────────────────────────────────────────────
     n_errores  = sum(1 for l in logs if "ERROR" in l)
@@ -1160,7 +1202,57 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     </div>
   </div>
 
-  <!-- ④ Usuarios -->
+  <!-- ④ Estadísticas IA -->
+  <div class="section">
+    <div class="section-head">🧠 Inteligencia Artificial — estadísticas</div>
+    {ia_nota}
+    {f'''
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 20px 8px">
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.5rem">{stats_ia["total"]:,}</div>
+        <div class="lbl">Llamadas totales</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.5rem;color:{"#27ae60" if stats_ia["tasa_exito"]>=95 else "#e67e22" if stats_ia["tasa_exito"]>=80 else "#e74c3c"}">{stats_ia["tasa_exito"]}%</div>
+        <div class="lbl">Tasa de éxito</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.5rem;color:#e67e22">{stats_ia["fallbacks"]}</div>
+        <div class="lbl">Saltos a secundaria</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.5rem;color:#e74c3c">{stats_ia["errores"]}</div>
+        <div class="lbl">Errores totales</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.5rem">{stats_ia["total_hoy"]}</div>
+        <div class="lbl">Llamadas hoy</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid #eee">
+      <div style="padding:14px 20px;border-right:1px solid #eee">
+        <div style="font-weight:600;font-size:.85rem;margin-bottom:8px">Por proveedor</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Proveedor</th><th>Total</th><th>OK</th><th>Err</th><th>Fallb.</th><th>%OK</th>
+            </tr>
+          </thead>
+          <tbody>{filas_proveedores or "<tr><td colspan='6' style='color:#999;text-align:center'>—</td></tr>"}</tbody>
+        </table>
+      </div>
+      <div style="padding:14px 20px">
+        <div style="font-weight:600;font-size:.85rem;margin-bottom:8px">Tipos de error</div>
+        <table>
+          <thead><tr><th>Tipo</th><th>Veces</th></tr></thead>
+          <tbody>{filas_errores_ia}</tbody>
+        </table>
+      </div>
+    </div>
+    ''' if not ia_sin_datos else ""}
+  </div>
+
+  <!-- ⑤ Usuarios -->
   <div class="section">
     <div class="section-head">👤 Usuarios ({stats['total_usuarios']})</div>
     <table>
