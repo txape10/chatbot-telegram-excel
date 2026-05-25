@@ -15,7 +15,7 @@ from unittest.mock import patch
 @pytest.fixture(autouse=True)
 def db_temporal(tmp_path, monkeypatch):
     ruta = str(tmp_path / "test_links.db")
-    monkeypatch.setattr("utils.user_links.DB_PATH", ruta)
+    monkeypatch.setattr("utils.db.DB_PATH", ruta)
 
 
 # ── vincular ──────────────────────────────────────────────────────────────────

@@ -20,9 +20,9 @@ from excel.editor import aplicar_edicion, EditorError
 
 @pytest.fixture
 def db_temporal(tmp_path, monkeypatch):
-    """Redirige el módulo macros a una BD temporal para cada test."""
+    """Redirige utils.db a una BD temporal para cada test."""
     db_file = str(tmp_path / "test_macros.db")
-    monkeypatch.setattr(macros_mod, "DB_PATH", db_file)
+    monkeypatch.setattr("utils.db.DB_PATH", db_file)
     yield db_file
 
 
@@ -284,9 +284,9 @@ def test_concatenar_tres_columnas():
 
 @pytest.fixture
 def db_prefs_temporal(tmp_path, monkeypatch):
-    """Redirige user_prefs a una BD temporal."""
+    """Redirige utils.db a una BD temporal."""
     db_file = str(tmp_path / "test_prefs.db")
-    monkeypatch.setattr(prefs_mod, "DB_PATH", db_file)
+    monkeypatch.setattr("utils.db.DB_PATH", db_file)
     yield db_file
 
 

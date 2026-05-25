@@ -52,9 +52,7 @@ def api_client():
 @pytest.fixture(autouse=True)
 def db_temporal(tmp_path, monkeypatch):
     ruta = str(tmp_path / "test_h2.db")
-    monkeypatch.setattr("utils.user_links.DB_PATH", ruta)
-    monkeypatch.setattr("utils.history.DB_PATH",    ruta)
-    monkeypatch.setattr("utils.stats.DB_PATH",      ruta)
+    monkeypatch.setattr("utils.db.DB_PATH", ruta)
 
 
 # ── /addin-config ─────────────────────────────────────────────────────────────
