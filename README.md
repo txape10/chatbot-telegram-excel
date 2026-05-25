@@ -207,7 +207,7 @@ Las operaciones destructivas piden confirmación. "Deshacer" restaura el estado 
 ├── prompts/excel.py        ← Plantillas de texto para el LLM
 ├── excel-addin/            ← Add-in de Excel (Office.js + webpack)
 ├── scripts/                ← Scripts de instalación y arranque por modo
-├── tests/                  ← 241 tests unitarios (pytest)
+├── tests/                  ← 352 tests unitarios (pytest)
 ├── knowledge/              ← Base de conocimiento en Markdown
 ├── docs/                   ← Documentación interna (no sube a GitHub)
 └── data/                   ← SQLite + logs (no sube a GitHub)
@@ -221,7 +221,7 @@ Las operaciones destructivas piden confirmación. "Deshacer" restaura el estado 
 pytest
 ```
 
-241 tests que cubren: lectura de archivos, análisis de calidad, motor DSL, editor (normalización, fechas, pivot/unpivot, buscar/reemplazar, dividir, concatenar), combinación y comparación de archivos, tendencias, creación de Excel y plantillas, gráficos bajo demanda, mecanismo undo, macros personales, preferencias de usuario y limpieza de Markdown para TTS.
+352 tests que cubren: lectura de archivos, análisis de calidad, motor DSL, editor (15 operaciones), combinación y comparación de archivos, tendencias, creación de Excel, gráficos, undo, macros, preferencias, detección de intenciones por regex y lógica pura de handlers (preview, valores únicos, exportar CSV).
 
 ---
 
@@ -249,7 +249,7 @@ pytest
 - [x] Mensajes de error descriptivos cuando el proveedor de IA falla (saturación, timeout, auth…)
 - [x] Add-in UI: barra de archivo activo (libro/hoja/rango en tiempo real) e historial colapsable
 - [ ] Add-in: subir archivo Excel directamente al bot desde el panel lateral
-- [x] Tests para sprints D2, E1, E2, F3, F4 (241/241 ✅)
+- [x] Tests completos para todos los sprints (352/352 ✅)
 - [ ] Autenticación SSO con Azure Active Directory
 - [ ] Despliegue en servidor de empresa con Cloudflare Tunnel
 - [ ] Tablas dinámicas interactivas nativas (Windows + Excel en servidor)
