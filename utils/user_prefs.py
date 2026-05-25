@@ -1,7 +1,5 @@
 import sqlite3
-import os
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
+from utils.db import conectar as _db_conectar
 
 VERSIONES = {
     "365":  "Microsoft 365",
@@ -12,8 +10,7 @@ VERSIONES = {
 
 
 def _conectar() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_conectar()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_prefs (
             user_id        INTEGER PRIMARY KEY,
@@ -29,8 +26,8 @@ def _conectar() -> sqlite3.Connection:
     ]:
         try:
             conn.execute(sql)
-        except sqlite3.OperationalError:
-            pass  # columna ya existe
+        except Exception:
+            pass  # columna ya existe (sqlite3.OperationalError o equivalente libsql)
     conn.commit()
     return conn
 

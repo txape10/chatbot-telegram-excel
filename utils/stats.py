@@ -4,15 +4,13 @@ Consulta directamente la base de datos SQLite sin depender de módulos
 de Telegram ni LLM, por lo que puede usarse desde cualquier contexto.
 """
 import sqlite3
-import os
 from datetime import datetime
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
+from utils.db import conectar as _db_conectar, dict_row
 
 
 def _conectar() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = _db_conectar()
+    conn.row_factory = dict_row   # compatible sqlite3 y libsql_experimental
     return conn
 
 

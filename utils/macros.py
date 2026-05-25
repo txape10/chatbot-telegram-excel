@@ -6,14 +6,11 @@ la convierte a una lista de operaciones JSON.
 """
 import json
 import sqlite3
-import os
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
+from utils.db import conectar as _db_conectar
 
 
 def _conectar() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_conectar()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_macros (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,

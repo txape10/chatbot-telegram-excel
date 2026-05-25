@@ -18,14 +18,11 @@ Flujos de vinculación:
      6. "Enviar al bot" envía device_id; API busca telegram_id en device_links
 """
 import sqlite3
-import os
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
+from utils.db import conectar as _db_conectar
 
 
 def _conectar() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_conectar()
     # Vínculos email ↔ Telegram (flujo A y prerequisito del flujo B)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_links (
