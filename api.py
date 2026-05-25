@@ -430,6 +430,47 @@ def admin_stats(_: None = Depends(_verificar_admin)) -> dict:
     return obtener_estadisticas()
 
 
+@app.get("/admin/test-db")
+def test_db(_: None = Depends(_verificar_admin)) -> dict:
+    """Diagnóstico: escribe una fila de prueba y la lee de vuelta."""
+    import traceback
+    from utils.db import conectar
+    resultado: dict = {}
+
+    # 1. Escribir
+    try:
+        with conectar() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS _test_write (ts TEXT, val TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO _test_write (ts, val) VALUES (datetime('now'), 'ping')"
+            )
+        resultado["escritura"] = "ok"
+    except Exception:
+        resultado["escritura"] = traceback.format_exc()
+
+    # 2. Leer (conexión nueva)
+    try:
+        with conectar() as conn:
+            filas = conn.execute(
+                "SELECT ts, val FROM _test_write ORDER BY rowid DESC LIMIT 3"
+            ).fetchall()
+        resultado["lectura"] = [{"ts": f[0], "val": f[1]} for f in filas]
+    except Exception:
+        resultado["lectura"] = traceback.format_exc()
+
+    # 3. Contar filas en historial
+    try:
+        with conectar() as conn:
+            n = conn.execute("SELECT COUNT(*) FROM historial").fetchone()
+            resultado["historial_count"] = n[0] if n else "tabla no existe"
+    except Exception:
+        resultado["historial_count"] = traceback.format_exc()
+
+    return resultado
+
+
 @app.delete("/admin/vinculos")
 def admin_eliminar_vinculo(telegram_id: int = Query(...),
                            email: str = Query(...),
