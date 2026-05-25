@@ -108,6 +108,14 @@ def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict
         df, desc = _concatenar_columnas(df, op)
         return df, desc, None
 
+    elif tipo == "añadir_fila_total":
+        df, desc = _añadir_fila_total(df, op)
+        return df, desc, None
+
+    elif tipo == "transponer":
+        df, desc = _transponer(df, op)
+        return df, desc, None
+
     else:
         raise EditorError(f"Operación no reconocida: '{tipo}'")
 
@@ -618,6 +626,48 @@ def combinar_dataframes(df1: pd.DataFrame, df2: pd.DataFrame,
         f"Resultado: {len(df_result)} filas × {len(df_result.columns)} columnas"
     )
     return df_result, desc
+
+
+def _añadir_fila_total(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Añade una fila de totales al final del DataFrame.
+
+    Suma columnas numéricas; pone la etiqueta en la primera columna de texto.
+    """
+    etiqueta = op.get("etiqueta", "Total")
+    funciones = {
+        "suma":    lambda s: s.sum(),
+        "promedio": lambda s: s.mean(),
+        "max":     lambda s: s.max(),
+        "min":     lambda s: s.min(),
+    }
+    aggfunc = funciones.get(op.get("aggfunc", "suma"), funciones["suma"])
+
+    nueva_fila: dict = {}
+    primer_texto = True
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            nueva_fila[col] = aggfunc(pd.to_numeric(df[col], errors="coerce"))
+        elif primer_texto:
+            nueva_fila[col] = etiqueta
+            primer_texto = False
+        else:
+            nueva_fila[col] = ""
+
+    df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
+    return df, f"Fila de {op.get('aggfunc', 'totales')} añadida (etiqueta: '{etiqueta}')"
+
+
+def _transponer(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    """Transpone filas y columnas del DataFrame."""
+    col_cabecera = op.get("col_cabecera")
+    if col_cabecera and col_cabecera in df.columns:
+        df_t = df.set_index(col_cabecera).T.reset_index()
+        df_t.columns = [str(c) for c in df_t.columns]
+        df_t = df_t.rename(columns={"index": col_cabecera})
+    else:
+        df_t = df.T.reset_index()
+        df_t.columns = [str(c) for c in df_t.columns]
+    return df_t, f"Tabla transpuesta ({df.shape[1]} columnas → {df_t.shape[1]} columnas)"
 
 
 # ── Validación ────────────────────────────────────────────────────────────────

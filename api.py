@@ -388,7 +388,24 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
                 "descripcion": descripcion,
             }
         except EditorError as error:
-            logger.warning("Editor falló, usando LLM libre: %s", error)
+            logger.warning("Editor falló, intentando query DSL: %s", error)
+
+    # La petición no es una edición → intentar como consulta de datos
+    query = extraer_query_dsl(df, peticion.instruccion)
+    if query and not query.get("aclaracion_necesaria"):
+        try:
+            resultado, descripcion = ejecutar_query(df, query)
+            if isinstance(resultado, pd.DataFrame) and not resultado.empty:
+                # Resultado tabular → se puede escribir en celdas
+                return {
+                    "tipo": "edicion",
+                    "datos_modificados": _df_a_matriz(resultado),
+                    "descripcion": descripcion,
+                }
+            # Resultado escalar → mostrar como texto
+            return {"tipo": "texto", "respuesta": _resultado_a_texto(resultado, descripcion)}
+        except QueryError as error:
+            logger.warning("Query DSL falló, usando LLM libre: %s", error)
 
     columnas = ", ".join(str(c) for c in df.columns)
     muestra  = df.head(5).to_string(index=False)
@@ -616,13 +633,17 @@ _RE_CREAR_TABLA_ADDIN = re.compile(
     r"hazme\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo|plantilla)|"
     r"haz\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo)|"
     r"genera[rm]?\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo)|"
-    r"pon[er]?\s+(?:una?\s+)?tabla|"
-    r"inserta[r]?\s+(?:una?\s+)?tabla|"
-    r"necesito\s+(?:un[ao]?\s+)?(?:tabla|hoja)\s+(?:con|para|de)|"
-    r"quiero\s+(?:un[ao]?\s+)?(?:tabla|hoja)\s+(?:con|para|de)|"
-    r"escribe\s+(?:los?\s+)?datos|"
-    r"introduce\s+(?:los?\s+)?datos|"
-    r"rellena\s+(?:las?\s+)?celdas?"
+    r"pon[er]?\s+(?:una?\s+)?(?:tabla|datos|ejemplo|muestra)|"
+    r"inserta[r]?\s+(?:una?\s+)?(?:tabla|datos)|"
+    r"añade\s+(?:datos|filas?|registros?|ejemplos?|muestras?)|"
+    r"añadir\s+(?:datos|filas?|registros?|ejemplos?)|"
+    r"dame\s+(?:un[ao]?\s+)?(?:tabla|lista|ejemplo|muestra)\s+(?:con|de|para)|"
+    r"necesito\s+(?:un[ao]?\s+)?(?:tabla|hoja|lista)\s+(?:con|para|de)|"
+    r"quiero\s+(?:un[ao]?\s+)?(?:tabla|hoja|lista)\s+(?:con|para|de)|"
+    r"escribe\s+(?:los?\s+)?(?:datos|valores?|resultados?)|"
+    r"introduce\s+(?:los?\s+)?(?:datos|valores?)|"
+    r"rellena\s+(?:las?\s+)?celdas?|"
+    r"ponme\s+(?:un[ao]?\s+)?(?:tabla|ejemplo|muestra|lista)"
     r")\b",
     re.IGNORECASE,
 )
