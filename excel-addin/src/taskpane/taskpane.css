@@ -128,6 +128,23 @@ body {
   color: var(--color-texto-suave);
 }
 
+.config-acordeon {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: var(--color-texto);
+  text-align: left;
+}
+.config-acordeon:hover { color: var(--color-primario); }
+#config-telegram-body  { padding-top: 6px; }
+
 /* --- Barra de archivo activo --- */
 .barra-archivo {
   background: var(--color-fondo-panel);

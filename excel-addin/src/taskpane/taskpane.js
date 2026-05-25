@@ -36,6 +36,9 @@ Office.onReady(() => {
     return;
   }
 
+  // Ping para despertar Render antes de la primera pregunta (evita 502 en cold start)
+  fetch("/health").catch(() => {});
+
   cargarTema();
   construirSelectorTemas();
   _inicializarBarraArchivo();
@@ -73,6 +76,14 @@ function aplicarTemaDesdeSelect(id) {
 function toggleConfig() {
   const panel = document.getElementById("panel-config");
   panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+function toggleTelegram() {
+  const body    = document.getElementById("config-telegram-body");
+  const chevron = document.getElementById("acordeon-chevron");
+  const abierto = body.style.display !== "none";
+  body.style.display    = abierto ? "none" : "block";
+  chevron.textContent   = abierto ? "▶" : "▼";
 }
 
 // ── Preguntar ─────────────────────────────────────────────────────────────────
@@ -725,6 +736,7 @@ window.preguntar                  = preguntar;
 window.copiarRespuesta            = copiarRespuesta;
 window.escribirEnExcel            = escribirEnExcel;
 window.toggleConfig               = toggleConfig;
+window.toggleTelegram             = toggleTelegram;
 window.aplicarTemaDesdeSelect     = aplicarTemaDesdeSelect;
 window.toggleHistorial            = toggleHistorial;
 window.limpiarHistorial           = limpiarHistorial;

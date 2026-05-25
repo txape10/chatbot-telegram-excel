@@ -80,8 +80,24 @@ def obtener_estadisticas() -> dict:
         tiene_prefs = _tabla_existe(conn, "user_prefs")
         tiene_links = _tabla_existe(conn, "user_links")
 
+        tiene_device_links = _tabla_existe(conn, "device_links")
+
         if tiene_prefs and tiene_links:
-            query_usuarios = """
+            # Unimos user_links y device_links para no perder usuarios que solo
+            # completaron el emparejamiento por código (device_links) sin tener
+            # entrada en user_links.
+            fuente_links = """(
+                SELECT telegram_id, MIN(email) AS email
+                FROM (
+                    SELECT telegram_id, email FROM user_links
+                    {union_device}
+                )
+                GROUP BY telegram_id
+            )""".format(
+                union_device="UNION SELECT telegram_id, email FROM device_links"
+                if tiene_device_links else ""
+            )
+            query_usuarios = f"""
                 SELECT
                     h.user_id,
                     COUNT(*) AS total_mensajes,
@@ -92,8 +108,8 @@ def obtener_estadisticas() -> dict:
                     COALESCE(p.modo_privado, 0) AS modo_privado,
                     l.email
                 FROM historial h
-                LEFT JOIN user_prefs  p ON h.user_id = p.user_id
-                LEFT JOIN user_links  l ON h.user_id = l.telegram_id
+                LEFT JOIN user_prefs p ON h.user_id = p.user_id
+                LEFT JOIN {fuente_links} l ON h.user_id = l.telegram_id
                 GROUP BY h.user_id
                 ORDER BY ultima_actividad DESC
             """
