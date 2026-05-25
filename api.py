@@ -77,17 +77,22 @@ elif not _ENABLE_TELEGRAM:
 
 
 async def _notificar_telegram(texto: str) -> None:
-    """Envía un mensaje de alerta al administrador por Telegram."""
-    if not _ptb_app or not _ALERT_TELEGRAM_ID:
+    """Envía un mensaje de alerta a todos los suscriptores activos.
+
+    Si la tabla alert_subs está vacía usa ALERT_TELEGRAM_ID del .env como fallback
+    para no romper instalaciones existentes.
+    """
+    if not _ptb_app:
         return
-    try:
-        await _ptb_app.bot.send_message(
-            chat_id=_ALERT_TELEGRAM_ID,
-            text=texto,
-            parse_mode="Markdown",
-        )
-    except Exception as exc:
-        logger.warning("No se pudo enviar alerta Telegram: %s", exc)
+    from utils.alert_subs import ids_activos
+    destinos = ids_activos()
+    if not destinos and _ALERT_TELEGRAM_ID:
+        destinos = [_ALERT_TELEGRAM_ID]
+    for tid in destinos:
+        try:
+            await _ptb_app.bot.send_message(chat_id=tid, text=texto, parse_mode="Markdown")
+        except Exception as exc:
+            logger.warning("No se pudo enviar alerta a %s: %s", tid, exc)
 
 
 async def _monitor_alertas_sistema() -> None:
@@ -135,14 +140,21 @@ async def _monitor_alertas_sistema() -> None:
         await asyncio.sleep(_MONITOR_INTERVALO)
 
 
+_errores_bot_vistos: dict[str, float] = {}
+_COOLDOWN_BOT_ERR = 300   # segundos entre alertas del mismo tipo de error
+
 async def _manejador_error_bot(update: object, context: object) -> None:
     """Handler de errores de python-telegram-bot — notifica al administrador."""
+    import time
     error = context.error  # type: ignore[attr-defined]
     logger.error("Error PTB: %s", error, exc_info=error)
     nombre = type(error).__name__
-    asyncio.create_task(_notificar_telegram(
-        f"🤖 *Error en el bot de Telegram*\n`{nombre}: {str(error)[:350]}`"
-    ))
+    ahora = time.time()
+    if ahora - _errores_bot_vistos.get(nombre, 0) > _COOLDOWN_BOT_ERR:
+        _errores_bot_vistos[nombre] = ahora
+        asyncio.create_task(_notificar_telegram(
+            f"🤖 *Error en el bot de Telegram*\n`{nombre}: {str(error)[:350]}`"
+        ))
 
 
 @asynccontextmanager
@@ -624,6 +636,48 @@ def admin_crear_vinculo(peticion: PeticionVinculo,
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# Suscriptores de notificaciones
+# ---------------------------------------------------------------------------
+
+class PeticionSub(BaseModel):
+    telegram_id: int
+    etiqueta: str = ""
+
+
+@app.get("/admin/notificaciones")
+def admin_notificaciones_list(_: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_subs import obtener_subs
+    return {"subs": obtener_subs()}
+
+
+@app.post("/admin/notificaciones")
+def admin_notificaciones_add(peticion: PeticionSub,
+                             _: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_subs import agregar_sub
+    agregar_sub(peticion.telegram_id, peticion.etiqueta)
+    return {"ok": True}
+
+
+@app.delete("/admin/notificaciones/{telegram_id}")
+def admin_notificaciones_del(telegram_id: int,
+                             _: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_subs import eliminar_sub
+    if not eliminar_sub(telegram_id):
+        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
+    return {"ok": True}
+
+
+@app.patch("/admin/notificaciones/{telegram_id}/toggle")
+def admin_notificaciones_toggle(telegram_id: int,
+                                _: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_subs import toggle_sub
+    nuevo = toggle_sub(telegram_id)
+    if nuevo is None:
+        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
+    return {"ok": True, "activo": nuevo}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
@@ -694,11 +748,14 @@ def _obtener_info_sistema() -> dict:
     }
     try:
         import psutil
-        ram = psutil.virtual_memory()
-        resultado["ram_usado_mb"]   = ram.used // (1024 * 1024)
-        resultado["ram_pct_render"] = min(round(ram.used / (1024 * 1024) / _RENDER_RAM_MB * 100, 1), 100)
+        # RSS del proceso actual — virtual_memory() lee la RAM del host físico
+        # de Render (varios GB), no del contenedor de 512 MB.
+        proc   = psutil.Process()
+        rss_mb = proc.memory_info().rss // (1024 * 1024)
+        resultado["ram_usado_mb"]   = rss_mb
+        resultado["ram_pct_render"] = min(round(rss_mb / _RENDER_RAM_MB * 100, 1), 100)
         resultado["cpu_pct"]        = psutil.cpu_percent(interval=0.2)
-        resultado["uptime_seg"]     = int(datetime.now().timestamp() - psutil.Process().create_time())
+        resultado["uptime_seg"]     = int(datetime.now().timestamp() - proc.create_time())
     except Exception:
         pass
     return resultado
@@ -758,6 +815,7 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     from datetime import datetime, timezone
     from utils.user_links import obtener_todos_los_vinculos
     from utils.db import estado as _estado_db
+    from utils.alert_subs import obtener_subs
 
     # ── Gráfico de actividad ────────────────────────────────────────────────
     max_n = max((d["n"] for d in stats["mensajes_por_dia"]), default=1)
@@ -797,6 +855,36 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
             f"  <td>{ver}</td>"
             f"  <td class='centro'>{modo} {priv}</td>"
             f"</tr>"
+        )
+
+    # ── Suscriptores de notificaciones ──────────────────────────────────────
+    subs = obtener_subs()
+    filas_subs = ""
+    for s in subs:
+        tid   = s["telegram_id"]
+        etiq  = s["etiqueta"] or "—"
+        activo = bool(s["activo"])
+        badge  = '<span class="badge-ok">✅ Activo</span>' if activo else '<span class="badge-warn">⏸ Pausado</span>'
+        clase_btn  = "btn-sm active" if activo else "btn-sm"
+        texto_btn  = "Pausar" if activo else "Activar"
+        filas_subs += (
+            f"<tr>"
+            f"  <td><code>{tid}</code></td>"
+            f"  <td>{etiq}</td>"
+            f"  <td class='centro'>{badge}</td>"
+            f"  <td class='centro'>"
+            f"    <button class='{clase_btn}' onclick='toggleSub({tid})'>{texto_btn}</button> "
+            f"    <button class='btn-del' onclick='eliminarSub({tid})'>✕</button>"
+            f"  </td>"
+            f"</tr>"
+        )
+    # Nota si la tabla está vacía y se usa el fallback del .env
+    nota_fallback = ""
+    if not subs and _ALERT_TELEGRAM_ID:
+        nota_fallback = (
+            f"<div style='padding:10px 20px;font-size:.8rem;color:#888'>"
+            f"Sin suscriptores configurados — usando <code>ALERT_TELEGRAM_ID={_ALERT_TELEGRAM_ID}</code> del .env como fallback."
+            f"</div>"
         )
 
     # ── Vínculos ────────────────────────────────────────────────────────────
@@ -1079,7 +1167,26 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     </form>
   </div>
 
-  <!-- ⑥ Logs -->
+  <!-- ⑥ Notificaciones -->
+  <div class="section">
+    <div class="section-head">🔔 Notificaciones del sistema ({len(subs)})</div>
+    <table>
+      <thead>
+        <tr><th>Telegram ID</th><th>Etiqueta</th><th>Estado</th><th></th></tr>
+      </thead>
+      <tbody>
+        {filas_subs or '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin suscriptores</td></tr>'}
+      </tbody>
+    </table>
+    {nota_fallback}
+    <form class="form-vincular" onsubmit="agregarSub(event)">
+      <input type="number" id="inp-sub-tid"   placeholder="Telegram ID" required>
+      <input type="text"   id="inp-sub-label" placeholder="Etiqueta (ej: Roberto)">
+      <button type="submit">+ Añadir</button>
+    </form>
+  </div>
+
+  <!-- ⑦ Logs -->
   <div class="section">
     <div class="section-head">
       <span>📋 Logs recientes
@@ -1133,6 +1240,38 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     }});
     if (resp.ok) location.reload();
     else alert("Error al añadir el vínculo");
+  }}
+
+  async function agregarSub(e) {{
+    e.preventDefault();
+    const tid      = document.getElementById("inp-sub-tid").value.trim();
+    const etiqueta = document.getElementById("inp-sub-label").value.trim();
+    const resp = await fetch("/admin/notificaciones?key=" + encodeURIComponent(_key), {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ telegram_id: parseInt(tid), etiqueta }})
+    }});
+    if (resp.ok) location.reload();
+    else alert("Error al añadir suscriptor");
+  }}
+
+  async function toggleSub(tid) {{
+    const resp = await fetch(
+      "/admin/notificaciones/" + tid + "/toggle?key=" + encodeURIComponent(_key),
+      {{ method: "PATCH" }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al cambiar estado");
+  }}
+
+  async function eliminarSub(tid) {{
+    if (!confirm("¿Eliminar el suscriptor " + tid + " de las notificaciones?")) return;
+    const resp = await fetch(
+      "/admin/notificaciones/" + tid + "?key=" + encodeURIComponent(_key),
+      {{ method: "DELETE" }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al eliminar suscriptor");
   }}
 </script>
 </body>
