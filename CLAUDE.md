@@ -121,7 +121,7 @@ aiofiles==24.1.0
 │   ├── arrancar_empresa.sh     ← Arranque manual Linux (API + polling)
 │   └── asistente-excel.service ← Fichero systemd para servidor empresa
 │
-├── tests/                  ← 136 tests unitarios (pytest)
+├── tests/                  ← 241 tests unitarios (pytest)
 ├── knowledge/              ← Base de conocimiento Markdown (8 archivos)
 ├── docs/                   ← Documentación interna (NO sube a GitHub)
 └── data/                   ← SQLite + logs (NO sube a GitHub)
@@ -204,6 +204,8 @@ ADDIN_URL=
 - **Instalador Add-in**: `scripts/instalar_addin.bat` + `instalar_addin.ps1` — un doble clic instala el complemento, comparte carpeta SMB y registra el catálogo en el Centro de confianza de Excel automáticamente (con opción manual si el antivirus lo bloquea)
 - **Errores LLM**: `LLMError` con mensajes descriptivos por tipo (saturación, timeout, conexión, autenticación, límite de tokens) en todos los handlers
 - **Add-in UI**: barra de archivo activo (libro, hoja, rango en tiempo real) + historial de conversación colapsable con persistencia en localStorage
+- **Tests sprints D2/E1/E2/F3/F4**: 105 tests nuevos — TTS markdown, gráficos, undo/secundario, comparar archivos, macros CRUD, buscar/dividir/concatenar, preferencias (modo voz y privado). Suite total: 241/241 ✅
+- **Fix editor**: `pd.to_numeric(errors='ignore')` deprecado sustituido por try/except explícito
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
