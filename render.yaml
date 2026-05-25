@@ -52,3 +52,7 @@ services:
 
       - key: ALLOWED_EMAILS
         sync: false   # correos individuales extra, ej: roberto.chapado@gmail.com
+
+      # ─── Panel de administración ────────────────────────────
+      - key: ADMIN_KEY
+        sync: false   # clave independiente para /admin; si está vacía usa API_KEY como fallback
