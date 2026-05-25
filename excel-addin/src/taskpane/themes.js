@@ -1,4 +1,8 @@
-/* global localStorage, document, Office */
+/* global localStorage, document, Office, __COMPANY_NAME__ */
+
+// Nombre de empresa inyectado por webpack DefinePlugin en tiempo de build.
+// En desarrollo (sin COMPANY_NAME en .env) usa "Empresa" como valor por defecto.
+const _NOMBRE_EMPRESA = typeof __COMPANY_NAME__ !== "undefined" ? __COMPANY_NAME__ : "Empresa";
 
 /**
  * Definición de temas del Add-in.
@@ -53,10 +57,10 @@ export const TEMAS = [
   },
   {
     id: "empresa",
-    nombre: "Empresa",
+    nombre: _NOMBRE_EMPRESA,
     activo: true,
     logo: "assets/logo_empresa.png",
-    subtitulo: "Empresa",
+    subtitulo: _NOMBRE_EMPRESA,
     vars: {
       "--color-primario":          "#D42B2B",
       "--color-acento":            "#F4941D",

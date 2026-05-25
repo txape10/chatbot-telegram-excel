@@ -411,14 +411,15 @@ async def privado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if nuevo_estado:
         await update.message.reply_text(
             "🔒 *Modo privado activado.*\n\n"
-            "A partir de ahora no guardaré el historial de esta conversación.\n"
+            "• Las consultas se envían a *Mistral* (empresa francesa, datos procesados en la UE 🇪🇺, cumple RGPD).\n"
+            "• El historial de esta conversación no se guarda.\n\n"
             "Usa /privado de nuevo para desactivarlo.",
             parse_mode="Markdown",
         )
     else:
         await update.message.reply_text(
             "🔓 *Modo privado desactivado.*\n\n"
-            "El historial de conversación vuelve a guardarse normalmente.",
+            "Las consultas vuelven a usar el proveedor habitual (Groq) y el historial se guarda con normalidad.",
             parse_mode="Markdown",
         )
 

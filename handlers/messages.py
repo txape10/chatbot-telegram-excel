@@ -5,10 +5,10 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
-from services.llm import (LLMError, obtener_respuesta, extraer_query_dsl,
-                          extraer_operacion_edicion, extraer_estructura_excel,
-                          extraer_operacion_combinar, extraer_peticion_grafico,
-                          extraer_operaciones_macro)
+from services.llm import (LLMError, obtener_respuesta, obtener_proveedor_privado,
+                          extraer_query_dsl, extraer_operacion_edicion,
+                          extraer_estructura_excel, extraer_operacion_combinar,
+                          extraer_peticion_grafico, extraer_operaciones_macro)
 from utils.macros import guardar_macro, obtener_macro, listar_macros, borrar_macro
 from utils.user_prefs import get_modo_respuesta, get_modo_privado
 from services.tts import texto_a_audio
@@ -454,8 +454,12 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 return
 
         # ── Flujo LLM normal ──────────────────────────────────────────────────
-        respuesta = obtener_respuesta(historial, pregunta_completa)
-        if not get_modo_privado(user_id):
+        _modo_privado = get_modo_privado(user_id)
+        respuesta = obtener_respuesta(
+            historial, pregunta_completa,
+            obtener_proveedor_privado() if _modo_privado else None,
+        )
+        if not _modo_privado:
             agregar_mensaje(user_id, "user", pregunta)
             agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
@@ -561,9 +565,14 @@ async def _responder_con_llm(update: Update, user_id: int, pregunta: str,
         if contexto_excel else pregunta
     )
     try:
-        respuesta = obtener_respuesta(historial, pregunta_completa)
-        agregar_mensaje(user_id, "user", pregunta)
-        agregar_mensaje(user_id, "model", respuesta)
+        _modo_privado = get_modo_privado(user_id)
+        respuesta = obtener_respuesta(
+            historial, pregunta_completa,
+            obtener_proveedor_privado() if _modo_privado else None,
+        )
+        if not _modo_privado:
+            agregar_mensaje(user_id, "user", pregunta)
+            agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
     except LLMError as error:
         logger.warning("Error LLM fallback para user_id %s [%s]: %s", user_id, error.tipo, error)
@@ -661,9 +670,14 @@ async def _explicar_formula(update: Update, user_id: int, formula: str) -> None:
     prompt = EXPLICAR_FORMULA.format(formula=formula)
     try:
         historial = obtener_historial(user_id)
-        respuesta = obtener_respuesta(historial, prompt)
-        agregar_mensaje(user_id, "user", formula)
-        agregar_mensaje(user_id, "model", respuesta)
+        _modo_privado = get_modo_privado(user_id)
+        respuesta = obtener_respuesta(
+            historial, prompt,
+            obtener_proveedor_privado() if _modo_privado else None,
+        )
+        if not _modo_privado:
+            agregar_mensaje(user_id, "user", formula)
+            agregar_mensaje(user_id, "model", respuesta)
         await mensaje_carga.edit_text(respuesta)
     except Exception as error:
         logger.error("Error explicando fórmula para user_id %s: %s", user_id, error)
@@ -1148,9 +1162,14 @@ async def _explicar_archivo(update: Update, user_id: int, df) -> None:
         )
 
         historial = obtener_historial(user_id)
-        respuesta = await asyncio.to_thread(obtener_respuesta, historial, prompt)
-        agregar_mensaje(user_id, "user", "Explícame este archivo")
-        agregar_mensaje(user_id, "model", respuesta)
+        _modo_privado = get_modo_privado(user_id)
+        respuesta = await asyncio.to_thread(
+            obtener_respuesta, historial, prompt,
+            obtener_proveedor_privado() if _modo_privado else None,
+        )
+        if not _modo_privado:
+            agregar_mensaje(user_id, "user", "Explícame este archivo")
+            agregar_mensaje(user_id, "model", respuesta)
         await _enviar_respuesta(update, user_id, mensaje_carga, respuesta)
 
     except LLMError as error:

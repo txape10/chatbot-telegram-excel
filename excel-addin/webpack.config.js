@@ -14,6 +14,8 @@ const authMode = process.env.AUTH_MODE || "whitelist";
 // Whitelist leída de .env — nunca van al repositorio
 const allowedDomains = (process.env.ALLOWED_DOMAINS || "").split(",").map(s => s.trim()).filter(Boolean);
 const allowedEmails  = (process.env.ALLOWED_EMAILS  || "").split(",").map(s => s.trim()).filter(Boolean);
+// Nombre de la empresa inyectado en el bundle — configure COMPANY_NAME antes de compilar
+const companyName    = process.env.COMPANY_NAME || "Empresa";
 
 const urlDev  = "https://localhost:3000/";
 // ADDIN_URL se define en Railway como la URL pública del despliegue
@@ -73,6 +75,8 @@ module.exports = async (env, options) => {
         __ALLOWED_EMAILS__:  JSON.stringify(allowedEmails),
         // API_KEY inyectada en build time — nunca hardcodeada en el código
         __API_KEY__: JSON.stringify(process.env.API_KEY || ""),
+        // Nombre de la empresa para el tema "Empresa" (botón selector y subtítulo)
+        __COMPANY_NAME__: JSON.stringify(companyName),
       }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",

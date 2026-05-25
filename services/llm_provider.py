@@ -473,3 +473,32 @@ def obtener_proveedor() -> LLMProvider:
             logger.info("Proveedor IA: %s | Modelo: %s", nombre, primario.modelo)
 
     return _proveedor
+
+
+# ---------------------------------------------------------------------------
+# Proveedor para modo privado (datos en la UE, RGPD)
+# ---------------------------------------------------------------------------
+
+_proveedor_privado: LLMProvider | None = None
+
+
+def obtener_proveedor_privado() -> LLMProvider:
+    """Devuelve el proveedor para el modo privado (/privado).
+
+    Las peticiones en modo privado se enrutan a este proveedor, que por
+    defecto es Mistral (empresa francesa, datos procesados en la UE,
+    cumple RGPD). Configurable con LLM_PRIVADO_PROVIDER en .env.
+
+    Variables de entorno:
+      LLM_PRIVADO_PROVIDER  nombre del proveedor  (por defecto: mistral)
+      LLM_PRIVADO_MODEL     modelo                (vacío = default del proveedor)
+    """
+    global _proveedor_privado
+    if _proveedor_privado is None:
+        nombre = os.getenv("LLM_PRIVADO_PROVIDER", "mistral").lower()
+        modelo = os.getenv("LLM_PRIVADO_MODEL", "")
+        _proveedor_privado = _instanciar_proveedor(nombre, modelo)
+        logger.info(
+            "Proveedor privado (EU/RGPD): %s (%s)", nombre, _proveedor_privado.modelo
+        )
+    return _proveedor_privado

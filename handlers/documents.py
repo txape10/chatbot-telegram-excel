@@ -13,11 +13,9 @@ from utils.sheet_context import guardar_hojas, obtener_hoja, listar_hojas
 from excel.reader import leer_excel_hojas, leer_csv
 from excel.analyzer import resumir, resumir_hojas, construir_contexto, detectar_errores_xlsx
 from excel.charts import generar_grafico
-from config import MAX_FILAS, MAX_COLUMNAS, MAX_HOJAS
+from config import MAX_FILAS, MAX_COLUMNAS, MAX_HOJAS, TAMANIO_MAXIMO_MB
 
 logger = logging.getLogger(__name__)
-
-TAMANIO_MAXIMO_MB = 5
 DIRECTORIO_TEMP   = os.path.join(os.path.dirname(__file__), "..", "data", "temp")
 
 _EXTENSIONES_EXCEL = (".xlsx", ".xls")

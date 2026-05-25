@@ -4,9 +4,11 @@ import logging
 import pandas as pd
 
 from config import SYSTEM_PROMPT
-from services.llm_provider import LLMError, obtener_proveedor  # noqa: F401 — re-exportado
+from services.llm_provider import (  # noqa: F401 — re-exportados
+    LLMError, LLMProvider, obtener_proveedor, obtener_proveedor_privado,
+)
 
-__all__ = ["LLMError"]
+__all__ = ["LLMError", "obtener_proveedor_privado"]
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +18,11 @@ def _estimar_tokens(texto: str) -> int:
     return len(texto) // 4
 
 
-def _construir_mensajes(historial: list[dict], pregunta: str) -> list[dict]:
+def _construir_mensajes(historial: list[dict], pregunta: str,
+                         proveedor: LLMProvider | None = None) -> list[dict]:
     """Construye la lista de mensajes ajustando el historial si la petición
     supera el presupuesto de tokens del proveedor activo."""
-    proveedor = obtener_proveedor()
+    proveedor = proveedor or obtener_proveedor()
     mensajes_sistema = [{"role": "system", "content": SYSTEM_PROMPT}]
     tokens_fijos = _estimar_tokens(SYSTEM_PROMPT) + _estimar_tokens(pregunta)
     presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
@@ -37,11 +40,19 @@ def _construir_mensajes(historial: list[dict], pregunta: str) -> list[dict]:
     return mensajes_sistema + mensajes_historial + [{"role": "user", "content": pregunta}]
 
 
-def obtener_respuesta(historial: list[dict], pregunta: str) -> str:
-    mensajes = _construir_mensajes(historial, pregunta)
+def obtener_respuesta(historial: list[dict], pregunta: str,
+                       proveedor: LLMProvider | None = None) -> str:
+    """Envía la pregunta al LLM y devuelve la respuesta.
+
+    Args:
+        proveedor: si se indica, usa ese proveedor en lugar del activo
+                   (útil para modo privado → Mistral EU).
+    """
+    proveedor_activo = proveedor or obtener_proveedor()
+    mensajes = _construir_mensajes(historial, pregunta, proveedor_activo)
     tokens_estimados = _estimar_tokens(str(mensajes))
     logger.info("Petición LLM — tokens estimados: %d", tokens_estimados)
-    return obtener_proveedor().chat(mensajes)
+    return proveedor_activo.chat(mensajes)
 
 
 def _limpiar_json(texto: str) -> str:

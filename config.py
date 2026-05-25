@@ -25,7 +25,8 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 HISTORIAL_MAX_MENSAJES = 10  # Groq 6.000 TPM + Mistral como respaldo dan margen suficiente
 
 # ── Límites de seguridad para archivos subidos ────────────────────────────────
-MAX_FILAS    = 50_000
+TAMANIO_MAXIMO_MB = 20        # tamaño máximo del archivo subido
+MAX_FILAS    = 100_000
 MAX_COLUMNAS = 100
 MAX_HOJAS    = 10
 
