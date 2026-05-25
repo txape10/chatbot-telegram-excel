@@ -69,11 +69,15 @@ async def lifespan(app: FastAPI):
     """Arranca y detiene el bot PTB junto con FastAPI."""
     if _ptb_app and _bot_mode == "webhook":
         await _ptb_app.initialize()
+        await _ptb_app.start()
+        # set_webhook va DESPUÉS de start() para que los handlers estén activos
+        # cuando Telegram empiece a entregar updates.
+        # drop_pending_updates=True descarta mensajes encolados durante el cold start.
         await _ptb_app.bot.set_webhook(
             url=f"{_WEBHOOK_URL}/telegram/webhook",
             allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
         )
-        await _ptb_app.start()
         logger.info("Bot Telegram arrancado en modo WEBHOOK → %s/telegram/webhook", _WEBHOOK_URL)
 
     elif _ptb_app and _bot_mode == "polling":
