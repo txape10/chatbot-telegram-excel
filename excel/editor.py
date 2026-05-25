@@ -495,7 +495,11 @@ def _buscar_reemplazar(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
         df[col] = df[col].replace(buscar, reemplazar)
         # También intentar reemplazo en texto por si el valor es string
         df[col] = df[col].astype(str).str.replace(str(buscar), str(reemplazar), regex=False)
-        df[col] = pd.to_numeric(df[col], errors="ignore")  # revertir a num si procede
+        # Revertir a numérico si procede (errors="ignore" deprecado en pandas futuro)
+        try:
+            df[col] = pd.to_numeric(df[col])
+        except (ValueError, TypeError):
+            pass  # la columna contiene texto, se mantiene como str
         desc = f"Reemplazado '{buscar}' por '{reemplazar}' en columna '{col}' ({antes} celdas afectadas)"
     else:
         df = df.replace(buscar, reemplazar)
