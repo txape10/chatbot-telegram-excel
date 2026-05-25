@@ -708,13 +708,14 @@ def admin_notificaciones_toggle(telegram_id: int,
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
-    from utils.stats import obtener_estadisticas
+    from utils.stats import obtener_estadisticas, obtener_stats_usuarios_avanzadas
     from utils.llm_stats import obtener_stats_ia
-    stats   = obtener_estadisticas()
+    stats    = obtener_estadisticas()
     stats_ia = obtener_stats_ia()
-    sistema = _obtener_info_sistema()
-    logs    = _leer_logs_recientes(150)
-    return _renderizar_admin_html(stats, stats_ia, sistema, logs)
+    stats_ses = obtener_stats_usuarios_avanzadas()
+    sistema  = _obtener_info_sistema()
+    logs     = _leer_logs_recientes(150)
+    return _renderizar_admin_html(stats, stats_ia, sistema, logs, stats_ses)
 
 
 # ── Helpers del panel ────────────────────────────────────────────────────────
@@ -840,7 +841,23 @@ def _html_linea_log(linea: str) -> str:
 
 # ── Renderizado HTML ─────────────────────────────────────────────────────────
 
-def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: list[str]) -> str:
+def _fmt_min(m: float) -> str:
+    """Convierte minutos (float) a cadena legible."""
+    if m < 1:
+        return "< 1 min"
+    if m < 60:
+        return f"{int(m)} min"
+    h, rest = divmod(int(m), 60)
+    return f"{h}h {rest}m" if rest else f"{h}h"
+
+
+def _renderizar_admin_html(
+    stats: dict,
+    stats_ia: dict,
+    sistema: dict,
+    logs: list[str],
+    stats_ses: dict | None = None,
+) -> str:
     from datetime import datetime, timezone
     from utils.user_links import obtener_todos_los_vinculos
     from utils.db import estado as _estado_db
@@ -999,6 +1016,69 @@ def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: lis
 
     ia_sin_datos = stats_ia["total"] == 0
     ia_nota = "<div style='padding:16px;color:#999;text-align:center'>Sin llamadas registradas aún — los datos aparecerán tras las primeras peticiones.</div>" if ia_sin_datos else ""
+
+    # ── Análisis de sesiones ─────────────────────────────────────────────────
+    if stats_ses and stats_ses["por_usuario"]:
+        res_ses = stats_ses["resumen"]
+        filas_ses = ""
+        for u in stats_ses["por_usuario"]:
+            uid = u["user_id"]
+            uid_label = "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
+            dias = u["dias_inactivo"]
+            if dias <= 7:
+                estado = '<span style="color:#27ae60;font-weight:600">● Activo</span>'
+            elif dias <= 30:
+                estado = '<span style="color:#e67e22;font-weight:600">● Reciente</span>'
+            else:
+                estado = '<span style="color:#e74c3c;font-weight:600">● Inactivo</span>'
+            if u["es_ocasional"]:
+                estado += ' <small style="color:#aaa">ocasional</small>'
+            ult = u["ultima_sesion"][:16].replace("T", " ") if u["ultima_sesion"] != "—" else "—"
+            dias_str = "hoy" if dias < 1 else f"{int(dias)}d"
+            filas_ses += (
+                f"<tr>"
+                f"<td>{uid_label}</td>"
+                f"<td class='num'>{u['total_sesiones']}</td>"
+                f"<td class='num'>{_fmt_min(u['duracion_media_min'])}</td>"
+                f"<td class='num'>{_fmt_min(u['sesion_mas_larga_min'])}</td>"
+                f"<td>{ult}</td>"
+                f"<td class='num'>{dias_str}</td>"
+                f"<td class='centro'>{estado}</td>"
+                f"</tr>"
+            )
+        html_sesiones = f"""
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 20px 8px">
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.4rem;color:#27ae60">{res_ses['activos_7d']}</div>
+        <div class="lbl">Activos 7 días</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.4rem">{res_ses['activos_30d']}</div>
+        <div class="lbl">Activos 30 días</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.4rem">{res_ses['total_sesiones']}</div>
+        <div class="lbl">Sesiones totales</div>
+      </div>
+      <div class="card" style="padding:12px 10px">
+        <div class="val" style="font-size:1.4rem">{_fmt_min(res_ses['duracion_media_global_min'])}</div>
+        <div class="lbl">Dur. media sesión</div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Sesiones</th><th>Dur. media</th>
+          <th>Más larga</th><th>Última sesión</th><th>Sin acceso</th><th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>{filas_ses}</tbody>
+    </table>
+    <div style="padding:6px 20px 12px;font-size:.72rem;color:#aaa">
+      Sesión = bloque de mensajes con ≤ 30 min de silencio entre ellos. Ordenados por último acceso.
+    </div>"""
+    else:
+        html_sesiones = '<div style="padding:20px;color:#999;text-align:center">Sin datos de sesiones todavía.</div>'
 
     # ── Logs ────────────────────────────────────────────────────────────────
     n_errores  = sum(1 for l in logs if "ERROR" in l)
@@ -1269,7 +1349,13 @@ def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: lis
     </table>
   </div>
 
-  <!-- ⑤ Vínculos -->
+  <!-- ⑤b Análisis de sesiones -->
+  <div class="section">
+    <div class="section-head">📈 Análisis de sesiones</div>
+    {html_sesiones}
+  </div>
+
+  <!-- ⑥ Vínculos -->
   <div class="section">
     <div class="section-head">🔗 Vínculos Telegram ↔ Add-in ({len(vinculos)})</div>
     <table>
@@ -1287,7 +1373,7 @@ def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: lis
     </form>
   </div>
 
-  <!-- ⑥ Notificaciones -->
+  <!-- ⑦ Notificaciones -->
   <div class="section">
     <div class="section-head">🔔 Notificaciones del sistema ({len(subs)})</div>
     <table>
@@ -1306,7 +1392,7 @@ def _renderizar_admin_html(stats: dict, stats_ia: dict, sistema: dict, logs: lis
     </form>
   </div>
 
-  <!-- ⑦ Logs -->
+  <!-- ⑧ Logs -->
   <div class="section">
     <div class="section-head">
       <span>📋 Logs recientes
