@@ -12,9 +12,8 @@ SYSTEM_BASE = (
     "IDIOMA: Detecta el idioma en que escribe el usuario y responde SIEMPRE en ese mismo idioma. "
     "Si escribe en español → español. Si escribe en inglés → inglés. Si escribe en alemán → alemán. Etc.\n\n"
     "REGLA CRÍTICA: Nunca afirmes que estás enviando, adjuntando o generando un archivo "
-    "(.xlsx, .csv, etc.). El bot solo puede enviar archivos cuando el código lo hace "
-    "explícitamente. Si el usuario pide un archivo, explica cómo crearlo en Excel "
-    "o indica que use el comando correspondiente (/generar, /plantilla)."
+    "(.xlsx, .csv, etc.) a menos que el sistema lo haga explícitamente. "
+    "Si el usuario pide un archivo, explica cómo crearlo en Excel paso a paso."
 )
 
 # ── Prompts de comandos ──────────────────────────────────────────────────────

@@ -136,11 +136,24 @@ async function preguntar() {
 
     } else {
       // ── Flujo sin datos: pregunta general o creación desde cero ──
+      // Guardamos la dirección actual como ancla por si el LLM devuelve datos para escribir
+      _rangoAddress = direccion;
+      _rangoFilas   = 0;
+      _rangoCols    = 0;
       mostrarEstado("Consultando al asistente...");
       const respuesta = await llamarApi("/ask", { pregunta: instruccion });
-      mostrarRespuesta(respuesta.respuesta);
-      mostrarEstado("Listo");
-      _agregarAlHistorial(instruccion, respuesta.respuesta);
+
+      if (respuesta.tipo === "datos" && respuesta.datos_modificados) {
+        _datosModificados = respuesta.datos_modificados;
+        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+        mostrarDialogo(respuesta.descripcion);
+        mostrarEstado("Tabla lista para escribir.");
+        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+      } else {
+        mostrarRespuesta(respuesta.respuesta);
+        mostrarEstado("Listo");
+        _agregarAlHistorial(instruccion, respuesta.respuesta);
+      }
     }
 
     document.getElementById("pregunta").value = "";

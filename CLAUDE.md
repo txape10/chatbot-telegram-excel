@@ -210,6 +210,11 @@ ADDIN_URL=
 - **Sprint H1 — Enviar al bot desde el Add-in**: botón "📤 Enviar al bot" en el panel del Add-in; `/vincular email` y `/desvincular` en Telegram; endpoint `POST /enviar-al-bot`; tabla `user_links` en SQLite
 - **Sprint H2 — Panel de administración**: `GET /admin` (HTML con gráfico + tabla de usuarios) y `GET /admin/stats` (JSON); protegido por `ADMIN_KEY`; estadísticas: mensajes totales/hoy/por usuario, actividad 7 días, Add-ins vinculados
 
+### 🐛 Bugs conocidos (en investigación)
+
+- **Panel admin — Add-in vinculado no detectado**: la columna "Add-in vinculado" del panel `/admin` siempre aparece vacía aunque haya usuarios con el Add-in activo. El vínculo por Telegram funciona correctamente. Posibles causas: `user_links` no se actualiza al usar el Add-in, o la query del panel no cruza bien las tablas. Investigar en `api.py` endpoint `/admin` y `utils/user_links.py`.
+- **Panel admin — métricas de disco/RAM**: no hay visibilidad del uso de memoria en Render desde la app. Añadir endpoint `/admin/storage` con uso de disco por carpeta (`data/`, logs, temp) y porcentaje de RAM usado (`psutil`). Útil para detectar problemas antes de que fallen los deploys.
+
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
 - Despliegue en servidor empresa (Linux + cloudflared)
@@ -217,6 +222,7 @@ ADDIN_URL=
 
 ### 🔮 Futuro
 
+- **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Complementa las alertas internas ya implementadas. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
 - Panel de administración (estadísticas, gestión usuarios)
 - Tablas dinámicas interactivas nativas con **xlwings** (gratuito, requiere Windows + Excel en el servidor). Activación automática: al arrancar se detecta `platform.system() == "Windows"` + `xlwings` disponible → flag `PIVOT_NATIVO_DISPONIBLE`. En Linux (Render) sigue usando la alternativa actual de openpyxl. Implementar cuando esté disponible el servidor Windows de empresa.

@@ -18,6 +18,7 @@ Modos de ejecución (se detectan automáticamente por las variables de entorno):
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 
 import pandas as pd
@@ -33,7 +34,8 @@ from excel.analyzer import resumir
 from excel.editor import EditorError, aplicar_edicion
 from excel.query_engine import QueryError, ejecutar_query
 from logging_config import configurar_logging
-from services.llm import extraer_operacion_edicion, extraer_query_dsl, obtener_respuesta
+from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
+                          extraer_estructura_excel, obtener_respuesta)
 
 load_dotenv()
 configurar_logging()
@@ -332,6 +334,21 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
     # Sin datos: pregunta general o creación desde cero
     if not peticion.datos or len(peticion.datos) < 2:
+        if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
+            estructura = extraer_estructura_excel(peticion.pregunta)
+            if estructura:
+                columnas = estructura.get("columnas", [])
+                datos_filas = estructura.get("datos", [])
+                matriz = [columnas] + [
+                    [("" if v is None else v) for v in fila]
+                    for fila in datos_filas
+                ]
+                titulo = estructura.get("titulo", "Nueva tabla")
+                return {
+                    "tipo": "datos",
+                    "datos_modificados": matriz,
+                    "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
+                }
         return {"respuesta": obtener_respuesta([], peticion.pregunta)}
 
     df = _a_dataframe(peticion.datos)
@@ -591,6 +608,24 @@ def admin_panel(_: None = Depends(_verificar_admin)):
 # ── Helpers del panel ────────────────────────────────────────────────────────
 
 _RENDER_RAM_MB  = 512
+
+# Detección de intención de creación de tabla desde el Add-in (hoja en blanco)
+_RE_CREAR_TABLA_ADDIN = re.compile(
+    r"\b("
+    r"crea[rm]?\s+(?:un[ao]?\s+)?(?:nuevo\s+)?(?:tabla|hoja|excel|archivo|libro)|"
+    r"hazme\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo|plantilla)|"
+    r"haz\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo)|"
+    r"genera[rm]?\s+(?:un[ao]?\s+)?(?:tabla|hoja|excel|archivo)|"
+    r"pon[er]?\s+(?:una?\s+)?tabla|"
+    r"inserta[r]?\s+(?:una?\s+)?tabla|"
+    r"necesito\s+(?:un[ao]?\s+)?(?:tabla|hoja)\s+(?:con|para|de)|"
+    r"quiero\s+(?:un[ao]?\s+)?(?:tabla|hoja)\s+(?:con|para|de)|"
+    r"escribe\s+(?:los?\s+)?datos|"
+    r"introduce\s+(?:los?\s+)?datos|"
+    r"rellena\s+(?:las?\s+)?celdas?"
+    r")\b",
+    re.IGNORECASE,
+)
 _RENDER_DISK_MB = 1024
 
 

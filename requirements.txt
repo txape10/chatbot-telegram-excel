@@ -12,3 +12,4 @@ fastapi==0.115.12
 uvicorn==0.34.3
 aiofiles==24.1.0
 libsql-experimental==0.0.55
+psutil==6.1.1
