@@ -37,6 +37,33 @@ def conectar() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH)
 
 
+def estado() -> dict:
+    """Devuelve información sobre la conexión activa para el panel de admin.
+
+    Retorna:
+        modo:    "turso" | "sqlite"
+        url:     URL de Turso (sin token) o ruta local del archivo
+        ok:      True si la conexión funciona, False si hay error
+        error:   mensaje de error si ok=False
+    """
+    if _TURSO_URL and _TURSO_TOKEN:
+        try:
+            conn = conectar()
+            conn.execute("SELECT 1").fetchone()
+            return {"modo": "turso", "url": _TURSO_URL, "ok": True, "error": ""}
+        except Exception as exc:
+            return {"modo": "turso", "url": _TURSO_URL, "ok": False, "error": str(exc)}
+    else:
+        import os as _os
+        ruta = _os.path.abspath(DB_PATH)
+        try:
+            conn = conectar()
+            conn.execute("SELECT 1").fetchone()
+            return {"modo": "sqlite", "url": ruta, "ok": True, "error": ""}
+        except Exception as exc:
+            return {"modo": "sqlite", "url": ruta, "ok": False, "error": str(exc)}
+
+
 def dict_row(cursor, row) -> dict:
     """Row factory que devuelve diccionarios en lugar de tuplas.
 

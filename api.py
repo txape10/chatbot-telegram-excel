@@ -467,6 +467,7 @@ def admin_panel(_: None = Depends(_verificar_admin)):
 def _renderizar_admin_html(stats: dict) -> str:
     from datetime import datetime
     from utils.user_links import obtener_todos_los_vinculos
+    from utils.db import estado as _estado_db
 
     # Barra de mensajes por día (últimos 7 días)
     max_n = max((d["n"] for d in stats["mensajes_por_dia"]), default=1)
@@ -522,7 +523,14 @@ def _renderizar_admin_html(stats: dict) -> str:
             f"</tr>"
         )
 
-    ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ahora  = datetime.now().strftime("%d/%m/%Y %H:%M")
+    db_inf = _estado_db()
+    db_modo_label = "☁️ Turso (cloud)" if db_inf["modo"] == "turso" else "💾 SQLite local"
+    db_estado_badge = (
+        '<span class="badge-ok">✅ Conectada</span>'
+        if db_inf["ok"] else
+        f'<span class="badge-warn">❌ Error: {db_inf["error"]}</span>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -659,6 +667,23 @@ def _renderizar_admin_html(stats: dict) -> str:
       <input type="email"  id="inp-email" placeholder="email@empresa.com" required>
       <button type="submit">+ Añadir vínculo</button>
     </form>
+  </div>
+
+  <!-- Estado de la base de datos -->
+  <div class="section">
+    <div class="section-head">🗄 Base de datos</div>
+    <table>
+      <thead>
+        <tr><th>Modo</th><th>URL / Ruta</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{db_modo_label}</td>
+          <td><code style="font-size:.75rem;word-break:break-all">{db_inf["url"]}</code></td>
+          <td>{db_estado_badge}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
 </div>
