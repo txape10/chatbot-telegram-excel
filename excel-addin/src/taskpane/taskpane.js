@@ -578,6 +578,20 @@ async function _esperarEmailOffice(maxIntentos = 6, pausaMs = 500) {
     if (email) return email;
     await new Promise(r => setTimeout(r, pausaMs));
   }
+  // DEBUG temporal: volcar todo userProfile en consola para diagnóstico
+  try {
+    const up = Office?.context?.userProfile;
+    console.log("[VinculoDebug] userProfile completo:", JSON.stringify(up));
+    console.log("[VinculoDebug] context.displayLanguage:", Office?.context?.displayLanguage);
+    // Intentar obtener email via Excel.run (propiedad author del workbook)
+    await Excel.run(async ctx => {
+      ctx.workbook.load("properties/author");
+      await ctx.sync();
+      console.log("[VinculoDebug] workbook.properties.author:", ctx.workbook.properties.author);
+    });
+  } catch (e) {
+    console.log("[VinculoDebug] error en diagnóstico:", e.message);
+  }
   return "";
 }
 
