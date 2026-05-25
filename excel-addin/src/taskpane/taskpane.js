@@ -128,6 +128,7 @@ async function preguntar() {
         datos: valores, instruccion, historial: _historialLLM,
         device_id: _obtenerOCrearDeviceId(),
         user_email: obtenerEmailUsuario(),
+        excel_version: _obtenerExcelVersion(),
       });
 
       if (respuesta.tipo === "edicion") {
@@ -155,6 +156,7 @@ async function preguntar() {
         pregunta: instruccion, historial: _historialLLM,
         device_id: _obtenerOCrearDeviceId(),
         user_email: obtenerEmailUsuario(),
+        excel_version: _obtenerExcelVersion(),
       });
 
       if (respuesta.tipo === "datos" && respuesta.datos_modificados) {
@@ -654,6 +656,17 @@ function _obtenerOCrearDeviceId() {
     localStorage.setItem("addin-device-id", deviceId);
   }
   return deviceId;
+}
+
+function _obtenerExcelVersion() {
+  try {
+    const diag = Office.context.diagnostics;
+    const plat  = diag.platform  || "";
+    const build = diag.version   || "";
+    return (plat + (build ? " " + build : "")).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Vínculo Telegram ──────────────────────────────────────────────────────────

@@ -260,6 +260,7 @@ class PeticionPregunta(BaseModel):
     historial: list[dict] = []
     device_id: str | None = None
     user_email: str | None = None
+    excel_version: str | None = None
 
 
 class PeticionAnalisis(BaseModel):
@@ -272,6 +273,7 @@ class PeticionEdicion(BaseModel):
     historial: list[dict] = []
     device_id: str | None = None
     user_email: str | None = None
+    excel_version: str | None = None
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -357,14 +359,19 @@ def _usuario_addin(device_id: str | None) -> int:
     return _ADDIN_ANON_ID
 
 
-def _registrar_addin(device_id: str | None, texto: str, user_email: str | None = None) -> None:
+def _registrar_addin(
+    device_id: str | None,
+    texto: str,
+    user_email: str | None = None,
+    excel_version: str | None = None,
+) -> None:
     """Escribe la pregunta del Add-in en historial para que el usuario aparezca en el panel."""
     try:
         from utils.history import agregar_mensaje
         agregar_mensaje(_usuario_addin(device_id), "user", texto[:2000])
         if device_id and user_email:
             from utils.device_emails import guardar_email
-            guardar_email(device_id, user_email)
+            guardar_email(device_id, user_email, excel_version)
     except Exception as exc:
         logger.warning("No se pudo registrar uso del Add-in: %s", exc)
 
@@ -377,7 +384,7 @@ def _verificar_addin_activo():
 @app.post("/ask")
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email)
+    _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email, peticion.excel_version)
     # Sin datos: pregunta general o creación desde cero
     if not peticion.datos or len(peticion.datos) < 2:
         if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
@@ -426,7 +433,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
 @app.post("/edit")
 def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
          __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email)
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
 
     op = extraer_operacion_edicion(df, peticion.instruccion)
@@ -720,13 +727,20 @@ def admin_panel(_: None = Depends(_verificar_admin)):
     stats_ses = obtener_stats_usuarios_avanzadas()
     sistema  = _obtener_info_sistema()
     logs     = _leer_logs_recientes(150)
-    # Parchar email para usuario anónimo del Add-in (user_id=0)
-    from utils.device_emails import obtener_emails_distintos
-    emails_addin = obtener_emails_distintos()
-    if emails_addin:
+    # Parchar email y versión Excel para usuario anónimo del Add-in (user_id=0)
+    from utils.device_emails import obtener_info_devices
+    devices_addin = obtener_info_devices()
+    if devices_addin:
+        emails = [d["email"] for d in devices_addin]
+        # Versión: tomar la más reciente (último en la lista por email asc, o la única)
+        versiones = [d["excel_version"] for d in devices_addin if d["excel_version"]]
+        version_addin = versiones[-1] if versiones else None
         for u in stats["usuarios"]:
-            if u["user_id"] == _ADDIN_ANON_ID and not u["email"]:
-                u["email"] = ", ".join(emails_addin)
+            if u["user_id"] == _ADDIN_ANON_ID:
+                if not u["email"]:
+                    u["email"] = ", ".join(emails)
+                if not u["version_excel"] and version_addin:
+                    u["version_excel"] = version_addin
     return _renderizar_admin_html(stats, stats_ia, sistema, logs, stats_ses)
 
 
