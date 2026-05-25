@@ -5,13 +5,19 @@ de Telegram ni LLM, por lo que puede usarse desde cualquier contexto.
 """
 import sqlite3
 from datetime import datetime
-from utils.db import conectar as _db_conectar, dict_row
+from utils.db import conectar as _db_conectar
 
 
 def _conectar() -> sqlite3.Connection:
-    conn = _db_conectar()
-    conn.row_factory = dict_row   # compatible sqlite3 y libsql_experimental
-    return conn
+    return _db_conectar()
+
+
+def _filas_a_dicts(cursor) -> list[dict]:
+    """Convierte los resultados del cursor a lista de dicts.
+    Compatible con sqlite3 y libsql_experimental (que no soporta row_factory).
+    """
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
 
 def _tabla_existe(conn: sqlite3.Connection, nombre: str) -> bool:
@@ -123,16 +129,18 @@ def obtener_estadisticas() -> dict:
                 ORDER BY ultima_actividad DESC
             """
 
-        filas_usuarios = conn.execute(query_usuarios).fetchall()
+        cur_usuarios = conn.execute(query_usuarios)
+        filas_usuarios = _filas_a_dicts(cur_usuarios)
 
         # ── Mensajes por día (últimos 7 días) ─────────────────────────────────
-        filas_dia = conn.execute("""
+        cur_dia = conn.execute("""
             SELECT date(creado_en) AS dia, COUNT(*) AS n
             FROM historial
             WHERE creado_en >= date('now', '-6 days')
             GROUP BY dia
             ORDER BY dia
-        """).fetchall()
+        """)
+        filas_dia = _filas_a_dicts(cur_dia)
 
     usuarios = [
         {
