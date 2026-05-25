@@ -8,7 +8,6 @@ Voces recomendadas en español:
 """
 import re
 import logging
-import edge_tts
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,7 @@ async def texto_a_audio(texto: str, voz: str = VOZ_ES) -> bytes:
         texto_limpio = recortado + ". Puedes leer la respuesta completa en el chat."
 
     try:
+        import edge_tts
         communicate = edge_tts.Communicate(texto_limpio, voz)
         audio = b""
         async for chunk in communicate.stream():
