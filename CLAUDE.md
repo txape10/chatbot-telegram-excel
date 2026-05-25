@@ -207,6 +207,8 @@ ADDIN_URL=
 - **Tests sprints D2/E1/E2/F3/F4**: 105 tests — TTS markdown, gráficos, undo/secundario, comparar archivos, macros CRUD, buscar/dividir/concatenar, preferencias
 - **Tests sprints G/E3/F1/F2**: 111 tests — detección de intenciones por regex (73 patrones), lógica pura de preview/valores únicos/CSV/LLM utils. Suite total: 352/352 ✅
 - **Fix editor**: `pd.to_numeric(errors='ignore')` deprecado sustituido por try/except explícito
+- **Sprint H1 — Enviar al bot desde el Add-in**: botón "📤 Enviar al bot" en el panel del Add-in; `/vincular email` y `/desvincular` en Telegram; endpoint `POST /enviar-al-bot`; tabla `user_links` en SQLite
+- **Sprint H2 — Panel de administración**: `GET /admin` (HTML con gráfico + tabla de usuarios) y `GET /admin/stats` (JSON); protegido por `ADMIN_KEY`; estadísticas: mensajes totales/hoy/por usuario, actividad 7 días, Add-ins vinculados
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
