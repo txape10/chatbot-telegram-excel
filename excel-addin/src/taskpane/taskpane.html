@@ -69,9 +69,20 @@
         <span class="ms-Button-label">📤 Enviar al bot</span>
       </button>
     </div>
-    <p id="info-telegram" class="ms-font-s info-telegram" style="display:none;">
-      Para enviar datos al bot, escribe <strong>/vincular tu@email.com</strong> en el chat de Telegram.
-    </p>
+    <div id="info-telegram" style="display:none;">
+      <p class="ms-font-s info-telegram">
+        Para vincular con Telegram, escribe <strong>/codigo</strong> en el bot e introduce el código:
+      </p>
+      <div class="fila-codigo">
+        <input type="text" id="input-codigo" maxlength="6" placeholder="000000"
+               class="input-codigo" inputmode="numeric" pattern="\d{6}"
+               onkeydown="if(event.key==='Enter'){verificarCodigo();}" />
+        <button id="btn-vincular" class="ms-Button btn-vincular" onclick="verificarCodigo()">
+          <span class="ms-Button-label">Vincular</span>
+        </button>
+      </div>
+      <p id="estado-vinculo" class="ms-font-s estado-vinculo"></p>
+    </div>
 
     <div id="estado" class="ms-font-s estado"></div>
 

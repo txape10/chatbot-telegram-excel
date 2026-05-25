@@ -17,7 +17,7 @@ from config import TELEGRAM_TOKEN
 from handlers.audio import recibir_audio, recibir_voz
 from handlers.commands import (
     ayuda, callback_ayuda, callback_modo, callback_plantilla,
-    callback_version, ejemplo, estado, generar, limpiar,
+    callback_version, codigo, ejemplo, estado, generar, limpiar,
     modo, pivote, plantilla, privado, start, version,
     vincular, desvincular,
 )
@@ -41,6 +41,7 @@ async def _registrar_comandos(app):
         BotCommand("limpiar",    "Borrar el historial de conversación"),
         BotCommand("vincular",   "Vincular con el Add-in de Excel: /vincular email"),
         BotCommand("desvincular","Eliminar la vinculación con el Add-in"),
+        BotCommand("codigo",     "Código de 6 dígitos para emparejar el Add-in"),
     ])
 
 
@@ -67,6 +68,7 @@ def crear_aplicacion():
     app.add_handler(CommandHandler("privado",     privado))
     app.add_handler(CommandHandler("vincular",    vincular))
     app.add_handler(CommandHandler("desvincular", desvincular))
+    app.add_handler(CommandHandler("codigo",      codigo))
 
     # Callbacks InlineKeyboard
     app.add_handler(CallbackQueryHandler(callback_ayuda,         pattern="^cat_"))

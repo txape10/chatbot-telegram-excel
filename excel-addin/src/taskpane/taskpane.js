@@ -565,49 +565,36 @@ async function cargarConfigAddin() {
   }
 }
 
-// ── Vínculo Telegram ──────────────────────────────────────────────────────────
+// ── Device ID persistente ─────────────────────────────────────────────────────
 
 /**
- * Espera hasta que Office.context.userProfile.email esté disponible.
- * Office.onReady puede dispararse antes de que el perfil de usuario se haya
- * cargado completamente; reintentamos hasta _MAX_INTENTOS veces con pausa.
+ * Devuelve el UUID único de este dispositivo/instalación del Add-in.
+ * Se genera una vez y se persiste en localStorage indefinidamente.
  */
-async function _esperarEmailOffice(maxIntentos = 6, pausaMs = 500) {
-  for (let i = 0; i < maxIntentos; i++) {
-    const email = obtenerEmailUsuario();
-    if (email) return email;
-    await new Promise(r => setTimeout(r, pausaMs));
+function _obtenerOCrearDeviceId() {
+  let deviceId = localStorage.getItem("addin-device-id");
+  if (!deviceId) {
+    deviceId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+          const r = Math.random() * 16 | 0;
+          return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    localStorage.setItem("addin-device-id", deviceId);
   }
-  // DEBUG temporal: volcar todo userProfile en consola para diagnóstico
-  try {
-    const up = Office?.context?.userProfile;
-    console.log("[VinculoDebug] userProfile completo:", JSON.stringify(up));
-    console.log("[VinculoDebug] context.displayLanguage:", Office?.context?.displayLanguage);
-    // Intentar obtener email via Excel.run (propiedad author del workbook)
-    await Excel.run(async ctx => {
-      ctx.workbook.load("properties/author");
-      await ctx.sync();
-      console.log("[VinculoDebug] workbook.properties.author:", ctx.workbook.properties.author);
-    });
-  } catch (e) {
-    console.log("[VinculoDebug] error en diagnóstico:", e.message);
-  }
-  return "";
+  return deviceId;
 }
 
-async function comprobarVinculo() {
-  const email  = await _esperarEmailOffice();
-  const boton  = document.getElementById("btn-enviar-bot");
-  const info   = document.getElementById("info-telegram");
+// ── Vínculo Telegram ──────────────────────────────────────────────────────────
 
-  if (!email) {
-    // Office no proporcionó email — sección Telegram oculta (comportamiento empresa)
-    return;
-  }
+async function comprobarVinculo() {
+  const deviceId = _obtenerOCrearDeviceId();
+  const boton    = document.getElementById("btn-enviar-bot");
+  const info     = document.getElementById("info-telegram");
 
   try {
     const resultado = await llamarApiGet(
-      "/tiene-vinculo?email=" + encodeURIComponent(email)
+      "/tiene-vinculo?device_id=" + encodeURIComponent(deviceId)
     );
     if (resultado.vinculado) {
       boton.style.display = "";
@@ -617,34 +604,65 @@ async function comprobarVinculo() {
       info.style.display  = "";
     }
   } catch {
-    // Error de red: mostrar el botón (mejor falso positivo que ocultar la función)
-    boton.style.display = "";
+    // Error de red: ocultar ambos (no queremos mostrar el botón sin vínculo confirmado)
+    boton.style.display = "none";
     info.style.display  = "none";
+  }
+}
+
+async function verificarCodigo() {
+  const input        = document.getElementById("input-codigo");
+  const estadoVinc   = document.getElementById("estado-vinculo");
+  const btnVincular  = document.getElementById("btn-vincular");
+  const codigo       = input.value.trim();
+
+  if (!/^\d{6}$/.test(codigo)) {
+    estadoVinc.textContent = "Introduce un código de 6 dígitos.";
+    return;
+  }
+
+  btnVincular.disabled  = true;
+  estadoVinc.textContent = "Verificando...";
+
+  try {
+    const deviceId = _obtenerOCrearDeviceId();
+    await llamarApi("/verificar-codigo", { device_id: deviceId, codigo });
+    // ¡Vinculado! Limpiar input y re-comprobar para mostrar el botón 📤
+    input.value            = "";
+    estadoVinc.textContent = "";
+    await comprobarVinculo();
+  } catch (error) {
+    const msg = error.message || "";
+    if (msg.includes("expirado") || msg.includes("Expirado")) {
+      estadoVinc.textContent = "⚠️ Código expirado. Genera uno nuevo con /codigo en Telegram.";
+    } else if (msg.includes("utilizado") || msg.includes("Utilizado")) {
+      estadoVinc.textContent = "⚠️ Código ya utilizado. Genera uno nuevo con /codigo.";
+    } else if (msg.includes("encontrado")) {
+      estadoVinc.textContent = "❌ Código incorrecto.";
+    } else {
+      estadoVinc.textContent = "❌ Error al verificar. Inténtalo de nuevo.";
+    }
+  } finally {
+    btnVincular.disabled = false;
   }
 }
 
 // ── Enviar al bot ─────────────────────────────────────────────────────────────
 
 async function enviarAlBot() {
-  const email = obtenerEmailUsuario();
-  if (!email) {
-    mostrarEstado("No se pudo obtener tu email de Office. Asegúrate de estar conectado con tu cuenta.");
-    return;
-  }
-
-  const boton = document.getElementById("btn-enviar-bot");
+  const deviceId = _obtenerOCrearDeviceId();
+  const boton    = document.getElementById("btn-enviar-bot");
   boton.disabled = true;
   mostrarEstado("Leyendo selección...");
 
   try {
-    const { valores, direccion } = await leerRangoSeleccionado();
+    const { valores } = await leerRangoSeleccionado();
 
     if (valores.length < 2) {
       mostrarEstado("Selecciona al menos una fila de cabeceras y una de datos.");
       return;
     }
 
-    // Intentar obtener el nombre del libro
     let nombreArchivo = "datos_excel.xlsx";
     try {
       await Excel.run(async (context) => {
@@ -663,17 +681,15 @@ async function enviarAlBot() {
     const resultado = await llamarApi("/enviar-al-bot", {
       datos:          valores,
       nombre_archivo: nombreArchivo,
-      email:          email,
+      device_id:      deviceId,
     });
 
     mostrarEstado("✅ " + (resultado.mensaje || "Archivo enviado a Telegram."));
 
   } catch (error) {
     const msg = error.message || "Error desconocido";
-    if (msg.includes("vinculada") || msg.includes("vincular")) {
-      mostrarEstado(
-        "⚠️ Cuenta no vinculada. Escribe /vincular " + email + " en el bot de Telegram primero."
-      );
+    if (msg.includes("vínculo") || msg.includes("código") || msg.includes("vincular")) {
+      mostrarEstado("⚠️ Sin vínculo activo. Introduce el código del bot en el Add-in.");
     } else {
       mostrarEstado("Error al enviar: " + msg);
     }
@@ -693,3 +709,4 @@ window.mostrarEasterEgg           = mostrarEasterEgg;
 window.cerrarEasterEgg            = cerrarEasterEgg;
 window.activarZeldaDesdeEasterEgg = activarZeldaDesdeEasterEgg;
 window.enviarAlBot                 = enviarAlBot;
+window.verificarCodigo             = verificarCodigo;

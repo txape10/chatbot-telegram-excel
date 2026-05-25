@@ -1,15 +1,21 @@
-"""Vinculación entre cuenta de Telegram (user_id) y emails del Add-in.
+"""Vinculación entre cuenta de Telegram (user_id) y emails/dispositivos del Add-in.
 
 Un usuario de Telegram puede tener varios emails vinculados (p.ej. cuenta
 personal y cuenta de empresa). Cualquiera de ellos sirve para que el Add-in
 envíe archivos directamente a ese chat.
 
-Flujo:
-  1. El usuario escribe /vincular email@empresa.com en Telegram.
-  2. El bot inserta la asociación telegram_id ↔ email en user_links.
-  3. Desde el Add-in, al pulsar "Enviar al bot" se llama a POST /enviar-al-bot
-     con el email del usuario. La API recupera el telegram_id y reenvía el
-     archivo al chat correspondiente.
+Flujos de vinculación:
+  A) Por email (SSO / futuro Azure AD):
+     1. /vincular email@empresa.com  →  user_links (telegram_id ↔ email)
+     2. Add-in llama /tiene-vinculo?email=X  →  muestra botón si existe el link
+
+  B) Por código efímero (dispositivo sin SSO):
+     1. /vincular email@empresa.com  →  user_links
+     2. /codigo  →  genera código de 6 dígitos en device_codes (5 min de vida)
+     3. Usuario introduce el código en el Add-in
+     4. Add-in llama /verificar-codigo  →  guarda device_links (device_id ↔ email)
+     5. Add-in llama /tiene-vinculo?device_id=X  →  muestra botón
+     6. "Enviar al bot" envía device_id; API busca telegram_id en device_links
 """
 import sqlite3
 import os
@@ -20,6 +26,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
 def _conectar() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    # Vínculos email ↔ Telegram (flujo A y prerequisito del flujo B)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_links (
             telegram_id  INTEGER  NOT NULL,
@@ -27,6 +34,25 @@ def _conectar() -> sqlite3.Connection:
             creado_en    DATETIME DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (telegram_id, email),
             UNIQUE(email)
+        )
+    """)
+    # Códigos efímeros de emparejamiento (flujo B, paso 2)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_codes (
+            code        TEXT     PRIMARY KEY,
+            telegram_id INTEGER  NOT NULL,
+            email       TEXT     NOT NULL,
+            expiry      TEXT     NOT NULL,
+            usado       INTEGER  DEFAULT 0
+        )
+    """)
+    # Vínculos device_id ↔ telegram_id/email (flujo B, tras verificar código)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_links (
+            device_id   TEXT     PRIMARY KEY,
+            telegram_id INTEGER  NOT NULL,
+            email       TEXT     NOT NULL,
+            creado_en   DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -99,3 +125,68 @@ def desvincular(telegram_id: int, email: str | None = None) -> int:
             )
         conn.commit()
     return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Device codes — códigos efímeros de emparejamiento (flujo B)
+# ---------------------------------------------------------------------------
+
+def guardar_codigo_dispositivo(code: str, telegram_id: int, email: str, expiry: str) -> None:
+    """Guarda un código efímero para emparejar un dispositivo Add-in con Telegram."""
+    with _conectar() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO device_codes (code, telegram_id, email, expiry, usado)
+            VALUES (?, ?, ?, ?, 0)
+            """,
+            (code, telegram_id, email.lower().strip(), expiry),
+        )
+        conn.commit()
+
+
+def obtener_codigo_dispositivo(code: str) -> dict | None:
+    """Devuelve los datos del código (telegram_id, email, expiry, usado), o None si no existe."""
+    with _conectar() as conn:
+        fila = conn.execute(
+            "SELECT telegram_id, email, expiry, usado FROM device_codes WHERE code = ?",
+            (code,),
+        ).fetchone()
+    if not fila:
+        return None
+    return {"telegram_id": fila[0], "email": fila[1], "expiry": fila[2], "usado": fila[3]}
+
+
+def marcar_codigo_usado(code: str) -> None:
+    """Marca el código como ya utilizado para que no pueda reutilizarse."""
+    with _conectar() as conn:
+        conn.execute("UPDATE device_codes SET usado = 1 WHERE code = ?", (code,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Device links — vínculos persistentes device_id ↔ email/telegram (flujo B)
+# ---------------------------------------------------------------------------
+
+def guardar_device_link(device_id: str, telegram_id: int, email: str) -> None:
+    """Asocia un device_id de Add-in con un telegram_id y email."""
+    with _conectar() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO device_links (device_id, telegram_id, email)
+            VALUES (?, ?, ?)
+            """,
+            (device_id, telegram_id, email.lower().strip()),
+        )
+        conn.commit()
+
+
+def obtener_device_link(device_id: str) -> dict | None:
+    """Devuelve el telegram_id y email asociados a este device_id, o None si no existe."""
+    with _conectar() as conn:
+        fila = conn.execute(
+            "SELECT telegram_id, email FROM device_links WHERE device_id = ?",
+            (device_id,),
+        ).fetchone()
+    if not fila:
+        return None
+    return {"telegram_id": fila[0], "email": fila[1]}

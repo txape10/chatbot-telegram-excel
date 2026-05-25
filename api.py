@@ -139,7 +139,13 @@ class PeticionEdicion(BaseModel):
 class PeticionEnviarAlBot(BaseModel):
     datos: list[list]
     nombre_archivo: str = "datos.xlsx"
-    email: str
+    email: str | None = None        # flujo A: SSO / Azure AD
+    device_id: str | None = None    # flujo B: emparejamiento por código
+
+
+class PeticionVerificarCodigo(BaseModel):
+    device_id: str
+    codigo: str
 
 
 # ---------------------------------------------------------------------------
@@ -279,31 +285,97 @@ def addin_config(_: None = Depends(_verificar_clave),
 
 
 @app.get("/tiene-vinculo")
-def tiene_vinculo(email: str = Query(...),
-                  _: None = Depends(_verificar_clave),
-                  __: None = Depends(_verificar_addin_activo)) -> dict:
-    """Comprueba si el email tiene una cuenta de Telegram vinculada."""
-    from utils.user_links import obtener_telegram_id
-    return {"vinculado": obtener_telegram_id(email) is not None}
+def tiene_vinculo(
+    email: str | None = Query(None),
+    device_id: str | None = Query(None),
+    _: None = Depends(_verificar_clave),
+    __: None = Depends(_verificar_addin_activo),
+) -> dict:
+    """Comprueba si hay vínculo activo.
+
+    Acepta dos modos:
+    - device_id: flujo B (emparejamiento por código efímero)
+    - email: flujo A (SSO / Azure AD, actualmente sin uso en desktop)
+    """
+    from utils.user_links import obtener_telegram_id, obtener_device_link
+
+    if device_id:
+        link = obtener_device_link(device_id)
+        if not link:
+            return {"vinculado": False}
+        # Verificar que el email sigue activo en user_links
+        return {"vinculado": obtener_telegram_id(link["email"]) is not None}
+
+    if email:
+        return {"vinculado": obtener_telegram_id(email) is not None}
+
+    return {"vinculado": False}
+
+
+@app.post("/verificar-codigo")
+def verificar_codigo(
+    peticion: PeticionVerificarCodigo,
+    _: None = Depends(_verificar_clave),
+    __: None = Depends(_verificar_addin_activo),
+) -> dict:
+    """Valida un código efímero generado por /codigo en Telegram.
+
+    Si es válido, crea el vínculo device_id ↔ telegram_id en device_links.
+    El código queda marcado como usado para que no pueda reutilizarse.
+    """
+    from utils.user_links import (
+        obtener_codigo_dispositivo, marcar_codigo_usado, guardar_device_link,
+    )
+    from datetime import datetime
+
+    if not peticion.codigo.isdigit() or len(peticion.codigo) != 6:
+        raise HTTPException(status_code=400, detail="Formato de código inválido")
+
+    registro = obtener_codigo_dispositivo(peticion.codigo)
+    if not registro:
+        raise HTTPException(status_code=404, detail="Código no encontrado")
+    if registro["usado"]:
+        raise HTTPException(status_code=410, detail="Código ya utilizado")
+    if datetime.fromisoformat(registro["expiry"]) < datetime.now():
+        raise HTTPException(status_code=410, detail="Código expirado")
+
+    marcar_codigo_usado(peticion.codigo)
+    guardar_device_link(peticion.device_id, registro["telegram_id"], registro["email"])
+
+    logger.info(
+        "Device '%s' vinculado a email '%s' (telegram_id %s)",
+        peticion.device_id, registro["email"], registro["telegram_id"],
+    )
+    return {"ok": True}
 
 
 @app.post("/enviar-al-bot")
 async def enviar_al_bot(peticion: PeticionEnviarAlBot,
                         _: None = Depends(_verificar_clave),
                         __: None = Depends(_verificar_addin_activo)) -> dict:
-    """Recibe datos del Add-in y los envía como archivo .xlsx al chat de Telegram
-    del usuario, identificado por el email vinculado con /vincular."""
-    from utils.user_links import obtener_telegram_id
+    """Recibe datos del Add-in y los envía como archivo .xlsx al chat de Telegram.
+
+    Acepta device_id (flujo B) o email (flujo A/SSO).
+    """
+    from utils.user_links import obtener_telegram_id, obtener_device_link
     from excel.editor import exportar_xlsx
     import io
 
-    telegram_id = obtener_telegram_id(peticion.email)
+    telegram_id = None
+
+    if peticion.device_id:
+        link = obtener_device_link(peticion.device_id)
+        if link and obtener_telegram_id(link["email"]):
+            telegram_id = link["telegram_id"]
+    elif peticion.email:
+        telegram_id = obtener_telegram_id(peticion.email)
+
     if not telegram_id:
         raise HTTPException(
             status_code=404,
             detail=(
-                "Tu cuenta de Excel no está vinculada a Telegram. "
-                "Escribe /vincular " + peticion.email + " en el bot primero."
+                "No hay vínculo activo con Telegram. "
+                "Introduce el código del bot en el Add-in para vincular este dispositivo."
             ),
         )
 

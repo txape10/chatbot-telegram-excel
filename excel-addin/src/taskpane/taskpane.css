@@ -334,6 +334,62 @@ textarea:focus {
   line-height: 1.4;
 }
 
+/* --- Vinculación por código efímero --- */
+.fila-codigo {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.input-codigo {
+  flex: 1;
+  border: 1px solid var(--color-borde);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 18px;
+  font-family: monospace;
+  text-align: center;
+  letter-spacing: 4px;
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  min-width: 0;
+}
+
+.input-codigo:focus {
+  outline: none;
+  border-color: var(--color-primario);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+}
+
+.btn-vincular {
+  flex: 0 0 auto;
+  background-color: var(--color-primario) !important;
+  border-color: var(--color-primario) !important;
+}
+
+.btn-vincular:hover {
+  background-color: var(--color-acento) !important;
+  border-color: var(--color-acento) !important;
+}
+
+.btn-vincular .ms-Button-label {
+  color: var(--color-btn-texto) !important;
+  font-size: 12px;
+}
+
+.btn-vincular:disabled {
+  background-color: #a0a0a0 !important;
+  border-color: #a0a0a0 !important;
+  cursor: not-allowed;
+}
+
+.estado-vinculo {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+  min-height: 14px;
+}
+
 /* --- Botón Preguntar --- */
 .ms-Button--primary {
   width: 100%;

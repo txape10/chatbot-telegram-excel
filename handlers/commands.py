@@ -519,6 +519,42 @@ async def desvincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
+@solo_autorizados
+async def codigo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Genera un código efímero de 6 dígitos para vincular el Add-in de Excel.
+
+    El usuario debe haber ejecutado /vincular primero. El código expira en 5 minutos
+    y solo puede usarse una vez. Se introduce en el panel del Add-in para emparejar
+    el dispositivo sin necesidad de Azure AD SSO.
+    """
+    from utils.user_links import obtener_emails, guardar_codigo_dispositivo
+    from datetime import datetime, timedelta
+
+    user_id = update.effective_user.id
+    emails  = obtener_emails(user_id)
+
+    if not emails:
+        await update.message.reply_text(
+            "⚠️ Primero vincula tu cuenta con:\n"
+            "<b>/vincular tu@email.com</b>",
+            parse_mode="HTML",
+        )
+        return
+
+    email      = emails[0]
+    code       = str(random.randint(100000, 999999))
+    expiry     = (datetime.now() + timedelta(minutes=5)).isoformat()
+    guardar_codigo_dispositivo(code, user_id, email, expiry)
+
+    await update.message.reply_text(
+        f"🔑 <b>Código de vinculación del Add-in:</b>\n\n"
+        f"<code>{code}</code>\n\n"
+        f"⏱ Expira en <b>5 minutos</b>.\n"
+        f"Introdúcelo en el panel del Asistente Excel.",
+        parse_mode="HTML",
+    )
+
+
 async def callback_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
