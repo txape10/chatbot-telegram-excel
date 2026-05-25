@@ -259,6 +259,7 @@ class PeticionPregunta(BaseModel):
     pregunta: str
     historial: list[dict] = []
     device_id: str | None = None
+    user_email: str | None = None
 
 
 class PeticionAnalisis(BaseModel):
@@ -270,6 +271,7 @@ class PeticionEdicion(BaseModel):
     instruccion: str
     historial: list[dict] = []
     device_id: str | None = None
+    user_email: str | None = None
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -355,11 +357,14 @@ def _usuario_addin(device_id: str | None) -> int:
     return _ADDIN_ANON_ID
 
 
-def _registrar_addin(device_id: str | None, texto: str) -> None:
+def _registrar_addin(device_id: str | None, texto: str, user_email: str | None = None) -> None:
     """Escribe la pregunta del Add-in en historial para que el usuario aparezca en el panel."""
     try:
         from utils.history import agregar_mensaje
         agregar_mensaje(_usuario_addin(device_id), "user", texto[:2000])
+        if device_id and user_email:
+            from utils.device_emails import guardar_email
+            guardar_email(device_id, user_email)
     except Exception as exc:
         logger.warning("No se pudo registrar uso del Add-in: %s", exc)
 
@@ -372,7 +377,7 @@ def _verificar_addin_activo():
 @app.post("/ask")
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.pregunta)
+    _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email)
     # Sin datos: pregunta general o creación desde cero
     if not peticion.datos or len(peticion.datos) < 2:
         if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
@@ -421,7 +426,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
 @app.post("/edit")
 def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
          __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.instruccion)
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email)
     df = _a_dataframe(peticion.datos)
 
     op = extraer_operacion_edicion(df, peticion.instruccion)
@@ -715,6 +720,13 @@ def admin_panel(_: None = Depends(_verificar_admin)):
     stats_ses = obtener_stats_usuarios_avanzadas()
     sistema  = _obtener_info_sistema()
     logs     = _leer_logs_recientes(150)
+    # Parchar email para usuario anónimo del Add-in (user_id=0)
+    from utils.device_emails import obtener_emails_distintos
+    emails_addin = obtener_emails_distintos()
+    if emails_addin:
+        for u in stats["usuarios"]:
+            if u["user_id"] == _ADDIN_ANON_ID and not u["email"]:
+                u["email"] = ", ".join(emails_addin)
     return _renderizar_admin_html(stats, stats_ia, sistema, logs, stats_ses)
 
 
@@ -889,8 +901,9 @@ def _renderizar_admin_html(
         uid_label = "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
         email = u["email"] or "—"
         ver  = u["version_excel"] or "—"
-        modo = "🔊" if u["modo_respuesta"] == "voz" else "💬"
-        priv = "🔒" if u["modo_privado"] else ""
+        modo_label = "🔊 Voz" if u["modo_respuesta"] == "voz" else "💬 Texto"
+        priv_badge = (' <span style="color:#e67e22;font-weight:600;font-size:.75rem">🔒 Priv</span>'
+                      if u["modo_privado"] else "")
         ts   = u["ultima_actividad"][:16].replace("T", " ") if u["ultima_actividad"] != "—" else "—"
         filas_usuarios += (
             f"<tr>"
@@ -900,7 +913,7 @@ def _renderizar_admin_html(
             f"  <td class='num'>{u['total_mensajes']}</td>"
             f"  <td>{ts}</td>"
             f"  <td>{ver}</td>"
-            f"  <td class='centro'>{modo} {priv}</td>"
+            f"  <td class='centro'><span style='font-size:.8rem'>{modo_label}</span>{priv_badge}</td>"
             f"</tr>"
         )
 
@@ -1338,9 +1351,9 @@ def _renderizar_admin_html(
     <table>
       <thead>
         <tr>
-          <th>Telegram ID</th><th>Email (Add-in)</th>
+          <th>Telegram ID</th><th>Email</th>
           <th>Msgs enviados</th><th>Total msgs</th>
-          <th>Última actividad</th><th>Versión Excel</th><th>Modo</th>
+          <th>Última actividad</th><th>Ver. Excel</th><th>Respuesta</th>
         </tr>
       </thead>
       <tbody>

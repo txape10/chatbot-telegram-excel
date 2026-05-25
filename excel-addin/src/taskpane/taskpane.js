@@ -127,6 +127,7 @@ async function preguntar() {
       const respuesta = await llamarApi("/edit", {
         datos: valores, instruccion, historial: _historialLLM,
         device_id: _obtenerOCrearDeviceId(),
+        user_email: obtenerEmailUsuario(),
       });
 
       if (respuesta.tipo === "edicion") {
@@ -153,6 +154,7 @@ async function preguntar() {
       const respuesta = await llamarApi("/ask", {
         pregunta: instruccion, historial: _historialLLM,
         device_id: _obtenerOCrearDeviceId(),
+        user_email: obtenerEmailUsuario(),
       });
 
       if (respuesta.tipo === "datos" && respuesta.datos_modificados) {
