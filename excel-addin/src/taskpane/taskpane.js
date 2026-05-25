@@ -94,36 +94,45 @@ async function preguntar() {
 
   const boton = document.getElementById("btn-preguntar");
   boton.disabled = true;
-  mostrarEstado("Leyendo seleccion...");
   ocultarRespuesta();
   ocultarDialogo();
+  mostrarEstado("Leyendo selección...");
 
   try {
     const { valores, direccion } = await leerRangoSeleccionado();
+    const tienesDatos = valores && valores.length >= 2;
 
-    if (!valores || valores.length < 2) {
-      mostrarEstado("Selecciona al menos una fila de cabeceras y una de datos.");
-      return;
-    }
+    if (tienesDatos) {
+      // ── Flujo con datos: edición / consulta sobre la tabla seleccionada ──
+      _rangoAddress = direccion;
+      _rangoFilas   = valores.length;
+      _rangoCols    = (valores[0] || []).length;
+      mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
-    _rangoAddress = direccion;
-    _rangoFilas   = valores.length;
-    _rangoCols    = (valores[0] || []).length;
+      const respuesta = await llamarApi("/edit", { datos: valores, instruccion });
 
-    mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
+      if (respuesta.tipo === "edicion") {
+        _datosModificados = respuesta.datos_modificados;
+        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+        mostrarDialogo(respuesta.descripcion);
+        mostrarEstado("Edición lista · " + direccion);
+        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+      } else {
+        mostrarRespuesta(respuesta.respuesta);
+        mostrarEstado("Listo · " + direccion);
+        _agregarAlHistorial(instruccion, respuesta.respuesta);
+      }
 
-    const respuesta = await llamarApi("/edit", { datos: valores, instruccion });
-
-    if (respuesta.tipo === "edicion") {
-      _datosModificados = respuesta.datos_modificados;
-      mostrarDialogo(respuesta.descripcion);
-      mostrarEstado("Rango leido: " + direccion);
-      _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
     } else {
+      // ── Flujo sin datos: pregunta general o creación desde cero ──
+      mostrarEstado("Consultando al asistente...");
+      const respuesta = await llamarApi("/ask", { pregunta: instruccion });
       mostrarRespuesta(respuesta.respuesta);
-      mostrarEstado("Rango consultado: " + direccion);
+      mostrarEstado("Listo");
       _agregarAlHistorial(instruccion, respuesta.respuesta);
     }
+
+    document.getElementById("pregunta").value = "";
 
   } catch (error) {
     mostrarEstado("Error: " + error.message);
@@ -215,8 +224,9 @@ async function escribirEnExcel(destino) {
       await context.sync();
     });
 
-    mostrarEstado("Datos escritos correctamente.");
+    mostrarEstado("✅ Datos escritos correctamente.");
     _datosModificados = null;
+    // El bloque de respuesta ya muestra la descripción — no hace falta ocultarlo
 
   } catch (error) {
     mostrarEstado("Error al escribir: " + error.message);

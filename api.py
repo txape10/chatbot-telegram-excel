@@ -123,7 +123,7 @@ def _verificar_clave(x_api_key: str = Header(...)) -> None:
 # ---------------------------------------------------------------------------
 
 class PeticionPregunta(BaseModel):
-    datos: list[list]
+    datos: list[list] | None = None
     pregunta: str
 
 
@@ -213,6 +213,10 @@ def _verificar_addin_activo():
 @app.post("/ask")
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
+    # Sin datos: pregunta general o creación desde cero
+    if not peticion.datos or len(peticion.datos) < 2:
+        return {"respuesta": obtener_respuesta([], peticion.pregunta)}
+
     df = _a_dataframe(peticion.datos)
 
     query = extraer_query_dsl(df, peticion.pregunta)
