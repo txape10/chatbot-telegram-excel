@@ -40,7 +40,7 @@ Office.onReady(() => {
   construirSelectorTemas();
   _inicializarBarraArchivo();
   _renderizarHistorial();
-  comprobarVinculo();
+  cargarConfigAddin();
 
   document.getElementById("pregunta").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.ctrlKey) {
@@ -521,6 +521,48 @@ function limpiarHistorial(event) {
   event.stopPropagation();   // no colapsar el panel al limpiar
   localStorage.removeItem(_CLAVE_HISTORIAL);
   _renderizarHistorial();
+}
+
+// ── Configuración del servidor ────────────────────────────────────────────────
+
+/**
+ * Consulta /addin-config al arrancar para:
+ *  - Ocultar permanentemente la sección de Telegram si ENABLE_TELEGRAM=false
+ *  - Aplicar el nombre de empresa configurado en el servidor (sin recompilar)
+ */
+async function cargarConfigAddin() {
+  try {
+    const config = await llamarApiGet("/addin-config");
+
+    // ── Nombre de empresa ────────────────────────────────────────────────────
+    if (config.nombre_empresa) {
+      // Sobreescribir el nombre del tema Empresa con el valor del servidor
+      const temaEmpresa = TEMAS.find((t) => t.id === "empresa");
+      if (temaEmpresa) {
+        temaEmpresa.nombre    = config.nombre_empresa;
+        temaEmpresa.subtitulo = config.nombre_empresa;
+        construirSelectorTemas();
+        // Si el tema activo es empresa, re-aplicarlo para actualizar el subtítulo
+        const activo = localStorage.getItem("asistente-excel-tema");
+        if (activo === "empresa") {
+          aplicarTema(temaEmpresa);
+        }
+      }
+    }
+
+    // ── Módulo Telegram ──────────────────────────────────────────────────────
+    if (!config.telegram_habilitado) {
+      // Modo empresa sin bot: ocultar permanentemente toda la sección Telegram
+      document.getElementById("btn-enviar-bot").style.display = "none";
+      document.getElementById("info-telegram").style.display  = "none";
+      return;  // no llamar a comprobarVinculo
+    }
+
+    await comprobarVinculo();
+  } catch {
+    // Error de red o servidor antiguo sin este endpoint: flujo normal
+    await comprobarVinculo();
+  }
 }
 
 // ── Vínculo Telegram ──────────────────────────────────────────────────────────

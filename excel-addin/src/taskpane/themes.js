@@ -59,7 +59,7 @@ export const TEMAS = [
     id: "empresa",
     nombre: _NOMBRE_EMPRESA,
     activo: true,
-    logo: "assets/logo_empresa.png",
+    logo: "assets/logo_union.png",
     subtitulo: _NOMBRE_EMPRESA,
     vars: {
       "--color-primario":          "#D42B2B",

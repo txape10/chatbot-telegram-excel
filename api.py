@@ -259,6 +259,21 @@ def analizar(peticion: PeticionAnalisis, _: None = Depends(_verificar_clave),
     return {"resumen": resumir(df, "Datos de Excel")}
 
 
+@app.get("/addin-config")
+def addin_config(_: None = Depends(_verificar_clave),
+                 __: None = Depends(_verificar_addin_activo)) -> dict:
+    """Configuración dinámica del Add-in.
+
+    El Add-in lo consulta al arrancar para:
+    - Saber si el módulo Telegram está activo (oculta el botón "Enviar al bot" si no)
+    - Obtener el nombre de empresa configurado en el servidor (sin necesidad de recompilar)
+    """
+    return {
+        "telegram_habilitado": _ENABLE_TELEGRAM,
+        "nombre_empresa":      os.getenv("COMPANY_NAME", ""),
+    }
+
+
 @app.get("/tiene-vinculo")
 def tiene_vinculo(email: str = Query(...),
                   _: None = Depends(_verificar_clave),
