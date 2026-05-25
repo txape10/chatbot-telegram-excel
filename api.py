@@ -108,12 +108,13 @@ async def _monitor_alertas_sistema() -> None:
                     )
                     _ultima["ram"] = ahora
 
-            disco_pct = min(sistema["disco_usado_mb"] / _RENDER_DISK_MB * 100, 100.0)
-            if disco_pct >= _ALERTA_PCT:
+            # Alerta si data/ supera 400 MB (runtime creciente; código ocupa ~300 MB fijos)
+            data_mb = sistema["data_mb"]
+            if data_mb >= 400:
                 if ahora - _ultima.get("disco", 0) > _ALERTA_COOLDOWN:
                     alertas.append(
-                        f"🔴 *Disco al {disco_pct:.0f}%*\n"
-                        f"   {sistema['disco_usado_mb']} MB / {_RENDER_DISK_MB} MB (límite Render)"
+                        f"🔴 *Carpeta data/ en {data_mb:.0f} MB*\n"
+                        f"   La base de datos o los logs están creciendo demasiado."
                     )
                     _ultima["disco"] = ahora
 
@@ -594,7 +595,7 @@ _RENDER_DISK_MB = 1024
 
 
 def _obtener_info_sistema() -> dict:
-    import shutil, sys
+    import sys
     from datetime import datetime
 
     def _mb_dir(ruta: str) -> float:
@@ -610,20 +611,18 @@ def _obtener_info_sistema() -> dict:
             pass
         return round(total / (1024 * 1024), 1)
 
-    disco = shutil.disk_usage("/")
+    # Solo medimos las carpetas que la app controla — el disco raíz en Render
+    # corresponde al host físico compartido (cientos de GB) y no es útil.
+    data_mb = _mb_dir("data")
     resultado: dict = {
-        "disco_total_mb":  disco.total // (1024 * 1024),
-        "disco_usado_mb":  disco.used  // (1024 * 1024),
-        "disco_libre_mb":  disco.free  // (1024 * 1024),
-        "disco_pct":       round(disco.used / disco.total * 100, 1),
-        "data_mb":         _mb_dir("data"),
-        "logs_mb":         _mb_dir("data/logs"),
-        "temp_mb":         _mb_dir("data/temp"),
-        "python_version":  sys.version.split()[0],
-        "ram_usado_mb":    None,
-        "ram_pct_render":  None,
-        "cpu_pct":         None,
-        "uptime_seg":      None,
+        "data_mb":        data_mb,
+        "logs_mb":        _mb_dir("data/logs"),
+        "temp_mb":        _mb_dir("data/temp"),
+        "python_version": sys.version.split()[0],
+        "ram_usado_mb":   None,
+        "ram_pct_render": None,
+        "cpu_pct":        None,
+        "uptime_seg":     None,
     }
     try:
         import psutil
@@ -765,11 +764,6 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
     ram_col  = _color_pct(ram_pct)
     ram_lbl  = f"{ram_mb} MB / {_RENDER_RAM_MB} MB" if ram_mb is not None else "No disponible"
     ram_bar  = f'<div class="prog-fill" style="width:{ram_pct or 0}%;background:{ram_col}"></div>'
-
-    disco_pct_render = min(round(sistema["disco_usado_mb"] / _RENDER_DISK_MB * 100, 1), 100)
-    disco_col = _color_pct(disco_pct_render)
-    disco_lbl = f'{sistema["disco_usado_mb"]} MB / {_RENDER_DISK_MB} MB'
-    disco_bar = f'<div class="prog-fill" style="width:{disco_pct_render}%;background:{disco_col}"></div>'
 
     cpu_str    = f'{sistema["cpu_pct"]}%' if sistema["cpu_pct"] is not None else "—"
     uptime_str = _formato_uptime(sistema["uptime_seg"])
@@ -942,20 +936,16 @@ def _renderizar_admin_html(stats: dict, sistema: dict, logs: list[str]) -> str:
           <div class="prog-label"><span>0</span><span>límite {_RENDER_RAM_MB} MB</span></div>
         </div>
 
-        <div>
-          <div class="metric-row">
-            <span class="mk">Disco usado</span>
-            <span class="mv">{disco_lbl}</span>
-          </div>
-          <div class="prog-wrap">{disco_bar}</div>
-          <div class="prog-label"><span>0</span><span>límite {_RENDER_DISK_MB} MB</span></div>
-        </div>
-
         <div class="metric-row"><span class="mk">CPU</span><span class="mv">{cpu_str}</span></div>
         <div class="metric-row"><span class="mk">Python</span><span class="mv">{sistema['python_version']}</span></div>
-        <div class="metric-row"><span class="mk">data/ (BD + logs)</span><span class="mv">{sistema['data_mb']} MB</span></div>
+        <div class="metric-row" style="margin-top:4px">
+          <span class="mk">data/ (BD + logs)</span><span class="mv">{sistema['data_mb']} MB</span>
+        </div>
         <div class="metric-row"><span class="mk">└ logs/</span><span class="mv">{sistema['logs_mb']} MB</span></div>
         <div class="metric-row"><span class="mk">└ temp/</span><span class="mv">{sistema['temp_mb']} MB</span></div>
+        <div class="metric-row" style="margin-top:4px;font-size:.72rem;color:#aaa">
+          <span>Disco raíz no medible (Render comparte host físico)</span>
+        </div>
 
       </div>
     </div>
