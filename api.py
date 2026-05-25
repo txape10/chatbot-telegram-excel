@@ -339,6 +339,32 @@ def admin_stats(_: None = Depends(_verificar_admin)) -> dict:
     return obtener_estadisticas()
 
 
+@app.delete("/admin/vinculos")
+def admin_eliminar_vinculo(telegram_id: int = Query(...),
+                           email: str = Query(...),
+                           _: None = Depends(_verificar_admin)) -> dict:
+    """Elimina un vínculo Telegram ↔ email desde el panel de administración."""
+    from utils.user_links import desvincular
+    eliminados = desvincular(telegram_id, email)
+    if not eliminados:
+        raise HTTPException(status_code=404, detail="Vínculo no encontrado")
+    return {"ok": True}
+
+
+class PeticionVinculo(BaseModel):
+    telegram_id: int
+    email: str
+
+
+@app.post("/admin/vinculos")
+def admin_crear_vinculo(peticion: PeticionVinculo,
+                        _: None = Depends(_verificar_admin)) -> dict:
+    """Crea un vínculo Telegram ↔ email desde el panel de administración."""
+    from utils.user_links import vincular
+    vincular(peticion.telegram_id, peticion.email)
+    return {"ok": True}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
@@ -349,6 +375,7 @@ def admin_panel(_: None = Depends(_verificar_admin)):
 
 def _renderizar_admin_html(stats: dict) -> str:
     from datetime import datetime
+    from utils.user_links import obtener_todos_los_vinculos
 
     # Barra de mensajes por día (últimos 7 días)
     max_n = max((d["n"] for d in stats["mensajes_por_dia"]), default=1)
@@ -383,6 +410,24 @@ def _renderizar_admin_html(stats: dict) -> str:
             f"  <td>{ts}</td>"
             f"  <td>{ver}</td>"
             f"  <td class='centro'>{modo} {priv}</td>"
+            f"</tr>"
+        )
+
+    # Filas de vínculos Telegram ↔ email
+    vinculos = obtener_todos_los_vinculos()
+    filas_vinculos = ""
+    for v in vinculos:
+        tid   = v["telegram_id"]
+        mail  = v["email"]
+        fecha = v["creado_en"][:10] if v["creado_en"] else "—"
+        filas_vinculos += (
+            f"<tr>"
+            f"  <td><code>{tid}</code></td>"
+            f"  <td>{mail}</td>"
+            f"  <td>{fecha}</td>"
+            f"  <td class='centro'>"
+            f"    <button class='btn-del' onclick=\"eliminarVinculo({tid}, '{mail}')\">✕</button>"
+            f"  </td>"
             f"</tr>"
         )
 
@@ -432,6 +477,16 @@ def _renderizar_admin_html(stats: dict) -> str:
   code{{background:#f0f0f0;padding:2px 5px;border-radius:4px;font-size:.8rem}}
   .badge-ok{{color:#27ae60;font-weight:600}}
   .badge-warn{{color:#e67e22}}
+  .btn-del{{background:#e74c3c;color:#fff;border:none;border-radius:4px;
+            padding:3px 9px;cursor:pointer;font-size:.8rem}}
+  .btn-del:hover{{background:#c0392b}}
+  .form-vincular{{display:flex;gap:8px;padding:14px 20px;
+                  border-top:1px solid #eee;flex-wrap:wrap}}
+  .form-vincular input{{flex:1;min-width:140px;padding:6px 10px;
+                        border:1px solid #ddd;border-radius:6px;font-size:.85rem}}
+  .form-vincular button{{padding:6px 16px;background:#2c3e7a;color:#fff;
+                         border:none;border-radius:6px;cursor:pointer;font-size:.85rem}}
+  .form-vincular button:hover{{background:#1a2a5e}}
 </style>
 </head>
 <body>
@@ -491,7 +546,62 @@ def _renderizar_admin_html(stats: dict) -> str:
     </table>
   </div>
 
+  <!-- Vinculaciones Telegram ↔ Add-in -->
+  <div class="section">
+    <div class="section-head">🔗 Vinculaciones Telegram ↔ Add-in ({len(vinculos)})</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Telegram ID</th>
+          <th>Email</th>
+          <th>Vinculado el</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {filas_vinculos if filas_vinculos else
+         '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin vínculos</td></tr>'}
+      </tbody>
+    </table>
+    <form class="form-vincular" onsubmit="agregarVinculo(event)">
+      <input type="number" id="inp-tid"   placeholder="Telegram ID" required>
+      <input type="email"  id="inp-email" placeholder="email@empresa.com" required>
+      <button type="submit">+ Añadir vínculo</button>
+    </form>
+  </div>
+
 </div>
+<script>
+  const _key = new URLSearchParams(window.location.search).get("key") || "";
+
+  async function eliminarVinculo(tid, email) {{
+    if (!confirm("¿Eliminar el vínculo de " + email + "?")) return;
+    const resp = await fetch(
+      "/admin/vinculos?key=" + encodeURIComponent(_key) +
+      "&telegram_id=" + tid +
+      "&email=" + encodeURIComponent(email),
+      {{ method: "DELETE" }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al eliminar el vínculo");
+  }}
+
+  async function agregarVinculo(e) {{
+    e.preventDefault();
+    const tid   = document.getElementById("inp-tid").value.trim();
+    const email = document.getElementById("inp-email").value.trim();
+    const resp  = await fetch(
+      "/admin/vinculos?key=" + encodeURIComponent(_key),
+      {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ telegram_id: parseInt(tid), email }})
+      }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al añadir el vínculo");
+  }}
+</script>
 </body>
 </html>"""
 

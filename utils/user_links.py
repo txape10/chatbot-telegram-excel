@@ -68,6 +68,15 @@ def obtener_emails(telegram_id: int) -> list[str]:
     return [f[0] for f in filas]
 
 
+def obtener_todos_los_vinculos() -> list[dict]:
+    """Devuelve todos los vínculos almacenados, ordenados por fecha descendente."""
+    with _conectar() as conn:
+        filas = conn.execute(
+            "SELECT telegram_id, email, creado_en FROM user_links ORDER BY creado_en DESC"
+        ).fetchall()
+    return [{"telegram_id": f[0], "email": f[1], "creado_en": f[2]} for f in filas]
+
+
 def desvincular(telegram_id: int, email: str | None = None) -> int:
     """Elimina uno o todos los emails vinculados a este telegram_id.
 
