@@ -572,7 +572,11 @@ async function comprobarVinculo() {
   const boton  = document.getElementById("btn-enviar-bot");
   const info   = document.getElementById("info-telegram");
 
-  if (!email) return; // sin email de Office: botón oculto por defecto en el HTML
+  if (!email) {
+    // Sin email de Office: mostrar info para que el usuario sepa que puede vincular
+    if (info) info.style.display = "";
+    return;
+  }
 
   try {
     const resultado = await llamarApiGet(

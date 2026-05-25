@@ -119,7 +119,11 @@ module.exports = async (env, options) => {
       port: process.env.npm_package_config_dev_server_port || 3000,
       proxy: [
         {
-          context: ["/ask", "/edit", "/analizar", "/health"],
+          context: [
+            "/ask", "/edit", "/analizar", "/health",
+            "/addin-config", "/tiene-vinculo", "/enviar-al-bot",
+            "/vincular-addin",
+          ],
           target: "http://localhost:8000",
         },
       ],
