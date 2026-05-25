@@ -22,7 +22,7 @@ ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
 # groq | ollama | openai  (ver services/llm_provider.py)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 
-HISTORIAL_MAX_MENSAJES = 6   # reducido para no superar TPM de Groq free tier
+HISTORIAL_MAX_MENSAJES = 10  # Groq 6.000 TPM + Mistral como respaldo dan margen suficiente
 
 # ── Límites de seguridad para archivos subidos ────────────────────────────────
 MAX_FILAS    = 50_000
