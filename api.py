@@ -426,8 +426,12 @@ def _verificar_admin(key: str = Query(..., alias="key")) -> None:
 @app.get("/admin/stats")
 def admin_stats(_: None = Depends(_verificar_admin)) -> dict:
     """Estadísticas de uso en formato JSON."""
-    from utils.stats import obtener_estadisticas
-    return obtener_estadisticas()
+    import traceback
+    try:
+        from utils.stats import obtener_estadisticas
+        return obtener_estadisticas()
+    except Exception as exc:
+        return {"_error": str(exc), "_traceback": traceback.format_exc()}
 
 
 @app.delete("/admin/vinculos")
