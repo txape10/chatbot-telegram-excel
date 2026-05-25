@@ -232,6 +232,34 @@ async function llamarApi(endpoint, payload) {
 
 // ── Escritura en Excel ────────────────────────────────────────────────────────
 
+/**
+ * Devuelve un array 2D de formatos de número inferidos a partir de los datos.
+ * Fila 0 (cabecera): "General". Columnas numéricas: "#,##0.00" o "#,##0".
+ * Devuelve null si no hay ninguna columna numérica (nada que aplicar).
+ */
+function _inferirFormatos(datos) {
+  if (!datos || datos.length < 2) return null;
+  const filas = datos.length;
+  const cols  = datos[0].length;
+
+  // Inicializar con "General"
+  const fmts = Array.from({ length: filas }, () => Array(cols).fill("General"));
+  let hayAlguno = false;
+
+  for (let c = 0; c < cols; c++) {
+    const vals = datos.slice(1)
+      .map(row => row[c])
+      .filter(v => v !== null && v !== "" && v !== undefined);
+    if (!vals.length || !vals.every(v => typeof v === "number")) continue;
+
+    const fmt = vals.some(v => v % 1 !== 0) ? "#,##0.00" : "#,##0";
+    for (let r = 1; r < filas; r++) fmts[r][c] = fmt;
+    hayAlguno = true;
+  }
+
+  return hayAlguno ? fmts : null;
+}
+
 async function escribirEnExcel(destino) {
   ocultarDialogo();
   mostrarEstado("Escribiendo en Excel...");
@@ -284,15 +312,21 @@ async function escribirEnExcel(destino) {
         }
       }
 
-      // Copiar formato del rango origen antes de escribir los valores.
-      // copyFrom(source, formats) copia solo el formato (colores, bordes, número),
-      // sin tocar los valores. Si target es más ancho que source, Office.js repite
-      // el patrón (tiling) — aceptable para columnas añadidas.
+      // Opción A: copiar formato del rango origen (colores, bordes, número).
+      // Si target es más ancho que source, Office.js repite el patrón (tiling).
       if (sourceRange) {
         targetRange.copyFrom(sourceRange, Excel.RangeCopyType.formats, false, false);
       }
 
       targetRange.values = datos;
+
+      // Opción B: si no hay rango fuente (tabla creada desde cero), inferir
+      // formato numérico por columna y aplicarlo automáticamente.
+      if (!sourceRange) {
+        const fmts = _inferirFormatos(datos);
+        if (fmts) targetRange.numberFormat = fmts;
+      }
+
       await context.sync();
     });
 
