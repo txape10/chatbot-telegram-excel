@@ -9,19 +9,31 @@ Configura el proveedor activo con LLM_PROVIDER en .env:
   openai  → OpenAI (gpt-4o-mini)             💲  de pago, datos en EE.UU.
   azure   → Azure OpenAI                     💲  de pago, datos en UE, cumple RGPD
 
+Proveedor de respaldo (opcional):
+  Si LLM_FALLBACK_PROVIDER está definido, los errores transitorios del proveedor
+  primario (rate limit, timeout, conexión) se reintentan automáticamente con el
+  proveedor de respaldo, sin que el usuario note nada.
+
+  Configuración recomendada:
+    LLM_PROVIDER=groq
+    LLM_FALLBACK_PROVIDER=mistral    ← datos en la UE, gratis sin tarjeta
+    MISTRAL_API_KEY=...
+
 Variables de entorno relevantes:
-  LLM_PROVIDER        groq|ollama|gemini|mistral|openai|azure  (por defecto: groq)
-  LLM_MODEL           nombre del modelo de chat  (por defecto: según proveedor)
-  LLM_MODEL_VISION    modelo con visión          (groq/openai/azure/gemini)
-  LLM_MODEL_AUDIO     modelo de transcripción    (groq/openai/azure)
-  GROQ_API_KEY        clave de Groq
-  GEMINI_API_KEY      clave de Google AI Studio  (aistudio.google.com — gratuito)
-  MISTRAL_API_KEY     clave de Mistral           (console.mistral.ai — gratuito)
-  OPENAI_API_KEY      clave de OpenAI
-  AZURE_OPENAI_KEY    clave de Azure OpenAI
-  AZURE_OPENAI_URL    endpoint Azure             (https://<recurso>.openai.azure.com)
-  AZURE_API_VERSION   versión API Azure          (por defecto: 2024-02-01)
-  OLLAMA_URL          URL de Ollama              (por defecto: http://localhost:11434)
+  LLM_PROVIDER          groq|ollama|gemini|mistral|openai|azure  (por defecto: groq)
+  LLM_MODEL             nombre del modelo de chat  (por defecto: según proveedor)
+  LLM_FALLBACK_PROVIDER groq|ollama|gemini|mistral|openai|azure  (vacío = sin respaldo)
+  LLM_FALLBACK_MODEL    modelo del proveedor de respaldo  (vacío = default del proveedor)
+  LLM_MODEL_VISION      modelo con visión          (groq/openai/azure/gemini)
+  LLM_MODEL_AUDIO       modelo de transcripción    (groq/openai/azure)
+  GROQ_API_KEY          clave de Groq
+  GEMINI_API_KEY        clave de Google AI Studio  (aistudio.google.com — gratuito)
+  MISTRAL_API_KEY       clave de Mistral           (console.mistral.ai — gratuito)
+  OPENAI_API_KEY        clave de OpenAI
+  AZURE_OPENAI_KEY      clave de Azure OpenAI
+  AZURE_OPENAI_URL      endpoint Azure             (https://<recurso>.openai.azure.com)
+  AZURE_API_VERSION     versión API Azure          (por defecto: 2024-02-01)
+  OLLAMA_URL            URL de Ollama              (por defecto: http://localhost:11434)
 """
 
 import logging
@@ -349,29 +361,115 @@ class AzureOpenAIProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
+# Fallback automático entre proveedores
+# ---------------------------------------------------------------------------
+
+# Errores transitorios que justifican reintentar con el proveedor de respaldo.
+# auth / limite / generico indican un problema real que el respaldo no resolvería.
+_ERRORES_RECUPERABLES = {"rate_limit", "timeout", "conexion"}
+
+
+class FallbackProvider(LLMProvider):
+    """Wrapper transparente: usa el primario y cae al secundario en errores transitorios.
+
+    Solo aplica fallback a chat(). Audio y visión no tienen respaldo porque
+    los proveedores de respaldo habituales (Mistral) no los soportan.
+    """
+
+    def __init__(self, primario: LLMProvider, secundario: LLMProvider):
+        self._primario           = primario
+        self._secundario         = secundario
+        self.modelo              = primario.modelo
+        self.max_tokens_peticion = primario.max_tokens_peticion
+
+    def chat(self, messages, temperature=0.7, max_tokens=None):
+        try:
+            return self._primario.chat(messages, temperature, max_tokens)
+        except LLMError as error:
+            if error.tipo not in _ERRORES_RECUPERABLES:
+                raise
+            logger.warning(
+                "Proveedor primario falló (%s) — reintentando con respaldo", error.tipo
+            )
+            return self._secundario.chat(messages, temperature, max_tokens)
+
+    def transcribir(self, audio_bytes, filename="audio.ogg"):
+        return self._primario.transcribir(audio_bytes, filename)
+
+    def vision(self, messages):
+        return self._primario.vision(messages)
+
+
+# ---------------------------------------------------------------------------
 # Factory / singleton
 # ---------------------------------------------------------------------------
 
 _proveedor: LLMProvider | None = None
+
+_PROVEEDORES = {
+    "groq":    GroqProvider,
+    "ollama":  OllamaProvider,
+    "gemini":  GeminiProvider,
+    "mistral": MistralProvider,
+    "openai":  OpenAIProvider,
+    "azure":   AzureOpenAIProvider,
+}
+
+
+def _instanciar_proveedor(nombre: str, modelo_override: str = "") -> LLMProvider:
+    """Crea una instancia del proveedor indicado, usando modelo_override si se indica."""
+    clase = _PROVEEDORES.get(nombre)
+    if clase is None:
+        logger.warning("Proveedor '%s' desconocido — usando groq", nombre)
+        clase = GroqProvider
+
+    if not modelo_override:
+        return clase()
+
+    # Aplicar el modelo de override temporalmente para esta instanciación
+    modelo_guardado = os.environ.get("LLM_MODEL")
+    os.environ["LLM_MODEL"] = modelo_override
+    instancia = clase()
+    if modelo_guardado is not None:
+        os.environ["LLM_MODEL"] = modelo_guardado
+    else:
+        os.environ.pop("LLM_MODEL", None)
+    return instancia
 
 
 def obtener_proveedor() -> LLMProvider:
     """Devuelve la instancia singleton del proveedor activo."""
     global _proveedor
     if _proveedor is None:
-        nombre = os.getenv("LLM_PROVIDER", "groq").lower()
-        proveedores = {
-            "groq":    GroqProvider,
-            "ollama":  OllamaProvider,
-            "gemini":  GeminiProvider,
-            "mistral": MistralProvider,
-            "openai":  OpenAIProvider,
-            "azure":   AzureOpenAIProvider,
-        }
-        clase = proveedores.get(nombre)
-        if clase is None:
-            logger.warning("LLM_PROVIDER '%s' desconocido — usando groq", nombre)
-            clase = GroqProvider
-        _proveedor = clase()
-        logger.info("Proveedor IA: %s | Modelo: %s", nombre, _proveedor.modelo)
+        nombre          = os.getenv("LLM_PROVIDER",          "groq").lower()
+        nombre_fallback = os.getenv("LLM_FALLBACK_PROVIDER", "").lower()
+        modelo_fallback = os.getenv("LLM_FALLBACK_MODEL",    "")
+
+        primario = _instanciar_proveedor(nombre)
+
+        if nombre_fallback and nombre_fallback != nombre and nombre_fallback in _PROVEEDORES:
+            # Si no se define LLM_FALLBACK_MODEL, limpiar LLM_MODEL para que el
+            # proveedor de respaldo use su propio modelo por defecto (evita que
+            # Mistral intente cargar llama-3.3-70b-versatile, por ejemplo).
+            override = modelo_fallback or ""
+            if not override:
+                modelo_principal = os.environ.get("LLM_MODEL")
+                if modelo_principal:
+                    os.environ.pop("LLM_MODEL", None)
+                    secundario = _PROVEEDORES[nombre_fallback]()
+                    os.environ["LLM_MODEL"] = modelo_principal
+                else:
+                    secundario = _PROVEEDORES[nombre_fallback]()
+            else:
+                secundario = _instanciar_proveedor(nombre_fallback, override)
+
+            _proveedor = FallbackProvider(primario, secundario)
+            logger.info(
+                "Proveedor IA: %s (%s) | Respaldo: %s (%s)",
+                nombre, primario.modelo, nombre_fallback, secundario.modelo,
+            )
+        else:
+            _proveedor = primario
+            logger.info("Proveedor IA: %s | Modelo: %s", nombre, primario.modelo)
+
     return _proveedor

@@ -56,3 +56,13 @@ services:
       # ─── Panel de administración ────────────────────────────
       - key: ADMIN_KEY
         sync: false   # clave independiente para /admin; si está vacía usa API_KEY como fallback
+
+      # ─── Proveedor de respaldo ──────────────────────────────
+      - key: LLM_FALLBACK_PROVIDER
+        value: mistral  # activar fallback automático Groq → Mistral
+
+      - key: LLM_FALLBACK_MODEL
+        value: mistral-small-latest
+
+      - key: MISTRAL_API_KEY
+        sync: false   # console.mistral.ai — gratuito, solo verificación de teléfono
