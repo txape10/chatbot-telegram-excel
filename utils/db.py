@@ -20,6 +20,29 @@ _TURSO_TOKEN = os.getenv("TURSO_AUTH_TOKEN",   "").strip()
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
 
 
+class _ConnWrapper:
+    """Envuelve una conexión libsql_experimental añadiendo el protocolo de contexto.
+
+    libsql_experimental 0.0.55 no implementa __enter__/__exit__, por lo que
+    'with conn:' falla. Este wrapper lo añade de forma transparente.
+    En modo SQLite nativo el wrapper no se usa (sqlite3.Connection ya lo soporta).
+    """
+
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self._conn.commit()
+        return False   # no suprime la excepción
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 def conectar() -> sqlite3.Connection:
     """Devuelve una conexión lista para usar.
 
@@ -39,7 +62,7 @@ def conectar() -> sqlite3.Connection:
             import libsql_experimental as libsql      # solo en cloud
             conn = libsql.connect(DB_PATH, sync_url=_TURSO_URL, auth_token=_TURSO_TOKEN)
             conn.sync()
-            return conn  # type: ignore[return-value]
+            return _ConnWrapper(conn)  # type: ignore[return-value]
         except Exception as exc:
             logger.error("Turso no disponible (%s) — usando SQLite local como fallback", exc)
 
