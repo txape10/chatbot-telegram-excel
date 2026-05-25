@@ -459,9 +459,14 @@ def admin_crear_vinculo(peticion: PeticionVinculo,
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
+    import traceback
     from utils.stats import obtener_estadisticas
-    stats = obtener_estadisticas()
-    return _renderizar_admin_html(stats)
+    try:
+        stats = obtener_estadisticas()
+        return _renderizar_admin_html(stats)
+    except Exception:
+        tb = traceback.format_exc()
+        return HTMLResponse(content=f"<pre>{tb}</pre>", status_code=500)
 
 
 def _renderizar_admin_html(stats: dict) -> str:
