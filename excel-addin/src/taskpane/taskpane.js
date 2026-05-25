@@ -567,44 +567,29 @@ async function cargarConfigAddin() {
 
 // ── Vínculo Telegram ──────────────────────────────────────────────────────────
 
-const _CLAVE_EMAIL_VINCULO = "asistente-excel-email-vinculo";
-
 /**
- * Devuelve el email efectivo para comprobar el vínculo Telegram.
- * Orden de prioridad:
- *   1. Office.context.userProfile.email  (disponible en Outlook, no en Excel)
- *   2. localStorage (guardado manualmente por el usuario)
- *   3. "" — sin email
+ * Espera hasta que Office.context.userProfile.email esté disponible.
+ * Office.onReady puede dispararse antes de que el perfil de usuario se haya
+ * cargado completamente; reintentamos hasta _MAX_INTENTOS veces con pausa.
  */
-function obtenerEmailEfectivo() {
-  const officeEmail = obtenerEmailUsuario();
-  if (officeEmail) return officeEmail;
-  return localStorage.getItem(_CLAVE_EMAIL_VINCULO) || "";
-}
-
-/** Guarda el email introducido manualmente y recomprueba el vínculo. */
-async function guardarEmailVinculo() {
-  const input = document.getElementById("input-email-vinculo");
-  const email = (input?.value || "").trim().toLowerCase();
-  if (!email) return;
-  localStorage.setItem(_CLAVE_EMAIL_VINCULO, email);
-  await comprobarVinculo();
+async function _esperarEmailOffice(maxIntentos = 6, pausaMs = 500) {
+  for (let i = 0; i < maxIntentos; i++) {
+    const email = obtenerEmailUsuario();
+    if (email) return email;
+    await new Promise(r => setTimeout(r, pausaMs));
+  }
+  return "";
 }
 
 async function comprobarVinculo() {
-  const email  = obtenerEmailEfectivo();
+  const email  = await _esperarEmailOffice();
   const boton  = document.getElementById("btn-enviar-bot");
   const info   = document.getElementById("info-telegram");
-  const bloque = document.getElementById("bloque-email-vinculo");
 
   if (!email) {
-    // Sin email: mostrar info + campo para introducirlo manualmente
-    if (info)   info.style.display   = "";
-    if (bloque) bloque.style.display = "";
+    // Office no proporcionó email — sección Telegram oculta (comportamiento empresa)
     return;
   }
-  // Tenemos email — ocultar el bloque de entrada manual si ya no hace falta
-  if (bloque) bloque.style.display = "none";
 
   try {
     const resultado = await llamarApiGet(
@@ -627,9 +612,9 @@ async function comprobarVinculo() {
 // ── Enviar al bot ─────────────────────────────────────────────────────────────
 
 async function enviarAlBot() {
-  const email = obtenerEmailEfectivo();
+  const email = obtenerEmailUsuario();
   if (!email) {
-    mostrarEstado("Introduce tu email primero en el campo de vinculación.");
+    mostrarEstado("No se pudo obtener tu email de Office. Asegúrate de estar conectado con tu cuenta.");
     return;
   }
 
