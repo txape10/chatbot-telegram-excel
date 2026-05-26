@@ -209,11 +209,15 @@ ADDIN_URL=
 - **Fix editor**: `pd.to_numeric(errors='ignore')` deprecado sustituido por try/except explícito
 - **Sprint H1 — Enviar al bot desde el Add-in**: botón "📤 Enviar al bot" en el panel del Add-in; `/vincular email` y `/desvincular` en Telegram; endpoint `POST /enviar-al-bot`; tabla `user_links` en SQLite
 - **Sprint H2 — Panel de administración**: `GET /admin` (HTML con gráfico + tabla de usuarios) y `GET /admin/stats` (JSON); protegido por `ADMIN_KEY`; estadísticas: mensajes totales/hoy/por usuario, actividad 7 días, Add-ins vinculados
+- **Sprint H2+**: análisis de sesiones con funciones de ventana SQLite (LAG/SUM OVER); `utils/device_emails.py` mapea device_id → email + versión Excel; Add-in envía `user_email` y `excel_version` en cada petición; modo respuesta con iconos explícitos ("💬 Texto" / "🔊 Voz" + "🔒 Priv")
+- **Panel admin — rediseño con tabs**: 4 pestañas (Resumen / Usuarios / IA / Sistema); gráfico de actividad corregido con alturas en píxeles; sección Usuarios con tops (más activos, más sesiones, inactivos >30 días) + análisis de sesiones
+- **Notificaciones — spam corregido**: eliminado el fallback automático a `AUTHORIZED_USERS[0]`; ahora `ALERT_TELEGRAM_ID` debe estar explícitamente en `.env` para recibir alertas; cooldown de 300 s por tipo de alerta
+- **Sprint C — Formato condicional**: 7 tipos (valor, top/bottom, escala de color, barra de datos, iconos, texto, fórmula); DSL en `prompts/excel.py`, `extraer_regla_formato()` en `services/llm.py`, `POST /format` en `api.py`; routing automático en Add-in por keywords; `_aplicarFormatoCondicional()` con Office.js
+- **Add-in — preservación de formato** (Opción A + B): `copyFrom(formats)` antes de escribir valores cuando hay rango fuente; `_inferirFormatos()` aplica `#,##0.00` / `#,##0` en tablas creadas desde cero
 
 ### 🐛 Bugs conocidos (en investigación)
 
-- **Panel admin — Add-in vinculado no detectado**: la columna "Add-in vinculado" del panel `/admin` siempre aparece vacía aunque haya usuarios con el Add-in activo. El vínculo por Telegram funciona correctamente. Posibles causas: `user_links` no se actualiza al usar el Add-in, o la query del panel no cruza bien las tablas. Investigar en `api.py` endpoint `/admin` y `utils/user_links.py`.
-- **Panel admin — métricas de disco/RAM**: no hay visibilidad del uso de memoria en Render desde la app. Añadir endpoint `/admin/storage` con uso de disco por carpeta (`data/`, logs, temp) y porcentaje de RAM usado (`psutil`). Útil para detectar problemas antes de que fallen los deploys.
+- **Notificaciones del sistema — sección pendiente de rehacer**: la sección de suscriptores se eliminó del panel admin temporalmente; rediseñar con configuración por tipo de alerta y gestión desde la UI antes de reactivar.
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
@@ -222,9 +226,10 @@ ADDIN_URL=
 
 ### 🔮 Futuro
 
-- **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Complementa las alertas internas ya implementadas. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
+- **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
+- **Notificaciones del sistema — rediseño**: sección de suscriptores eliminada temporalmente del panel; rediseñar con configuración por tipo de alerta (RAM, errores LLM, etc.), activar/desactivar por tipo, gestión desde UI antes de reactivar. `ALERT_TELEGRAM_ID` en `.env` como única forma de recibir alertas por ahora.
+- **Aprendizaje de usuario (RAG sobre historial)**: el Add-in podría aprender de peticiones aceptadas; RAG sobre el historial SQLite para incluir pares pregunta→respuesta exitosos como few-shot en el system prompt. Requiere: mecanismo de "pulgar arriba" en la UI, endpoint `/context` que recupere ejemplos por usuario, integración en `_construir_mensajes()`.
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
-- Panel de administración (estadísticas, gestión usuarios)
 - Tablas dinámicas interactivas nativas con **xlwings** (gratuito, requiere Windows + Excel en el servidor). Activación automática: al arrancar se detecta `platform.system() == "Windows"` + `xlwings` disponible → flag `PIVOT_NATIVO_DISPONIBLE`. En Linux (Render) sigue usando la alternativa actual de openpyxl. Implementar cuando esté disponible el servidor Windows de empresa.
 
 ---

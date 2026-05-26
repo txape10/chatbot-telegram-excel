@@ -55,7 +55,9 @@ _ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
 
 # ID de Telegram al que enviar alertas del sistema (por defecto el primer AUTHORIZED_USER)
 _ids_autorizados  = [u.strip() for u in os.getenv("AUTHORIZED_USERS", "").split(",") if u.strip()]
-_ALERT_TELEGRAM_ID = int(os.getenv("ALERT_TELEGRAM_ID", _ids_autorizados[0] if _ids_autorizados else "0") or "0")
+# Solo se envían alertas si ALERT_TELEGRAM_ID está explícitamente en .env.
+# El fallback automático a AUTHORIZED_USERS[0] se eliminó — causaba spam no deseado.
+_ALERT_TELEGRAM_ID = int(os.getenv("ALERT_TELEGRAM_ID", "0") or "0")
 
 # Umbrales de alerta (% sobre el límite de Render free)
 _ALERTA_PCT       = 80.0    # rojo a partir del 80 %
@@ -942,19 +944,21 @@ def _renderizar_admin_html(
     from utils.db import estado as _estado_db
     from utils.alert_subs import obtener_subs
 
-    # ── Gráfico de actividad ────────────────────────────────────────────────
+    # ── Gráfico de actividad (px para evitar barras uniformes con % en flex) ─
+    _CHART_MAX_PX = 110
     max_n = max((d["n"] for d in stats["mensajes_por_dia"]), default=1)
     barras_html = ""
+    labels_html = ""
     for d in stats["mensajes_por_dia"]:
-        pct = int(d["n"] / max_n * 100)
-        dia = d["dia"][5:]
+        bar_px = max(4, int(d["n"] / max_n * _CHART_MAX_PX))
+        dia    = d["dia"][5:]
         barras_html += (
-            f'<div class="bar-item">'
-            f'  <div class="bar-fill" style="height:{pct}%" title="{d["n"]} mensajes"></div>'
-            f'  <div class="bar-label">{dia}</div>'
-            f'  <div class="bar-val">{d["n"]}</div>'
+            f'<div class="bar-col">'
+            f'<div class="bar-num">{d["n"]}</div>'
+            f'<div class="bar-fill" style="height:{bar_px}px" title="{d["n"]} msgs el {d["dia"]}"></div>'
             f'</div>'
         )
+        labels_html += f'<div class="bar-lbl">{dia}</div>'
 
     # ── Tabla de usuarios ───────────────────────────────────────────────────
     hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -983,6 +987,50 @@ def _renderizar_admin_html(
             f"  <td class='centro'><span style='font-size:.8rem'>{modo_label}</span>{priv_badge}</td>"
             f"</tr>"
         )
+
+    # ── Tops de usuarios ────────────────────────────────────────────────────
+    top_por_msgs = sorted(stats["usuarios"], key=lambda u: u["mensajes_enviados"], reverse=True)[:5]
+    por_usuario_ses = (stats_ses or {}).get("por_usuario", [])
+    top_por_ses  = sorted(por_usuario_ses, key=lambda u: u["total_sesiones"], reverse=True)[:5]
+    inactivos_mas = sorted(
+        [u for u in por_usuario_ses if u["dias_inactivo"] > 30],
+        key=lambda u: u["dias_inactivo"], reverse=True,
+    )[:5]
+
+    def _uid_lbl(uid):
+        return "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
+
+    email_por_uid = {u["user_id"]: u.get("email") or "" for u in stats["usuarios"]}
+
+    def _email_small(uid):
+        e = email_por_uid.get(uid, "")
+        return f"<br><small style='color:#aaa'>{e}</small>" if e else ""
+
+    filas_top_msgs = ""
+    for i, u in enumerate(top_por_msgs, 1):
+        filas_top_msgs += (
+            f"<tr><td style='color:#aaa;font-size:.78rem'>{i}</td>"
+            f"<td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<td class='num'><strong>{u['mensajes_enviados']}</strong></td></tr>"
+        )
+
+    filas_top_ses = ""
+    for i, u in enumerate(top_por_ses, 1):
+        filas_top_ses += (
+            f"<tr><td style='color:#aaa;font-size:.78rem'>{i}</td>"
+            f"<td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<td class='num'><strong>{u['total_sesiones']}</strong></td></tr>"
+        )
+
+    filas_inactivos = ""
+    for u in inactivos_mas:
+        dias = int(u["dias_inactivo"])
+        filas_inactivos += (
+            f"<tr><td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<td class='num' style='color:#e74c3c'>{dias}d</td></tr>"
+        )
+    if not filas_inactivos:
+        filas_inactivos = "<tr><td colspan='2' style='color:#27ae60;text-align:center;padding:12px'>✅ Ninguno</td></tr>"
 
     # ── Suscriptores de notificaciones ──────────────────────────────────────
     subs = obtener_subs()
@@ -1167,107 +1215,122 @@ def _renderizar_admin_html(
 
     ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
+    # ── Colores IA para f-strings anidadas ──────────────────────────────────
+    _col_ia = "#27ae60" if stats_ia["tasa_exito"] >= 95 else "#e67e22" if stats_ia["tasa_exito"] >= 80 else "#e74c3c"
+    _err_badge = f'<span class="log-count-err">{n_errores} errores</span>' if n_errores else ""
+
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Asistente Excel — Administración</title>
+<title>Asistente Excel — Admin</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
   body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        background:#f0f2f5;color:#1a1a2e;min-height:100vh}}
-  .topbar{{background:#2c3e7a;color:#fff;padding:14px 24px;
+  .topbar{{background:#2c3e7a;color:#fff;padding:13px 22px;
            display:flex;align-items:center;justify-content:space-between}}
-  .topbar h1{{font-size:1.1rem;font-weight:600}}
-  .topbar span{{font-size:.8rem;opacity:.7}}
-  .main{{padding:24px;max-width:1200px;margin:0 auto}}
+  .topbar h1{{font-size:1.05rem;font-weight:600}}
+  .topbar span{{font-size:.78rem;opacity:.7}}
+  .main{{padding:18px;max-width:1240px;margin:0 auto}}
 
-  /* Tarjetas */
-  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-          gap:14px;margin-bottom:24px}}
-  .card{{background:#fff;border-radius:10px;padding:18px 14px;
+  /* KPI cards */
+  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+          gap:11px;margin-bottom:16px}}
+  .card{{background:#fff;border-radius:10px;padding:15px 10px;
          box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}}
-  .card .val{{font-size:1.9rem;font-weight:700;color:#2c3e7a}}
-  .card .lbl{{font-size:.75rem;color:#666;margin-top:4px;text-transform:uppercase;
-              letter-spacing:.03em}}
+  .card .val{{font-size:1.75rem;font-weight:700;color:#2c3e7a}}
+  .card .lbl{{font-size:.7rem;color:#666;margin-top:3px;text-transform:uppercase;
+              letter-spacing:.04em}}
 
-  /* Secciones */
+  /* Tabs */
+  .tab-nav{{display:flex;gap:0;background:#fff;border-radius:10px;
+            padding:5px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:16px}}
+  .tab-btn{{flex:1;padding:8px 10px;border:none;background:transparent;
+            cursor:pointer;border-radius:7px;font-size:.83rem;font-weight:500;
+            color:#555;transition:all .15s;white-space:nowrap}}
+  .tab-btn:hover{{background:#f0f2f5}}
+  .tab-btn.active{{background:#2c3e7a;color:#fff}}
+  .tab-panel{{display:none}}
+  .tab-panel.active{{display:block}}
+
+  /* Sections */
   .section{{background:#fff;border-radius:10px;
-            box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:20px;overflow:hidden}}
-  .section-head{{padding:13px 20px;background:#f8f9fb;
-                 border-bottom:1px solid #eee;font-weight:600;font-size:.9rem;
+            box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:14px;overflow:hidden}}
+  .section-head{{padding:11px 16px;background:#f8f9fb;border-bottom:1px solid #eee;
+                 font-weight:600;font-size:.87rem;
                  display:flex;align-items:center;justify-content:space-between}}
-  .section-head .head-actions{{display:flex;gap:8px}}
+  .head-actions{{display:flex;gap:6px}}
 
-  /* Grid de 2 columnas */
-  .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}}
-  @media(max-width:700px){{.two-col{{grid-template-columns:1fr}}}}
+  /* Grids */
+  .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}}
+  .three-col{{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}}
+  @media(max-width:750px){{.two-col,.three-col{{grid-template-columns:1fr}}}}
 
-  /* Métricas simples */
-  .metric-list{{padding:16px 20px;display:flex;flex-direction:column;gap:12px}}
-  .metric-row{{display:flex;justify-content:space-between;align-items:center;
-               font-size:.85rem}}
+  /* Metric list */
+  .metric-list{{padding:12px 16px;display:flex;flex-direction:column;gap:9px}}
+  .metric-row{{display:flex;justify-content:space-between;align-items:center;font-size:.83rem}}
   .metric-row .mk{{color:#666}}
-  .metric-row .mv{{font-weight:600;color:#1a1a2e}}
+  .metric-row .mv{{font-weight:600}}
 
-  /* Barra de progreso */
-  .prog-wrap{{margin-top:4px;background:#eee;border-radius:4px;height:10px;overflow:hidden}}
-  .prog-fill{{height:100%;border-radius:4px;transition:width .4s}}
-  .prog-label{{font-size:.75rem;color:#666;margin-top:3px;display:flex;
-               justify-content:space-between}}
+  /* Progress */
+  .prog-wrap{{margin-top:3px;background:#eee;border-radius:4px;height:7px;overflow:hidden}}
+  .prog-fill{{height:100%;border-radius:4px}}
+  .prog-label{{font-size:.7rem;color:#666;margin-top:2px;display:flex;justify-content:space-between}}
 
-  /* Gráfico */
-  .chart{{display:flex;align-items:flex-end;gap:8px;
-          padding:20px 20px 10px;height:140px}}
-  .bar-item{{display:flex;flex-direction:column;align-items:center;flex:1;height:100%}}
-  .bar-fill{{background:#2c3e7a;border-radius:3px 3px 0 0;width:100%;
-             min-height:4px;transition:height .3s}}
-  .bar-label,.bar-val{{font-size:.68rem;color:#666;margin-top:3px}}
-  .bar-val{{color:#2c3e7a;font-weight:600}}
+  /* Chart — pixel heights, bottom-aligned */
+  .chart-wrap{{padding:12px 16px 0}}
+  .chart-area{{display:flex;align-items:flex-end;height:120px;gap:4px}}
+  .bar-col{{flex:1;display:flex;flex-direction:column;align-items:center}}
+  .bar-num{{font-size:.6rem;color:#555;margin-bottom:2px;min-height:12px;display:flex;align-items:flex-end}}
+  .bar-fill{{background:#4472C4;border-radius:3px 3px 0 0;width:82%;min-height:4px}}
+  .chart-labels{{display:flex;gap:4px;padding:3px 16px 12px;border-bottom:1px solid #f0f0f0}}
+  .bar-lbl{{flex:1;text-align:center;font-size:.6rem;color:#888}}
 
-  /* Tablas */
-  table{{width:100%;border-collapse:collapse;font-size:.85rem}}
-  th{{padding:10px 14px;text-align:left;font-weight:600;
-      background:#f8f9fb;border-bottom:2px solid #eee;color:#444}}
-  td{{padding:9px 14px;border-bottom:1px solid #f0f0f0;vertical-align:middle}}
+  /* Tables */
+  table{{width:100%;border-collapse:collapse;font-size:.83rem}}
+  th{{padding:8px 13px;text-align:left;font-weight:600;
+      background:#f8f9fb;border-bottom:2px solid #eee;color:#444;white-space:nowrap}}
+  td{{padding:7px 13px;border-bottom:1px solid #f0f0f0;vertical-align:middle}}
   tr:last-child td{{border-bottom:none}}
   tr:hover td{{background:#fafbff}}
   .num{{text-align:right;font-variant-numeric:tabular-nums}}
   .centro{{text-align:center}}
-  code{{background:#f0f0f0;padding:2px 5px;border-radius:4px;font-size:.8rem}}
+  code{{background:#f0f0f0;padding:2px 5px;border-radius:4px;font-size:.77rem}}
   .badge-ok{{color:#27ae60;font-weight:600}}
   .badge-warn{{color:#e67e22}}
 
-  /* Botones */
+  /* Buttons */
   .btn-del{{background:#e74c3c;color:#fff;border:none;border-radius:4px;
-            padding:3px 9px;cursor:pointer;font-size:.8rem}}
+            padding:2px 7px;cursor:pointer;font-size:.77rem}}
   .btn-del:hover{{background:#c0392b}}
-  .btn-sm{{padding:4px 12px;border:1px solid #ddd;border-radius:6px;
-           background:#fff;cursor:pointer;font-size:.8rem;color:#444}}
+  .btn-sm{{padding:4px 10px;border:1px solid #ddd;border-radius:6px;
+           background:#fff;cursor:pointer;font-size:.77rem;color:#444}}
   .btn-sm.active{{background:#2c3e7a;color:#fff;border-color:#2c3e7a}}
   .btn-sm:hover:not(.active){{background:#f0f2f5}}
 
-  /* Formulario vínculos */
-  .form-vincular{{display:flex;gap:8px;padding:14px 20px;
-                  border-top:1px solid #eee;flex-wrap:wrap}}
-  .form-vincular input{{flex:1;min-width:140px;padding:6px 10px;
-                        border:1px solid #ddd;border-radius:6px;font-size:.85rem}}
-  .form-vincular button{{padding:6px 16px;background:#2c3e7a;color:#fff;
-                         border:none;border-radius:6px;cursor:pointer;font-size:.85rem}}
-  .form-vincular button:hover{{background:#1a2a5e}}
+  /* Forms */
+  .form-row{{display:flex;gap:7px;padding:11px 16px;border-top:1px solid #eee;flex-wrap:wrap}}
+  .form-row input{{flex:1;min-width:120px;padding:5px 9px;
+                   border:1px solid #ddd;border-radius:6px;font-size:.83rem}}
+  .form-row button{{padding:5px 13px;background:#2c3e7a;color:#fff;
+                    border:none;border-radius:6px;cursor:pointer;font-size:.83rem}}
+  .form-row button:hover{{background:#1a2a5e}}
 
-  /* Visor de logs */
-  .log-box{{height:320px;overflow-y:auto;font-family:'Courier New',monospace;
-            font-size:.75rem;line-height:1.5;padding:12px 16px;background:#fafafa}}
-  .log-error{{color:#c0392b;background:#fdecea;padding:1px 4px;border-radius:2px;margin:1px 0}}
-  .log-warn{{color:#8b6914;background:#fef9e7;padding:1px 4px;border-radius:2px;margin:1px 0}}
+  /* Logs */
+  .log-box{{height:280px;overflow-y:auto;font-family:'Courier New',monospace;
+            font-size:.72rem;line-height:1.5;padding:10px 13px;background:#fafafa}}
+  .log-error{{color:#c0392b;background:#fdecea;padding:1px 3px;border-radius:2px;margin:1px 0}}
+  .log-warn{{color:#8b6914;background:#fef9e7;padding:1px 3px;border-radius:2px;margin:1px 0}}
   .log-info{{color:#2c3e7a}}
-  .log-debug{{color:#aaa}}
+  .log-debug{{color:#bbb}}
   .log-box.only-errors .log-info,
   .log-box.only-errors .log-debug{{display:none}}
   .log-count-err{{background:#e74c3c;color:#fff;border-radius:10px;
-                  padding:1px 7px;font-size:.72rem;font-weight:700;margin-left:6px}}
+                  padding:1px 6px;font-size:.7rem;font-weight:700;margin-left:5px}}
+  .nota-info{{padding:10px 16px;font-size:.78rem;color:#888;background:#fffbf0;
+              border-top:1px solid #f0e6c8}}
 </style>
 </head>
 <body>
@@ -1277,225 +1340,185 @@ def _renderizar_admin_html(
 </div>
 <div class="main">
 
-  <!-- ① Tarjetas KPI -->
+  <!-- KPI cards (siempre visibles) -->
   <div class="cards">
-    <div class="card">
-      <div class="val">{stats['total_usuarios']}</div>
-      <div class="lbl">Usuarios totales</div>
-    </div>
-    <div class="card">
-      <div class="val">{stats['total_mensajes']:,}</div>
-      <div class="lbl">Mensajes totales</div>
-    </div>
-    <div class="card">
-      <div class="val {'badge-ok' if stats['mensajes_hoy'] > 0 else ''}">{stats['mensajes_hoy']}</div>
-      <div class="lbl">Mensajes hoy</div>
-    </div>
-    <div class="card">
-      <div class="val">{usuarios_hoy}</div>
-      <div class="lbl">Usuarios activos hoy</div>
-    </div>
-    <div class="card">
-      <div class="val">{len(vinculos)}</div>
-      <div class="lbl">Vínculos Telegram</div>
-    </div>
-    <div class="card">
-      <div class="val">{uptime_str}</div>
-      <div class="lbl">Uptime servidor</div>
-    </div>
+    <div class="card"><div class="val">{stats['total_usuarios']}</div><div class="lbl">Usuarios</div></div>
+    <div class="card"><div class="val">{stats['total_mensajes']:,}</div><div class="lbl">Msgs totales</div></div>
+    <div class="card"><div class="val">{stats['mensajes_hoy']}</div><div class="lbl">Msgs hoy</div></div>
+    <div class="card"><div class="val">{usuarios_hoy}</div><div class="lbl">Activos hoy</div></div>
+    <div class="card"><div class="val">{len(vinculos)}</div><div class="lbl">Vínculos</div></div>
+    <div class="card"><div class="val">{uptime_str}</div><div class="lbl">Uptime</div></div>
   </div>
 
-  <!-- ② Sistema + Bot/IA en dos columnas -->
-  <div class="two-col">
+  <!-- Navegación por pestañas -->
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="mostrarTab('resumen',this)">📊 Resumen</button>
+    <button class="tab-btn" onclick="mostrarTab('usuarios',this)">👤 Usuarios</button>
+    <button class="tab-btn" onclick="mostrarTab('ia',this)">🧠 IA</button>
+    <button class="tab-btn" onclick="mostrarTab('sistema',this)">⚙️ Sistema</button>
+  </div>
 
-    <!-- Sistema -->
+  <!-- ═══ Tab: RESUMEN ════════════════════════════════════════════════════════ -->
+  <div id="tab-resumen" class="tab-panel active">
+
     <div class="section">
-      <div class="section-head">💻 Sistema <small style="font-weight:400;color:#888">(límites Render free)</small></div>
-      <div class="metric-list">
+      <div class="section-head">📊 Actividad — últimos 7 días</div>
+      {'<div class="chart-wrap"><div class="chart-area">' + barras_html + '</div><div class="chart-labels">' + labels_html + '</div></div>'
+        if barras_html else
+       '<div style="padding:20px;color:#999;text-align:center">Sin datos de actividad aún</div>'}
+    </div>
 
-        <div>
-          <div class="metric-row">
-            <span class="mk">RAM usada</span>
-            <span class="mv">{ram_lbl}</span>
+    <div class="two-col">
+      <div class="section">
+        <div class="section-head">💻 Sistema <small style="font-weight:400;color:#888">(Render free)</small></div>
+        <div class="metric-list">
+          <div>
+            <div class="metric-row"><span class="mk">RAM usada</span><span class="mv">{ram_lbl}</span></div>
+            <div class="prog-wrap">{ram_bar}</div>
+            <div class="prog-label"><span>0</span><span>límite {_RENDER_RAM_MB} MB</span></div>
           </div>
-          <div class="prog-wrap">{ram_bar}</div>
-          <div class="prog-label"><span>0</span><span>límite {_RENDER_RAM_MB} MB</span></div>
+          <div class="metric-row"><span class="mk">CPU</span><span class="mv">{cpu_str}</span></div>
+          <div class="metric-row"><span class="mk">Python</span><span class="mv">{sistema['python_version']}</span></div>
+          <div class="metric-row"><span class="mk">data/ (BD+logs)</span><span class="mv">{sistema['data_mb']} MB</span></div>
+          <div class="metric-row"><span class="mk">└ logs/</span><span class="mv">{sistema['logs_mb']} MB</span></div>
+          <div class="metric-row"><span class="mk">└ temp/</span><span class="mv">{sistema['temp_mb']} MB</span></div>
         </div>
-
-        <div class="metric-row"><span class="mk">CPU</span><span class="mv">{cpu_str}</span></div>
-        <div class="metric-row"><span class="mk">Python</span><span class="mv">{sistema['python_version']}</span></div>
-        <div class="metric-row" style="margin-top:4px">
-          <span class="mk">data/ (BD + logs)</span><span class="mv">{sistema['data_mb']} MB</span>
+      </div>
+      <div class="section">
+        <div class="section-head">🤖 Bot e IA</div>
+        <div class="metric-list">
+          <div class="metric-row"><span class="mk">Telegram</span><span class="mv">{tg_status}</span></div>
+          <div class="metric-row"><span class="mk">Modo</span><span class="mv">{webhook}</span></div>
+          <div class="metric-row"><span class="mk">Proveedor IA</span><span class="mv">{proveedor}</span></div>
+          <div class="metric-row"><span class="mk">Modelo</span><span class="mv" style="font-size:.78rem">{modelo}</span></div>
+          <div class="metric-row"><span class="mk">Base de datos</span><span class="mv">{db_modo_label}</span></div>
+          <div class="metric-row"><span class="mk">Estado BD</span><span class="mv">{db_estado_badge}</span></div>
+          <div class="metric-row"><span class="mk">URL BD</span>
+            <span class="mv"><code style="font-size:.68rem;word-break:break-all">{db_inf['url']}</code></span>
+          </div>
         </div>
-        <div class="metric-row"><span class="mk">└ logs/</span><span class="mv">{sistema['logs_mb']} MB</span></div>
-        <div class="metric-row"><span class="mk">└ temp/</span><span class="mv">{sistema['temp_mb']} MB</span></div>
-        <div class="metric-row" style="margin-top:4px;font-size:.72rem;color:#aaa">
-          <span>Disco raíz no medible (Render comparte host físico)</span>
-        </div>
-
       </div>
     </div>
 
-    <!-- Bot / IA -->
+  </div>
+
+  <!-- ═══ Tab: USUARIOS ══════════════════════════════════════════════════════ -->
+  <div id="tab-usuarios" class="tab-panel">
+
+    <div class="three-col">
+      <div class="section">
+        <div class="section-head">🏆 Más activos (msgs)</div>
+        <table>
+          <thead><tr><th>#</th><th>Usuario</th><th>Msgs</th></tr></thead>
+          <tbody>{filas_top_msgs or "<tr><td colspan='3' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
+        </table>
+      </div>
+      <div class="section">
+        <div class="section-head">🔁 Más sesiones</div>
+        <table>
+          <thead><tr><th>#</th><th>Usuario</th><th>Ses.</th></tr></thead>
+          <tbody>{filas_top_ses or "<tr><td colspan='3' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
+        </table>
+      </div>
+      <div class="section">
+        <div class="section-head">😴 Inactivos &gt;30 días</div>
+        <table>
+          <thead><tr><th>Usuario</th><th>Días</th></tr></thead>
+          <tbody>{filas_inactivos}</tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="section">
-      <div class="section-head">🤖 Bot e IA</div>
-      <div class="metric-list">
-        <div class="metric-row"><span class="mk">Telegram</span><span class="mv">{tg_status}</span></div>
-        <div class="metric-row"><span class="mk">Modo conexión</span><span class="mv">{webhook}</span></div>
-        <div class="metric-row"><span class="mk">Proveedor IA</span><span class="mv">{proveedor}</span></div>
-        <div class="metric-row"><span class="mk">Modelo</span><span class="mv" style="font-size:.8rem">{modelo}</span></div>
-        <div class="metric-row"><span class="mk">Base de datos</span><span class="mv">{db_modo_label}</span></div>
-        <div class="metric-row"><span class="mk">Estado BD</span><span class="mv">{db_estado_badge}</span></div>
-        <div class="metric-row"><span class="mk">URL BD</span>
-          <span class="mv"><code style="font-size:.72rem;word-break:break-all">{db_inf['url']}</code></span>
-        </div>
-      </div>
+      <div class="section-head">👤 Todos los usuarios ({stats['total_usuarios']})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Email</th>
+            <th>Msgs env.</th><th>Total</th>
+            <th>Última actividad</th><th>Ver. Excel</th><th>Respuesta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas_usuarios or '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Sin usuarios</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-head">📈 Análisis de sesiones</div>
+      {html_sesiones}
     </div>
 
   </div>
 
-  <!-- ③ Actividad 7 días -->
-  <div class="section">
-    <div class="section-head">📊 Actividad — últimos 7 días</div>
-    <div class="chart">
-      {barras_html if barras_html else '<p style="padding:20px;color:#999">Sin datos</p>'}
+  <!-- ═══ Tab: IA ════════════════════════════════════════════════════════════ -->
+  <div id="tab-ia" class="tab-panel">
+    <div class="section">
+      <div class="section-head">🧠 Inteligencia Artificial</div>
+      {ia_nota}
+      {'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;padding:14px 16px 8px">'
+        f'<div class="card" style="padding:11px 8px"><div class="val" style="font-size:1.4rem">{stats_ia["total"]:,}</div><div class="lbl">Llamadas totales</div></div>'
+        f'<div class="card" style="padding:11px 8px"><div class="val" style="font-size:1.4rem;color:{_col_ia}">{stats_ia["tasa_exito"]}%</div><div class="lbl">Tasa de éxito</div></div>'
+        f'<div class="card" style="padding:11px 8px"><div class="val" style="font-size:1.4rem;color:#e67e22">{stats_ia["fallbacks"]}</div><div class="lbl">Fallbacks</div></div>'
+        f'<div class="card" style="padding:11px 8px"><div class="val" style="font-size:1.4rem;color:#e74c3c">{stats_ia["errores"]}</div><div class="lbl">Errores</div></div>'
+        f'<div class="card" style="padding:11px 8px"><div class="val" style="font-size:1.4rem">{stats_ia["total_hoy"]}</div><div class="lbl">Hoy</div></div>'
+        '</div>'
+        '<div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #eee">'
+        '<div style="padding:12px 16px;border-right:1px solid #eee">'
+        '<div style="font-weight:600;font-size:.83rem;margin-bottom:7px">Por proveedor</div>'
+        '<table><thead><tr><th>Proveedor</th><th>Total</th><th>OK</th><th>Err</th><th>Fallb.</th><th>%OK</th></tr></thead>'
+        f'<tbody>{filas_proveedores or "<tr><td colspan=5 style=color:#999;text-align:center>—</td></tr>"}</tbody></table>'
+        '</div><div style="padding:12px 16px">'
+        '<div style="font-weight:600;font-size:.83rem;margin-bottom:7px">Tipos de error</div>'
+        f'<table><thead><tr><th>Tipo</th><th>Veces</th></tr></thead><tbody>{filas_errores_ia}</tbody></table>'
+        '</div></div>'
+        if not ia_sin_datos else ""}
     </div>
   </div>
 
-  <!-- ④ Estadísticas IA -->
-  <div class="section">
-    <div class="section-head">🧠 Inteligencia Artificial — estadísticas</div>
-    {ia_nota}
-    {f'''
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 20px 8px">
-      <div class="card" style="padding:12px 10px">
-        <div class="val" style="font-size:1.5rem">{stats_ia["total"]:,}</div>
-        <div class="lbl">Llamadas totales</div>
-      </div>
-      <div class="card" style="padding:12px 10px">
-        <div class="val" style="font-size:1.5rem;color:{"#27ae60" if stats_ia["tasa_exito"]>=95 else "#e67e22" if stats_ia["tasa_exito"]>=80 else "#e74c3c"}">{stats_ia["tasa_exito"]}%</div>
-        <div class="lbl">Tasa de éxito</div>
-      </div>
-      <div class="card" style="padding:12px 10px">
-        <div class="val" style="font-size:1.5rem;color:#e67e22">{stats_ia["fallbacks"]}</div>
-        <div class="lbl">Saltos a secundaria</div>
-      </div>
-      <div class="card" style="padding:12px 10px">
-        <div class="val" style="font-size:1.5rem;color:#e74c3c">{stats_ia["errores"]}</div>
-        <div class="lbl">Errores totales</div>
-      </div>
-      <div class="card" style="padding:12px 10px">
-        <div class="val" style="font-size:1.5rem">{stats_ia["total_hoy"]}</div>
-        <div class="lbl">Llamadas hoy</div>
-      </div>
+  <!-- ═══ Tab: SISTEMA ═══════════════════════════════════════════════════════ -->
+  <div id="tab-sistema" class="tab-panel">
+
+    <div class="section">
+      <div class="section-head">🔗 Vínculos Telegram ↔ Add-in ({len(vinculos)})</div>
+      <table>
+        <thead><tr><th>Telegram ID</th><th>Email</th><th>Vinculado el</th><th></th></tr></thead>
+        <tbody>
+          {filas_vinculos or '<tr><td colspan="4" style="text-align:center;color:#999;padding:16px">Sin vínculos</td></tr>'}
+        </tbody>
+      </table>
+      <form class="form-row" onsubmit="agregarVinculo(event)">
+        <input type="number" id="inp-tid"   placeholder="Telegram ID" required>
+        <input type="email"  id="inp-email" placeholder="email@empresa.com" required>
+        <button type="submit">+ Añadir vínculo</button>
+      </form>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid #eee">
-      <div style="padding:14px 20px;border-right:1px solid #eee">
-        <div style="font-weight:600;font-size:.85rem;margin-bottom:8px">Por proveedor</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Proveedor</th><th>Total</th><th>OK</th><th>Err</th><th>Fallb.</th><th>%OK</th>
-            </tr>
-          </thead>
-          <tbody>{filas_proveedores or "<tr><td colspan='6' style='color:#999;text-align:center'>—</td></tr>"}</tbody>
-        </table>
-      </div>
-      <div style="padding:14px 20px">
-        <div style="font-weight:600;font-size:.85rem;margin-bottom:8px">Tipos de error</div>
-        <table>
-          <thead><tr><th>Tipo</th><th>Veces</th></tr></thead>
-          <tbody>{filas_errores_ia}</tbody>
-        </table>
-      </div>
-    </div>
-    ''' if not ia_sin_datos else ""}
-  </div>
 
-  <!-- ⑤ Usuarios -->
-  <div class="section">
-    <div class="section-head">👤 Usuarios ({stats['total_usuarios']})</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Telegram ID</th><th>Email</th>
-          <th>Msgs enviados</th><th>Total msgs</th>
-          <th>Última actividad</th><th>Ver. Excel</th><th>Respuesta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {filas_usuarios or '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Sin usuarios</td></tr>'}
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ⑤b Análisis de sesiones -->
-  <div class="section">
-    <div class="section-head">📈 Análisis de sesiones</div>
-    {html_sesiones}
-  </div>
-
-  <!-- ⑥ Vínculos -->
-  <div class="section">
-    <div class="section-head">🔗 Vínculos Telegram ↔ Add-in ({len(vinculos)})</div>
-    <table>
-      <thead>
-        <tr><th>Telegram ID</th><th>Email</th><th>Vinculado el</th><th></th></tr>
-      </thead>
-      <tbody>
-        {filas_vinculos or '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin vínculos</td></tr>'}
-      </tbody>
-    </table>
-    <form class="form-vincular" onsubmit="agregarVinculo(event)">
-      <input type="number" id="inp-tid"   placeholder="Telegram ID" required>
-      <input type="email"  id="inp-email" placeholder="email@empresa.com" required>
-      <button type="submit">+ Añadir vínculo</button>
-    </form>
-  </div>
-
-  <!-- ⑦ Notificaciones -->
-  <div class="section">
-    <div class="section-head">🔔 Notificaciones del sistema ({len(subs)})</div>
-    <table>
-      <thead>
-        <tr><th>Telegram ID</th><th>Etiqueta</th><th>Estado</th><th></th></tr>
-      </thead>
-      <tbody>
-        {filas_subs or '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin suscriptores</td></tr>'}
-      </tbody>
-    </table>
-    {nota_fallback}
-    <form class="form-vincular" onsubmit="agregarSub(event)">
-      <input type="number" id="inp-sub-tid"   placeholder="Telegram ID" required>
-      <input type="text"   id="inp-sub-label" placeholder="Etiqueta (ej: Roberto)">
-      <button type="submit">+ Añadir</button>
-    </form>
-  </div>
-
-  <!-- ⑧ Logs -->
-  <div class="section">
-    <div class="section-head">
-      <span>📋 Logs recientes
-        {'<span class="log-count-err">' + str(n_errores) + ' errores</span>' if n_errores else ''}
-      </span>
-      <div class="head-actions">
+    <div class="section">
+      <div class="section-head">📋 Logs recientes {_err_badge}</div>
+      <div style="display:flex;gap:6px;padding:9px 13px;border-bottom:1px solid #eee;align-items:center">
         <button class="btn-sm active" id="btn-todos"   onclick="filtrarLogs('todos')">Todos</button>
         <button class="btn-sm"        id="btn-errores" onclick="filtrarLogs('errores')">Solo errores</button>
-        <button class="btn-sm" onclick="location.reload()">↻ Refrescar</button>
+        <button class="btn-sm" onclick="location.reload()" style="margin-left:auto">↻ Refrescar</button>
       </div>
+      <div class="log-box" id="log-box">{lineas_log}</div>
     </div>
-    <div class="log-box" id="log-box">
-      {lineas_log}
-    </div>
+
   </div>
 
 </div>
 <script>
   const _key = new URLSearchParams(window.location.search).get("key") || "";
 
-  // Scroll al final de los logs al cargar
-  const lb = document.getElementById("log-box");
-  if (lb) lb.scrollTop = lb.scrollHeight;
+  document.getElementById("log-box").scrollTop = 9999;
+
+  function mostrarTab(id, btn) {{
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    btn.classList.add('active');
+  }}
 
   function filtrarLogs(modo) {{
     const box = document.getElementById("log-box");
@@ -1526,38 +1549,6 @@ def _renderizar_admin_html(
     }});
     if (resp.ok) location.reload();
     else alert("Error al añadir el vínculo");
-  }}
-
-  async function agregarSub(e) {{
-    e.preventDefault();
-    const tid      = document.getElementById("inp-sub-tid").value.trim();
-    const etiqueta = document.getElementById("inp-sub-label").value.trim();
-    const resp = await fetch("/admin/notificaciones?key=" + encodeURIComponent(_key), {{
-      method: "POST",
-      headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify({{ telegram_id: parseInt(tid), etiqueta }})
-    }});
-    if (resp.ok) location.reload();
-    else alert("Error al añadir suscriptor");
-  }}
-
-  async function toggleSub(tid) {{
-    const resp = await fetch(
-      "/admin/notificaciones/" + tid + "/toggle?key=" + encodeURIComponent(_key),
-      {{ method: "PATCH" }}
-    );
-    if (resp.ok) location.reload();
-    else alert("Error al cambiar estado");
-  }}
-
-  async function eliminarSub(tid) {{
-    if (!confirm("¿Eliminar el suscriptor " + tid + " de las notificaciones?")) return;
-    const resp = await fetch(
-      "/admin/notificaciones/" + tid + "?key=" + encodeURIComponent(_key),
-      {{ method: "DELETE" }}
-    );
-    if (resp.ok) location.reload();
-    else alert("Error al eliminar suscriptor");
   }}
 </script>
 </body>
