@@ -976,7 +976,7 @@ def _renderizar_admin_html(
     filas_usuarios = ""
     for u in stats["usuarios"]:
         uid  = u["user_id"]
-        uid_label = "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
+        ident_u, tipo_u = _usuario_celda(uid)
         email = u["email"] or "—"
         ver  = u["version_excel"] or "—"
         modo_label = "🔊 Voz" if u["modo_respuesta"] == "voz" else "💬 Texto"
@@ -985,8 +985,8 @@ def _renderizar_admin_html(
         ts   = u["ultima_actividad"][:16].replace("T", " ") if u["ultima_actividad"] != "—" else "—"
         filas_usuarios += (
             f"<tr>"
-            f"  <td>{uid_label}</td>"
-            f"  <td>{email}</td>"
+            f"  <td>{ident_u}</td>"
+            f"  <td class='centro'>{tipo_u}</td>"
             f"  <td class='num'>{u['mensajes_enviados']}</td>"
             f"  <td class='num'>{u['total_mensajes']}</td>"
             f"  <td>{ts}</td>"
@@ -1004,40 +1004,60 @@ def _renderizar_admin_html(
         key=lambda u: u["dias_inactivo"], reverse=True,
     )[:5]
 
-    def _uid_lbl(uid):
-        return "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
-
     email_por_uid = {u["user_id"]: u.get("email") or "" for u in stats["usuarios"]}
 
-    def _email_small(uid):
-        e = email_por_uid.get(uid, "")
-        return f"<br><small style='color:#aaa'>{e}</small>" if e else ""
+    def _usuario_celda(uid):
+        """Devuelve (identidad_html, tipo_badge) para tablas de usuarios."""
+        email = email_por_uid.get(uid, "")
+        if uid == _ADDIN_ANON_ID:
+            identidad = (
+                f"<span style='font-size:.85rem'>{email}</span>"
+                if email
+                else "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
+            )
+            tipo = "<span class='badge-addin'>Add-in</span>"
+        else:
+            if email:
+                identidad = (
+                    f"<span style='font-size:.85rem'>{email}</span>"
+                    f"<br><small style='color:#aaa'>{uid}</small>"
+                )
+            else:
+                identidad = f"<code>{uid}</code>"
+            tipo = "<span class='badge-tg'>📱 TG</span>"
+        return identidad, tipo
 
     filas_top_msgs = ""
     for i, u in enumerate(top_por_msgs, 1):
+        ident, tipo = _usuario_celda(u["user_id"])
         filas_top_msgs += (
             f"<tr><td style='color:#aaa;font-size:.78rem'>{i}</td>"
-            f"<td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<td>{ident}</td>"
+            f"<td class='centro'>{tipo}</td>"
             f"<td class='num'><strong>{u['mensajes_enviados']}</strong></td></tr>"
         )
 
     filas_top_ses = ""
     for i, u in enumerate(top_por_ses, 1):
+        ident, tipo = _usuario_celda(u["user_id"])
         filas_top_ses += (
             f"<tr><td style='color:#aaa;font-size:.78rem'>{i}</td>"
-            f"<td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<td>{ident}</td>"
+            f"<td class='centro'>{tipo}</td>"
             f"<td class='num'><strong>{u['total_sesiones']}</strong></td></tr>"
         )
 
     filas_inactivos = ""
     for u in inactivos_mas:
         dias = int(u["dias_inactivo"])
+        ident, tipo = _usuario_celda(u["user_id"])
         filas_inactivos += (
-            f"<tr><td>{_uid_lbl(u['user_id'])}{_email_small(u['user_id'])}</td>"
+            f"<tr><td>{ident}</td>"
+            f"<td class='centro'>{tipo}</td>"
             f"<td class='num' style='color:#e74c3c'>{dias}d</td></tr>"
         )
     if not filas_inactivos:
-        filas_inactivos = "<tr><td colspan='2' style='color:#27ae60;text-align:center;padding:12px'>✅ Ninguno</td></tr>"
+        filas_inactivos = "<tr><td colspan='3' style='color:#27ae60;text-align:center;padding:12px'>✅ Ninguno</td></tr>"
 
     # ── Configuración de alertas ─────────────────────────────────────────────
     alert_tipos = _obtener_alert_config()
@@ -1163,7 +1183,7 @@ def _renderizar_admin_html(
         filas_ses = ""
         for u in stats_ses["por_usuario"]:
             uid = u["user_id"]
-            uid_label = "<em style='color:#888'>Add-in</em>" if uid == _ADDIN_ANON_ID else f"<code>{uid}</code>"
+            ident_s, tipo_s = _usuario_celda(uid)
             dias = u["dias_inactivo"]
             if dias <= 7:
                 estado = '<span style="color:#27ae60;font-weight:600">● Activo</span>'
@@ -1177,7 +1197,8 @@ def _renderizar_admin_html(
             dias_str = "hoy" if dias < 1 else f"{int(dias)}d"
             filas_ses += (
                 f"<tr>"
-                f"<td>{uid_label}</td>"
+                f"<td>{ident_s}</td>"
+                f"<td class='centro'>{tipo_s}</td>"
                 f"<td class='num'>{u['total_sesiones']}</td>"
                 f"<td class='num'>{_fmt_min(u['duracion_media_min'])}</td>"
                 f"<td class='num'>{_fmt_min(u['sesion_mas_larga_min'])}</td>"
@@ -1208,7 +1229,7 @@ def _renderizar_admin_html(
     <table>
       <thead>
         <tr>
-          <th>ID</th><th>Sesiones</th><th>Dur. media</th>
+          <th>Identificador</th><th>Tipo</th><th>Sesiones</th><th>Dur. media</th>
           <th>Más larga</th><th>Última sesión</th><th>Sin acceso</th><th>Estado</th>
         </tr>
       </thead>
@@ -1312,6 +1333,8 @@ def _renderizar_admin_html(
   code{{background:#f0f0f0;padding:2px 5px;border-radius:4px;font-size:.77rem}}
   .badge-ok{{color:#27ae60;font-weight:600}}
   .badge-warn{{color:#e67e22}}
+  .badge-tg{{background:#2196f3;color:#fff;border-radius:4px;padding:1px 6px;font-size:.72rem;white-space:nowrap}}
+  .badge-addin{{background:#7b1fa2;color:#fff;border-radius:4px;padding:1px 6px;font-size:.72rem;white-space:nowrap}}
 
   /* Buttons */
   .btn-del{{background:#e74c3c;color:#fff;border:none;border-radius:4px;
@@ -1421,21 +1444,21 @@ def _renderizar_admin_html(
       <div class="section">
         <div class="section-head">🏆 Más activos (msgs)</div>
         <table>
-          <thead><tr><th>#</th><th>Usuario</th><th>Msgs</th></tr></thead>
-          <tbody>{filas_top_msgs or "<tr><td colspan='3' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
+          <thead><tr><th>#</th><th>Identificador</th><th>Tipo</th><th>Msgs</th></tr></thead>
+          <tbody>{filas_top_msgs or "<tr><td colspan='4' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
         </table>
       </div>
       <div class="section">
         <div class="section-head">🔁 Más sesiones</div>
         <table>
-          <thead><tr><th>#</th><th>Usuario</th><th>Ses.</th></tr></thead>
-          <tbody>{filas_top_ses or "<tr><td colspan='3' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
+          <thead><tr><th>#</th><th>Identificador</th><th>Tipo</th><th>Ses.</th></tr></thead>
+          <tbody>{filas_top_ses or "<tr><td colspan='4' style='color:#999;text-align:center;padding:12px'>—</td></tr>"}</tbody>
         </table>
       </div>
       <div class="section">
         <div class="section-head">😴 Inactivos &gt;30 días</div>
         <table>
-          <thead><tr><th>Usuario</th><th>Días</th></tr></thead>
+          <thead><tr><th>Identificador</th><th>Tipo</th><th>Días</th></tr></thead>
           <tbody>{filas_inactivos}</tbody>
         </table>
       </div>
@@ -1446,7 +1469,7 @@ def _renderizar_admin_html(
       <table>
         <thead>
           <tr>
-            <th>ID</th><th>Email</th>
+            <th>Identificador</th><th>Tipo</th>
             <th>Msgs env.</th><th>Total</th>
             <th>Última actividad</th><th>Ver. Excel</th><th>Respuesta</th>
           </tr>
