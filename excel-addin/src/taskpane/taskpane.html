@@ -120,9 +120,14 @@
     <!-- Respuesta texto -->
     <div id="bloque-respuesta" style="display:none;">
       <div id="respuesta" class="ms-font-m respuesta"></div>
-      <button class="ms-Button boton-copiar" onclick="copiarRespuesta()">
-        <span class="ms-Button-label">Copiar respuesta</span>
-      </button>
+      <div class="fila-botones-respuesta">
+        <button class="ms-Button boton-copiar" onclick="copiarRespuesta()">
+          <span class="ms-Button-label">Copiar respuesta</span>
+        </button>
+        <button id="btn-feedback" class="ms-Button boton-like" onclick="enviarFeedback()" style="display:none;" title="Marcar como útil">
+          <span class="ms-Button-label">👍 Útil</span>
+        </button>
+      </div>
     </div>
 
     <!-- Historial de conversación -->

@@ -20,11 +20,31 @@ def _estimar_tokens(texto: str) -> int:
 
 def _construir_mensajes(historial: list[dict], pregunta: str,
                          proveedor: LLMProvider | None = None,
-                         system_override: str | None = None) -> list[dict]:
+                         system_override: str | None = None,
+                         user_id: int | None = None) -> list[dict]:
     """Construye la lista de mensajes ajustando el historial si la petición
     supera el presupuesto de tokens del proveedor activo."""
     proveedor = proveedor or obtener_proveedor()
     prompt_sistema = system_override or SYSTEM_PROMPT
+
+    # Inyectar few-shot del usuario si tiene ejemplos guardados (RAG)
+    if user_id:
+        try:
+            from utils.rag import obtener_ejemplos
+            ejemplos = obtener_ejemplos(user_id, limite=3)
+            if ejemplos:
+                partes = "\n\n".join(
+                    f"Pregunta: {e['pregunta']}\nRespuesta: {e['respuesta']}"
+                    for e in ejemplos
+                )
+                prompt_sistema = (
+                    prompt_sistema
+                    + "\n\nEjemplos de respuestas que este usuario valoró positivamente:\n\n"
+                    + partes
+                )
+        except Exception:
+            pass
+
     mensajes_sistema = [{"role": "system", "content": prompt_sistema}]
     tokens_fijos = _estimar_tokens(prompt_sistema) + _estimar_tokens(pregunta)
     presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
@@ -44,15 +64,17 @@ def _construir_mensajes(historial: list[dict], pregunta: str,
 
 def obtener_respuesta(historial: list[dict], pregunta: str,
                        proveedor: LLMProvider | None = None,
-                       system_override: str | None = None) -> str:
+                       system_override: str | None = None,
+                       user_id: int | None = None) -> str:
     """Envía la pregunta al LLM y devuelve la respuesta.
 
     Args:
         proveedor: si se indica, usa ese proveedor en lugar del activo.
         system_override: reemplaza el system prompt por defecto.
+        user_id: si se indica, inyecta few-shot examples del historial del usuario.
     """
     proveedor_activo = proveedor or obtener_proveedor()
-    mensajes = _construir_mensajes(historial, pregunta, proveedor_activo, system_override)
+    mensajes = _construir_mensajes(historial, pregunta, proveedor_activo, system_override, user_id)
     tokens_estimados = _estimar_tokens(str(mensajes))
     logger.info("Petición LLM — tokens estimados: %d", tokens_estimados)
     return proveedor_activo.chat(mensajes)

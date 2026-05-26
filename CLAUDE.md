@@ -121,7 +121,7 @@ aiofiles==24.1.0
 │   ├── arrancar_empresa.sh     ← Arranque manual Linux (API + polling)
 │   └── asistente-excel.service ← Fichero systemd para servidor empresa
 │
-├── tests/                  ← 352 tests unitarios (pytest)
+├── tests/                  ← 403 tests unitarios (pytest)
 ├── knowledge/              ← Base de conocimiento Markdown (8 archivos)
 ├── docs/                   ← Documentación interna (NO sube a GitHub)
 └── data/                   ← SQLite + logs (NO sube a GitHub)
@@ -214,10 +214,9 @@ ADDIN_URL=
 - **Notificaciones — spam corregido**: eliminado el fallback automático a `AUTHORIZED_USERS[0]`; ahora `ALERT_TELEGRAM_ID` debe estar explícitamente en `.env` para recibir alertas; cooldown de 300 s por tipo de alerta
 - **Sprint C — Formato condicional**: 7 tipos (valor, top/bottom, escala de color, barra de datos, iconos, texto, fórmula); DSL en `prompts/excel.py`, `extraer_regla_formato()` en `services/llm.py`, `POST /format` en `api.py`; routing automático en Add-in por keywords; `_aplicarFormatoCondicional()` con Office.js
 - **Add-in — preservación de formato** (Opción A + B): `copyFrom(formats)` antes de escribir valores cuando hay rango fuente; `_inferirFormatos()` aplica `#,##0.00` / `#,##0` en tablas creadas desde cero
-
-### 🐛 Bugs conocidos (en investigación)
-
-- **Notificaciones del sistema — sección pendiente de rehacer**: la sección de suscriptores se eliminó del panel admin temporalmente; rediseñar con configuración por tipo de alerta y gestión desde la UI antes de reactivar.
+- **Tests Sprint C (2026-05-26)**: 20 tests para formato condicional — `_describir_regla_formato()` (7 tipos) + `POST /format` con mock LLM. Suite total: 403/403 ✅
+- **Notificaciones rediseñadas (2026-05-26)**: tabla `alert_config` con 5 tipos (arranque, bot_error, disco, error_500, ram); activar/desactivar por tipo desde el panel admin (tab Sistema); `utils/alert_config.py`; checks `esta_activo(tipo)` en cada punto de envío
+- **Sprint RAG — Feedback (2026-05-26)**: tabla `feedback_rag` en SQLite; `POST /feedback` desde el Add-in; botón 👍 en respuestas de texto; few-shot inyectado en `_construir_mensajes()` vía `user_id`; `utils/rag.py`
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
@@ -227,8 +226,6 @@ ADDIN_URL=
 ### 🔮 Futuro
 
 - **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
-- **Notificaciones del sistema — rediseño**: sección de suscriptores eliminada temporalmente del panel; rediseñar con configuración por tipo de alerta (RAM, errores LLM, etc.), activar/desactivar por tipo, gestión desde UI antes de reactivar. `ALERT_TELEGRAM_ID` en `.env` como única forma de recibir alertas por ahora.
-- **Aprendizaje de usuario (RAG sobre historial)**: el Add-in podría aprender de peticiones aceptadas; RAG sobre el historial SQLite para incluir pares pregunta→respuesta exitosos como few-shot en el system prompt. Requiere: mecanismo de "pulgar arriba" en la UI, endpoint `/context` que recupere ejemplos por usuario, integración en `_construir_mensajes()`.
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
 - Tablas dinámicas interactivas nativas con **xlwings** (gratuito, requiere Windows + Excel en el servidor). Activación automática: al arrancar se detecta `platform.system() == "Windows"` + `xlwings` disponible → flag `PIVOT_NATIVO_DISPONIBLE`. En Linux (Render) sigue usando la alternativa actual de openpyxl. Implementar cuando esté disponible el servidor Windows de empresa.
 

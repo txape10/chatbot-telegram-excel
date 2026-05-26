@@ -458,6 +458,7 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         respuesta = obtener_respuesta(
             historial, pregunta_completa,
             obtener_proveedor_privado() if _modo_privado else None,
+            user_id=user_id,
         )
         if not _modo_privado:
             agregar_mensaje(user_id, "user", pregunta)

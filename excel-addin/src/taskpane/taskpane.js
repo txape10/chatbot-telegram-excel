@@ -17,6 +17,10 @@ let _rangoHojaNombre  = null;
 let _rangoFilas       = 0;
 let _rangoCols        = 0;
 
+// Feedback RAG: última pregunta+respuesta de texto para el botón 👍
+let _feedbackPregunta  = "";
+let _feedbackRespuesta = "";
+
 // Easter egg
 let _eggInterval = null;
 
@@ -167,6 +171,7 @@ async function preguntar() {
   boton.disabled = true;
   ocultarRespuesta();
   ocultarDialogo();
+  _ocultarFeedback();
   mostrarEstado("Leyendo selección...");
 
   try {
@@ -225,6 +230,7 @@ async function preguntar() {
           mostrarEstado("Listo · " + direccion);
           _agregarAlHistorial(instruccion, respuesta.respuesta);
           _actualizarHistorialLLM(instruccion, respuesta.respuesta);
+          _mostrarFeedback(instruccion, respuesta.respuesta);
         }
       }
 
@@ -255,6 +261,7 @@ async function preguntar() {
         mostrarEstado("Listo");
         _agregarAlHistorial(instruccion, respuesta.respuesta);
         _actualizarHistorialLLM(instruccion, respuesta.respuesta);
+        _mostrarFeedback(instruccion, respuesta.respuesta);
       }
     }
 
@@ -663,6 +670,39 @@ function _detenerFuegos() {
 
 function mostrarEstado(texto) {
   document.getElementById("estado").textContent = texto;
+}
+
+function _mostrarFeedback(pregunta, respuesta) {
+  _feedbackPregunta  = pregunta;
+  _feedbackRespuesta = respuesta;
+  const btn = document.getElementById("btn-feedback");
+  if (!btn) return;
+  btn.style.display = "inline-block";
+  btn.disabled = false;
+  btn.querySelector(".ms-Button-label").textContent = "👍 Útil";
+}
+
+function _ocultarFeedback() {
+  const btn = document.getElementById("btn-feedback");
+  if (btn) btn.style.display = "none";
+}
+
+async function enviarFeedback() {
+  if (!_feedbackPregunta || !_feedbackRespuesta) return;
+  const btn = document.getElementById("btn-feedback");
+  if (btn) {
+    btn.disabled = true;
+    btn.querySelector(".ms-Button-label").textContent = "✅ Guardado";
+  }
+  try {
+    await llamarApi("/feedback", {
+      device_id: _obtenerOCrearDeviceId(),
+      pregunta:  _feedbackPregunta,
+      respuesta: _feedbackRespuesta,
+    });
+  } catch (_e) {
+    // silencioso — el feedback es opcional
+  }
 }
 
 function mostrarRespuesta(texto) {

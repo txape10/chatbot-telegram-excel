@@ -101,6 +101,7 @@ async def _notificar_telegram(texto: str) -> None:
 async def _monitor_alertas_sistema() -> None:
     """Comprueba RAM y disco cada 10 min y avisa si superan el umbral rojo."""
     import time
+    from utils.alert_config import esta_activo as _alerta_activa
     _ultima: dict[str, float] = {}
 
     await asyncio.sleep(60)   # espera inicial para dejar que el servidor arranque
@@ -111,7 +112,7 @@ async def _monitor_alertas_sistema() -> None:
             alertas = []
 
             ram_pct = sistema.get("ram_pct_render")
-            if ram_pct and ram_pct >= _ALERTA_PCT:
+            if ram_pct and ram_pct >= _ALERTA_PCT and _alerta_activa("ram"):
                 if ahora - _ultima.get("ram", 0) > _ALERTA_COOLDOWN:
                     alertas.append(
                         f"🔴 *RAM al {ram_pct:.0f}%*\n"
@@ -121,7 +122,7 @@ async def _monitor_alertas_sistema() -> None:
 
             # Alerta si data/ supera 400 MB (runtime creciente; código ocupa ~300 MB fijos)
             data_mb = sistema["data_mb"]
-            if data_mb >= 400:
+            if data_mb >= 400 and _alerta_activa("disco"):
                 if ahora - _ultima.get("disco", 0) > _ALERTA_COOLDOWN:
                     alertas.append(
                         f"🔴 *Carpeta data/ en {data_mb:.0f} MB*\n"
@@ -149,11 +150,12 @@ _COOLDOWN_BOT_ERR = 300   # segundos entre alertas del mismo tipo de error
 async def _manejador_error_bot(update: object, context: object) -> None:
     """Handler de errores de python-telegram-bot — notifica al administrador."""
     import time
+    from utils.alert_config import esta_activo as _alerta_activa
     error = context.error  # type: ignore[attr-defined]
     logger.error("Error PTB: %s", error, exc_info=error)
     nombre = type(error).__name__
     ahora = time.time()
-    if ahora - _errores_bot_vistos.get(nombre, 0) > _COOLDOWN_BOT_ERR:
+    if ahora - _errores_bot_vistos.get(nombre, 0) > _COOLDOWN_BOT_ERR and _alerta_activa("bot_error"):
         _errores_bot_vistos[nombre] = ahora
         asyncio.create_task(_notificar_telegram(
             f"🤖 *Error en el bot de Telegram*\n`{nombre}: {str(error)[:350]}`"
@@ -192,12 +194,14 @@ async def lifespan(app: FastAPI):
     _task_monitor = asyncio.create_task(_monitor_alertas_sistema())
 
     # Notificación de arranque — también avisa de reinicios/caídas previas
-    modo_str = _bot_mode.upper() if _ptb_app else "SIN BOT"
-    ia_str   = os.getenv("LLM_PROVIDER", "?").upper()
-    asyncio.create_task(_notificar_telegram(
-        f"🟢 *Asistente Excel — servidor online*\n"
-        f"Modo: `{modo_str}` · IA: `{ia_str}`"
-    ))
+    from utils.alert_config import esta_activo as _alerta_activa
+    if _alerta_activa("arranque"):
+        modo_str = _bot_mode.upper() if _ptb_app else "SIN BOT"
+        ia_str   = os.getenv("LLM_PROVIDER", "?").upper()
+        asyncio.create_task(_notificar_telegram(
+            f"🟢 *Asistente Excel — servidor online*\n"
+            f"Modo: `{modo_str}` · IA: `{ia_str}`"
+        ))
 
     yield   # ← la app está corriendo
 
@@ -230,8 +234,9 @@ _COOLDOWN_500 = 300  # segundos
 @app.middleware("http")
 async def _middleware_errores_500(request: Request, call_next):
     import time
+    from utils.alert_config import esta_activo as _alerta_activa
     response = await call_next(request)
-    if response.status_code == 500:
+    if response.status_code == 500 and _alerta_activa("error_500"):
         clave = f"{request.method} {request.url.path}"
         ahora = time.time()
         if ahora - _errores_500_vistos.get(clave, 0) > _COOLDOWN_500:
@@ -285,6 +290,12 @@ class PeticionFormato(BaseModel):
     device_id: str | None = None
     user_email: str | None = None
     excel_version: str | None = None
+
+
+class PeticionFeedback(BaseModel):
+    device_id: str | None = None
+    pregunta: str
+    respuesta: str
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -397,6 +408,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
     _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email, peticion.excel_version)
     # Sin datos: pregunta general o creación desde cero
+    _uid_ask = _usuario_addin(peticion.device_id)
     if not peticion.datos or len(peticion.datos) < 2:
         if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
             estructura = extraer_estructura_excel(peticion.pregunta)
@@ -416,6 +428,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         return {"respuesta": obtener_respuesta(
             peticion.historial, peticion.pregunta,
             system_override=SYSTEM_PROMPT_ADDIN,
+            user_id=_uid_ask,
         )}
 
     df = _a_dataframe(peticion.datos)
@@ -438,6 +451,7 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
     return {"respuesta": obtener_respuesta(
         peticion.historial, contexto,
         system_override=SYSTEM_PROMPT_ADDIN,
+        user_id=_uid_ask,
     )}
 
 
@@ -533,6 +547,21 @@ def format_condicional(peticion: PeticionFormato, _: None = Depends(_verificar_c
         "regla": regla,
         "descripcion": _describir_regla_formato(regla),
     }
+
+
+@app.post("/feedback")
+def feedback(peticion: PeticionFeedback, _: None = Depends(_verificar_clave),
+             __: None = Depends(_verificar_addin_activo)) -> dict:
+    """Guarda un ejemplo de respuesta valorada positivamente por el usuario (RAG)."""
+    user_id = _usuario_addin(peticion.device_id)
+    if not peticion.pregunta.strip() or not peticion.respuesta.strip():
+        raise HTTPException(status_code=400, detail="pregunta y respuesta no pueden estar vacías")
+    try:
+        from utils.rag import guardar_ejemplo
+        guardar_ejemplo(user_id, peticion.pregunta, peticion.respuesta)
+    except Exception as exc:
+        logger.warning("No se pudo guardar ejemplo RAG: %s", exc)
+    return {"ok": True}
 
 
 @app.post("/analizar")
@@ -731,44 +760,22 @@ def admin_crear_vinculo(peticion: PeticionVinculo,
 
 
 # ---------------------------------------------------------------------------
-# Suscriptores de notificaciones
+# Configuración de alertas por tipo
 # ---------------------------------------------------------------------------
 
-class PeticionSub(BaseModel):
-    telegram_id: int
-    etiqueta: str = ""
+@app.get("/admin/alert-config")
+def admin_alert_config_list(_: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_config import obtener_config
+    return {"tipos": obtener_config()}
 
 
-@app.get("/admin/notificaciones")
-def admin_notificaciones_list(_: None = Depends(_verificar_admin)) -> dict:
-    from utils.alert_subs import obtener_subs
-    return {"subs": obtener_subs()}
-
-
-@app.post("/admin/notificaciones")
-def admin_notificaciones_add(peticion: PeticionSub,
-                             _: None = Depends(_verificar_admin)) -> dict:
-    from utils.alert_subs import agregar_sub
-    agregar_sub(peticion.telegram_id, peticion.etiqueta)
-    return {"ok": True}
-
-
-@app.delete("/admin/notificaciones/{telegram_id}")
-def admin_notificaciones_del(telegram_id: int,
-                             _: None = Depends(_verificar_admin)) -> dict:
-    from utils.alert_subs import eliminar_sub
-    if not eliminar_sub(telegram_id):
-        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
-    return {"ok": True}
-
-
-@app.patch("/admin/notificaciones/{telegram_id}/toggle")
-def admin_notificaciones_toggle(telegram_id: int,
-                                _: None = Depends(_verificar_admin)) -> dict:
-    from utils.alert_subs import toggle_sub
-    nuevo = toggle_sub(telegram_id)
+@app.patch("/admin/alert-config/{tipo}/toggle")
+def admin_alert_config_toggle(tipo: str,
+                               _: None = Depends(_verificar_admin)) -> dict:
+    from utils.alert_config import toggle_tipo
+    nuevo = toggle_tipo(tipo)
     if nuevo is None:
-        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
+        raise HTTPException(status_code=404, detail="Tipo de alerta no encontrado")
     return {"ok": True, "activo": nuevo}
 
 
@@ -942,7 +949,7 @@ def _renderizar_admin_html(
     from datetime import datetime, timezone
     from utils.user_links import obtener_todos_los_vinculos
     from utils.db import estado as _estado_db
-    from utils.alert_subs import obtener_subs
+    from utils.alert_config import obtener_config as _obtener_alert_config
 
     # ── Gráfico de actividad (px para evitar barras uniformes con % en flex) ─
     _CHART_MAX_PX = 110
@@ -1032,34 +1039,39 @@ def _renderizar_admin_html(
     if not filas_inactivos:
         filas_inactivos = "<tr><td colspan='2' style='color:#27ae60;text-align:center;padding:12px'>✅ Ninguno</td></tr>"
 
-    # ── Suscriptores de notificaciones ──────────────────────────────────────
-    subs = obtener_subs()
-    filas_subs = ""
-    for s in subs:
-        tid   = s["telegram_id"]
-        etiq  = s["etiqueta"] or "—"
-        activo = bool(s["activo"])
+    # ── Configuración de alertas ─────────────────────────────────────────────
+    alert_tipos = _obtener_alert_config()
+    filas_alertas = ""
+    for a in alert_tipos:
+        tipo   = a["tipo"]
+        label  = a["label"]
+        activo = bool(a["activo"])
         badge  = '<span class="badge-ok">✅ Activo</span>' if activo else '<span class="badge-warn">⏸ Pausado</span>'
-        clase_btn  = "btn-sm active" if activo else "btn-sm"
-        texto_btn  = "Pausar" if activo else "Activar"
-        filas_subs += (
+        clase_btn = "btn-sm active" if activo else "btn-sm"
+        texto_btn = "Pausar" if activo else "Activar"
+        filas_alertas += (
             f"<tr>"
-            f"  <td><code>{tid}</code></td>"
-            f"  <td>{etiq}</td>"
+            f"  <td><code>{tipo}</code></td>"
+            f"  <td style='font-size:.82rem'>{label}</td>"
             f"  <td class='centro'>{badge}</td>"
             f"  <td class='centro'>"
-            f"    <button class='{clase_btn}' onclick='toggleSub({tid})'>{texto_btn}</button> "
-            f"    <button class='btn-del' onclick='eliminarSub({tid})'>✕</button>"
+            f"    <button class='{clase_btn}' onclick='toggleAlerta(\"{tipo}\")'>{texto_btn}</button>"
             f"  </td>"
             f"</tr>"
         )
-    # Nota si la tabla está vacía y se usa el fallback del .env
-    nota_fallback = ""
-    if not subs and _ALERT_TELEGRAM_ID:
-        nota_fallback = (
-            f"<div style='padding:10px 20px;font-size:.8rem;color:#888'>"
-            f"Sin suscriptores configurados — usando <code>ALERT_TELEGRAM_ID={_ALERT_TELEGRAM_ID}</code> del .env como fallback."
+    nota_alerta_id = ""
+    if _ALERT_TELEGRAM_ID:
+        nota_alerta_id = (
+            f"<div class='nota-info'>"
+            f"Destinatario: <code>ALERT_TELEGRAM_ID={_ALERT_TELEGRAM_ID}</code> "
+            f"(configurado en .env)"
             f"</div>"
+        )
+    else:
+        nota_alerta_id = (
+            "<div class='nota-info' style='color:#e74c3c'>"
+            "⚠️ <code>ALERT_TELEGRAM_ID</code> no configurado — las alertas no se enviarán."
+            "</div>"
         )
 
     # ── Vínculos ────────────────────────────────────────────────────────────
@@ -1481,6 +1493,15 @@ def _renderizar_admin_html(
   <div id="tab-sistema" class="tab-panel">
 
     <div class="section">
+      <div class="section-head">🔔 Notificaciones del sistema</div>
+      <table>
+        <thead><tr><th>Tipo</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+        <tbody>{filas_alertas}</tbody>
+      </table>
+      {nota_alerta_id}
+    </div>
+
+    <div class="section">
       <div class="section-head">🔗 Vínculos Telegram ↔ Add-in ({len(vinculos)})</div>
       <table>
         <thead><tr><th>Telegram ID</th><th>Email</th><th>Vinculado el</th><th></th></tr></thead>
@@ -1525,6 +1546,15 @@ def _renderizar_admin_html(
     document.getElementById("btn-todos").classList.toggle("active", modo === "todos");
     document.getElementById("btn-errores").classList.toggle("active", modo === "errores");
     box.classList.toggle("only-errors", modo === "errores");
+  }}
+
+  async function toggleAlerta(tipo) {{
+    const resp = await fetch(
+      "/admin/alert-config/" + encodeURIComponent(tipo) + "/toggle?key=" + encodeURIComponent(_key),
+      {{ method: "PATCH" }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al cambiar estado de la alerta");
   }}
 
   async function eliminarVinculo(tid, email) {{
