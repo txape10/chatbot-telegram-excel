@@ -13,10 +13,17 @@ AUTHORIZED_USERS = set(
     if uid.strip()
 )
 
+# ── Modo de despliegue ────────────────────────────────────────────────────────
+# personal : bot Telegram personal + Add-in (defaults permisivos)
+# empresa  : solo Add-in por defecto; Telegram desactivado; auth estricta
+APP_MODE   = os.getenv("APP_MODE", "personal").lower()
+IS_EMPRESA = APP_MODE == "empresa"
+
 # ── Módulos activables ────────────────────────────────────────────────────────
-# Permite instalar solo el bot, solo el Add-in o ambos
-ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "true").lower() == "true"
-ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
+# Permite instalar solo el bot, solo el Add-in o ambos.
+# En modo empresa, Telegram está desactivado a menos que se active explícitamente.
+ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "false" if IS_EMPRESA else "true").lower() == "true"
+ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN", "true").lower() == "true"
 
 # ── Proveedor de IA ───────────────────────────────────────────────────────────
 # groq | ollama | openai  (ver services/llm_provider.py)

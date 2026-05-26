@@ -37,7 +37,7 @@ from logging_config import configurar_logging
 from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_estructura_excel, extraer_regla_formato,
                           obtener_respuesta)
-from config import SYSTEM_PROMPT_ADDIN
+from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
 
 load_dotenv()
 configurar_logging()
@@ -49,9 +49,8 @@ _ADMIN_KEY   = os.getenv("ADMIN_KEY", "") or _API_KEY   # fallback a API_KEY si 
 _WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
 _BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 
-# Módulos activables (por defecto ambos activos)
-_ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "true").lower() == "true"
-_ENABLE_ADDIN    = os.getenv("ENABLE_ADDIN",    "true").lower() == "true"
+# Módulos activables — leídos de config.py (que aplica los defaults según APP_MODE)
+# Los tests pueden sobreescribir api_mod._ENABLE_TELEGRAM directamente si lo necesitan
 
 # ID de Telegram al que enviar alertas del sistema (por defecto el primer AUTHORIZED_USER)
 _ids_autorizados  = [u.strip() for u in os.getenv("AUTHORIZED_USERS", "").split(",") if u.strip()]

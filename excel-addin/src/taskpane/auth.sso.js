@@ -1,44 +1,30 @@
-/* global Office */
+/* global Office, __ALLOWED_DOMAINS__, __ALLOWED_EMAILS__ */
 
 /**
  * Autenticación SSO con Office 365 / Azure AD.
  *
- * Requiere:
+ * Requiere (para el flujo completo con token verificado):
  *   1. App registrada en Azure AD (lo hace el administrador)
- *   2. CLIENT_ID en .env (el Application ID de Azure)
+ *   2. CLIENT_ID en excel-addin/.env (Application ID de Azure)
  *   3. Permiso "User.Read" concedido en Azure AD
  *
  * Misma interfaz que auth.whitelist.js — taskpane.js no cambia.
  *
- * Pendiente de implementar cuando el administrador registre la app en Azure.
+ * Mientras no esté registrada la app en Azure AD, usa whitelist de
+ * dominios/correos inyectada por webpack (mismo comportamiento que whitelist.js).
  */
 
-// ── Configuración ─────────────────────────────────────────────────────────────
-
-// Dominios / correos autorizados (igual que en whitelist, como segundo filtro
-// por si el token SSO se obtiene pero queremos restringir aún más)
-const DOMINIOS_PERMITIDOS = [
-  "empresa.eu",
-  "empresa.com",
-];
-
-const CORREOS_PERMITIDOS = [
-  "roberto.chapado@gmail.com",   // desarrollo / testing
-];
-
-// ── Estado interno ────────────────────────────────────────────────────────────
-
-let _emailCache = null;
+// ── Configuración — inyectada por webpack DefinePlugin en tiempo de build ──────
+// Mismas variables que auth.whitelist.js; NUNCA hardcodear aquí.
+const DOMINIOS_PERMITIDOS = __ALLOWED_DOMAINS__;
+const CORREOS_PERMITIDOS  = __ALLOWED_EMAILS__;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
 export function obtenerEmailUsuario() {
-  if (_emailCache !== null) return _emailCache;
   try {
-    _emailCache = (Office?.context?.userProfile?.email || "").toLowerCase().trim();
-    return _emailCache;
+    return (Office?.context?.userProfile?.email || "").toLowerCase().trim();
   } catch {
-    _emailCache = "";
     return "";
   }
 }
