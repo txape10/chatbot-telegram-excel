@@ -43,24 +43,43 @@ try {
 }
 
 # ── 3. Determinar la ruta del catalogo ───────────────────────────────────────
-# Excel acepta rutas locales directamente — no es obligatorio compartir la carpeta.
-# Se intenta el recurso SMB para compatibilidad, pero si falla se usa la ruta local.
+# Office acepta como catalogo de confianza:
+#   - Ruta UNC:   \\NOMBRE_EQUIPO\recurso_compartido
+#   - URL HTTPS:  https://servidor/carpeta
+#   NO acepta rutas locales C:\ — no intentarlo nunca como fallback.
+#
+# Prioridad:
+#   1. URL HTTPS (si el manifest viene de un servidor HTTPS)  ← siempre disponible con Render
+#   2. Recurso SMB local (si el servidor HTTPS no esta disponible)
 Write-Step "Preparando ruta del catalogo"
-$rutaCatalogo = $carpeta   # ruta local — siempre funciona
+$rutaCatalogo = $null
 
-try {
-    $shareExiste = Get-SmbShare -Name $shareName -ErrorAction SilentlyContinue
-    if ($shareExiste) {
-        $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
-        Write-Ok "Recurso compartido existente: $rutaCatalogo"
-    } else {
-        New-SmbShare -Name $shareName -Path $carpeta -ReadAccess "Everyone" -ErrorAction Stop | Out-Null
-        $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
-        Write-Ok "Carpeta compartida: $rutaCatalogo"
+# Opcion 1: URL HTTPS del servidor (preferida y siempre valida)
+if ($urlManifest -match "^https://") {
+    # Quitar el nombre del archivo; usar solo la carpeta base del servidor
+    $rutaCatalogo = ($urlManifest -replace "/manifest\.xml$", "").TrimEnd("/")
+    Write-Ok "Catalogo HTTPS: $rutaCatalogo"
+}
+
+# Opcion 2: Recurso SMB local (solo si no hay servidor HTTPS configurado)
+if (-not $rutaCatalogo) {
+    try {
+        $shareExiste = Get-SmbShare -Name $shareName -ErrorAction SilentlyContinue
+        if ($shareExiste) {
+            $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
+            Write-Ok "Recurso compartido existente: $rutaCatalogo"
+        } else {
+            New-SmbShare -Name $shareName -Path $carpeta -ReadAccess "Everyone" -ErrorAction Stop | Out-Null
+            $rutaCatalogo = "\\$env:COMPUTERNAME\$shareName"
+            Write-Ok "Carpeta compartida: $rutaCatalogo"
+        }
+    } catch {
+        Write-Fail "No se pudo crear el recurso compartido."
+        Write-Fail "Para usar un catalogo local, un administrador de IT debe compartir la carpeta $carpeta"
+        Write-Fail "o configurar un servidor HTTPS con el manifest.xml."
+        Read-Host "`nPulsa Intro para salir"
+        exit 1
     }
-} catch {
-    Write-Warn "No se pudo crear el recurso compartido (puede que lo bloquee el sistema)."
-    Write-Ok   "Se usara la ruta local: $rutaCatalogo"
 }
 
 # ── 4. Registrar catalogo en el Centro de confianza de Excel ─────────────────
@@ -132,11 +151,15 @@ if ($opcion -eq "M") {
     Write-Host "     >  Configuracion del Centro de confianza" -ForegroundColor Yellow
     Write-Host "     >  Catalogos de complementos de confianza" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  2. En 'URL del catalogo' copia exactamente esta ruta:" -ForegroundColor White
+    Write-Host "  2. En 'URL del catalogo' copia exactamente esta direccion:" -ForegroundColor White
     Write-Host ""
     Write-Host "        $rutaCatalogo" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "     (puedes copiarla seleccionandola con el raton)" -ForegroundColor DarkGray
+    if ($rutaCatalogo -match "^https://") {
+        Write-Host "     (es una URL https — el campo acepta esta direccion directamente)" -ForegroundColor DarkGray
+    } else {
+        Write-Host "     (es una ruta de red — debe empezar por \\ para ser valida)" -ForegroundColor DarkGray
+    }
     Write-Host ""
     Write-Host "  3. Clic en 'Agregar catalogo'" -ForegroundColor White
     Write-Host "     Marca 'Mostrar en menu'  >  Aceptar" -ForegroundColor White
