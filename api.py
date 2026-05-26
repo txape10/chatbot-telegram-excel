@@ -35,7 +35,8 @@ from excel.editor import EditorError, aplicar_edicion
 from excel.query_engine import QueryError, ejecutar_query
 from logging_config import configurar_logging
 from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
-                          extraer_estructura_excel, obtener_respuesta)
+                          extraer_estructura_excel, extraer_regla_formato,
+                          obtener_respuesta)
 from config import SYSTEM_PROMPT_ADDIN
 
 load_dotenv()
@@ -276,6 +277,14 @@ class PeticionEdicion(BaseModel):
     excel_version: str | None = None
 
 
+class PeticionFormato(BaseModel):
+    datos: list[list]
+    instruccion: str
+    device_id: str | None = None
+    user_email: str | None = None
+    excel_version: str | None = None
+
+
 class PeticionEnviarAlBot(BaseModel):
     datos: list[list]
     nombre_archivo: str = "datos.xlsx"
@@ -478,6 +487,50 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
         peticion.historial, contexto,
         system_override=SYSTEM_PROMPT_ADDIN,
     )}
+
+
+def _describir_regla_formato(regla: dict) -> str:
+    tipo = regla.get("tipo", "")
+    col  = regla.get("col") or ""
+    if tipo == "valor":
+        return f"Formato en '{col}': celdas donde valor {regla.get('op')} {regla.get('valor')}"
+    if tipo == "top_bottom":
+        dir_ = "superiores" if regla.get("direccion") == "top" else "inferiores"
+        n    = regla.get("n", 10)
+        pct  = "%" if regla.get("porcentaje") else ""
+        return f"Formato en '{col}': {n}{pct} valores {dir_}"
+    if tipo == "escala":
+        return f"Escala de color en '{col}'"
+    if tipo == "barra":
+        return f"Barra de datos en '{col}'"
+    if tipo == "icono":
+        return f"Iconos ({regla.get('estilo', '')}) en '{col}'"
+    if tipo == "texto":
+        return f"Formato en '{col}': celdas que {regla.get('op')} '{regla.get('valor')}'"
+    if tipo == "formula":
+        return f"Formato condicional con fórmula en '{col or 'todo el rango'}'"
+    return "Formato condicional aplicado"
+
+
+@app.post("/format")
+def format_condicional(peticion: PeticionFormato, _: None = Depends(_verificar_clave),
+                       __: None = Depends(_verificar_addin_activo)) -> dict:
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
+    df = _a_dataframe(peticion.datos)
+    regla = extraer_regla_formato(df, peticion.instruccion)
+    if not regla:
+        return {
+            "tipo": "texto",
+            "respuesta": (
+                "No pude interpretar la regla de formato. "
+                "Describe qué columna colorear, con qué condición y con qué color."
+            ),
+        }
+    return {
+        "tipo": "formato",
+        "regla": regla,
+        "descripcion": _describir_regla_formato(regla),
+    }
 
 
 @app.post("/analizar")

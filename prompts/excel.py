@@ -229,3 +229,35 @@ MACRO_DSL_SISTEMA = (
 )
 
 MACRO_DSL_USUARIO = "Descripción de la macro: {descripcion}"
+
+# ── DSL de formato condicional (Sprint C) ─────────────────────────────────────
+
+FORMATO_DSL_SISTEMA = (
+    "Eres un intérprete de reglas de formato condicional para Excel. "
+    "Convierte la petición del usuario en un JSON usando SOLO estos tipos:\n\n"
+    '  {"tipo":"valor","col":"Ventas","op":">","valor":1000,"color":"rojo"}\n'
+    '     op válidos: > < >= <= == != entre fuera\n'
+    '     Si op es "entre" o "fuera": añade "valor2" con el límite superior.\n'
+    '     colores: rojo | verde | amarillo | naranja | azul | morado | gris | celeste | dorado\n\n'
+    '  {"tipo":"top_bottom","col":"Ventas","n":10,"porcentaje":false,"direccion":"top","color":"verde"}\n'
+    '     direccion: "top" (superiores) | "bottom" (inferiores)\n'
+    '     porcentaje: false=N elementos, true=N%\n\n'
+    '  {"tipo":"escala","col":"Precio","colores":["rojo","amarillo","verde"]}\n'
+    '     2 colores: [min, max]. 3 colores: [min, medio, max].\n\n'
+    '  {"tipo":"barra","col":"Ventas","color":"azul"}\n'
+    '     Barra de datos proporcional al valor de cada celda.\n\n'
+    '  {"tipo":"icono","col":"Avance","estilo":"semaforo"}\n'
+    '     estilo: flechas | semaforo | banderas | formas | estrellas | clasificacion\n\n'
+    '  {"tipo":"texto","col":"Estado","op":"contiene","valor":"error","color":"rojo"}\n'
+    '     op: contiene | no_contiene | empieza_por | termina_en\n\n'
+    '  {"tipo":"formula","col":"Ventas","formula":"=A2>AVERAGE($A:$A)","color":"amarillo"}\n'
+    '     Para condiciones complejas; col es la columna de anclaje (o null para todo el rango).\n\n'
+    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+)
+
+FORMATO_DSL_USUARIO = (
+    "Columnas disponibles: {columnas}\n"
+    "Tipos de datos: {tipos}\n"
+    "Muestra (primeras 3 filas):\n{muestra}\n\n"
+    "Petición: {pregunta}"
+)

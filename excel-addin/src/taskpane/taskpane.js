@@ -91,6 +91,61 @@ function toggleTelegram() {
   chevron.textContent   = abierto ? "▶" : "▼";
 }
 
+// ── Formato condicional ───────────────────────────────────────────────────────
+
+const _FORMATO_KEYWORDS = [
+  "formato condicional", "colorea", "colorear", "resalta", "resaltar",
+  "escala de color", "barra de datos", "iconos de", "conjunto de iconos",
+  "semáforo", "semaforo", "flechas", "banderas", "estrellas", "clasificacion",
+  "top 10", "top 5", "top 3", "10 superiores", "5 superiores", "inferiores",
+  "superiores", "heatmap", "gradiente", "pinta", "colorar", "marca en rojo",
+  "marca en verde", "marca en amarillo", "destaca", "destacar",
+  "conditional format",
+];
+
+const _COLORES_CF = {
+  rojo: "#FF0000", verde: "#00B050", amarillo: "#FFFF00",
+  naranja: "#FF8C00", azul: "#4472C4", morado: "#7030A0",
+  rosa: "#FF69B4", celeste: "#87CEEB", gris: "#808080",
+  blanco: "#FFFFFF", negro: "#000000", dorado: "#FFD700",
+};
+
+const _OP_CF = {
+  ">":     "greaterThan",
+  "<":     "lessThan",
+  ">=":    "greaterThanOrEqual",
+  "<=":    "lessThanOrEqual",
+  "==":    "equalTo",
+  "!=":    "notEqualTo",
+  "entre": "between",
+  "fuera": "notBetween",
+};
+
+const _OP_TEXTO_CF = {
+  contiene:    "contains",
+  no_contiene: "notContains",
+  empieza_por: "beginsWith",
+  termina_en:  "endsWith",
+};
+
+const _ICONOS_CF = {
+  flechas:       "threeArrows",
+  semaforo:      "threeTrafficLights1",
+  banderas:      "threeFlags",
+  formas:        "threeSymbols",
+  estrellas:     "fiveRating",
+  clasificacion: "fourRating",
+};
+
+function _colorCf(nombre) {
+  return _COLORES_CF[nombre] || nombre;
+}
+
+function _esFormatoCondicional(texto) {
+  const t = texto.toLowerCase();
+  return _FORMATO_KEYWORDS.some((kw) => t.includes(kw));
+}
+
 // ── Preguntar ─────────────────────────────────────────────────────────────────
 
 const _PALABRAS_ZELDA = ["zelda", "link"];
@@ -126,25 +181,51 @@ async function preguntar() {
       _rangoCols       = (valores[0] || []).length;
       mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
-      const respuesta = await llamarApi("/edit", {
-        datos: valores, instruccion, historial: _historialLLM,
-        device_id: _obtenerOCrearDeviceId(),
-        user_email: obtenerEmailUsuario(),
-        excel_version: _obtenerExcelVersion(),
-      });
+      if (_esFormatoCondicional(instruccion)) {
+        // ── Flujo de formato condicional ──────────────────────────────────────
+        mostrarEstado("Aplicando formato condicional...");
+        const respuesta = await llamarApi("/format", {
+          datos: valores, instruccion,
+          device_id: _obtenerOCrearDeviceId(),
+          user_email: obtenerEmailUsuario(),
+          excel_version: _obtenerExcelVersion(),
+        });
 
-      if (respuesta.tipo === "edicion") {
-        _datosModificados = respuesta.datos_modificados;
-        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
-        mostrarDialogo(respuesta.descripcion);
-        mostrarEstado("Edición lista · " + direccion);
-        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
-        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        if (respuesta.tipo === "formato" && respuesta.regla) {
+          await _aplicarFormatoCondicional(respuesta.regla);
+          mostrarRespuesta("🎨 " + respuesta.descripcion);
+          mostrarEstado("Formato aplicado · " + direccion);
+          _agregarAlHistorial(instruccion, "🎨 " + respuesta.descripcion);
+          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        } else {
+          const msg = (respuesta && respuesta.respuesta) || "No se pudo interpretar la regla de formato.";
+          mostrarRespuesta(msg);
+          mostrarEstado("Listo · " + direccion);
+          _agregarAlHistorial(instruccion, msg);
+          _actualizarHistorialLLM(instruccion, msg);
+        }
       } else {
-        mostrarRespuesta(respuesta.respuesta);
-        mostrarEstado("Listo · " + direccion);
-        _agregarAlHistorial(instruccion, respuesta.respuesta);
-        _actualizarHistorialLLM(instruccion, respuesta.respuesta);
+        // ── Flujo de edición ──────────────────────────────────────────────────
+        const respuesta = await llamarApi("/edit", {
+          datos: valores, instruccion, historial: _historialLLM,
+          device_id: _obtenerOCrearDeviceId(),
+          user_email: obtenerEmailUsuario(),
+          excel_version: _obtenerExcelVersion(),
+        });
+
+        if (respuesta.tipo === "edicion") {
+          _datosModificados = respuesta.datos_modificados;
+          mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+          mostrarDialogo(respuesta.descripcion);
+          mostrarEstado("Edición lista · " + direccion);
+          _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        } else {
+          mostrarRespuesta(respuesta.respuesta);
+          mostrarEstado("Listo · " + direccion);
+          _agregarAlHistorial(instruccion, respuesta.respuesta);
+          _actualizarHistorialLLM(instruccion, respuesta.respuesta);
+        }
       }
 
     } else {
@@ -336,6 +417,116 @@ async function escribirEnExcel(destino) {
   } catch (error) {
     mostrarEstado("Error al escribir: " + error.message);
   }
+}
+
+async function _aplicarFormatoCondicional(regla) {
+  if (!_rangoAddress) throw new Error("No hay rango seleccionado.");
+
+  await Excel.run(async (context) => {
+    const sheet    = context.workbook.worksheets.getActiveWorksheet();
+    const selRange = sheet.getRange(_rangoAddress);
+    selRange.load(["values", "rowIndex", "columnIndex", "rowCount", "columnCount"]);
+    await context.sync();
+
+    const cabeceras = selRange.values[0] || [];
+    let rangoFormato;
+
+    if (regla.col) {
+      const colIdx = cabeceras.findIndex((c) => String(c) === String(regla.col));
+      if (colIdx < 0) throw new Error(`Columna '${regla.col}' no encontrada en el rango seleccionado.`);
+      rangoFormato = sheet.getRangeByIndexes(
+        selRange.rowIndex + 1,
+        selRange.columnIndex + colIdx,
+        selRange.rowCount - 1,
+        1,
+      );
+    } else {
+      rangoFormato = sheet.getRangeByIndexes(
+        selRange.rowIndex + 1,
+        selRange.columnIndex,
+        selRange.rowCount - 1,
+        selRange.columnCount,
+      );
+    }
+
+    rangoFormato.conditionalFormats.clearAll();
+    const cfs = rangoFormato.conditionalFormats;
+
+    switch (regla.tipo) {
+      case "valor": {
+        const cf  = cfs.add(Excel.ConditionalFormatType.cellValue);
+        const op  = _OP_CF[regla.op] || "greaterThan";
+        const rule = { formula1: String(regla.valor), operator: op };
+        if (regla.op === "entre" || regla.op === "fuera") {
+          rule.formula2 = String(regla.valor2 ?? regla.valor);
+        }
+        cf.cellValue.rule = rule;
+        cf.cellValue.format.fill.color = _colorCf(regla.color);
+        break;
+      }
+      case "top_bottom": {
+        const cf   = cfs.add(Excel.ConditionalFormatType.topBottom);
+        const tipo = regla.porcentaje
+          ? (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topPercent    : Excel.ConditionalTopBottomCriterionType.bottomPercent)
+          : (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topItems      : Excel.ConditionalTopBottomCriterionType.bottomItems);
+        cf.topBottom.rule = { rank: regla.n || 10, type: tipo };
+        cf.topBottom.format.fill.color = _colorCf(regla.color);
+        break;
+      }
+      case "escala": {
+        const cf     = cfs.add(Excel.ConditionalFormatType.colorScale);
+        const colors = regla.colores || ["rojo", "verde"];
+        const [c0, c1, c2] = colors;
+        if (colors.length === 2) {
+          cf.colorScale.criteria = {
+            minimum: { type: Excel.ConditionalFormatColorCriterionType.lowestValue,  color: _colorCf(c0) },
+            maximum: { type: Excel.ConditionalFormatColorCriterionType.highestValue, color: _colorCf(c1) },
+          };
+        } else {
+          cf.colorScale.criteria = {
+            minimum:  { type: Excel.ConditionalFormatColorCriterionType.lowestValue,   color: _colorCf(c0) },
+            midpoint: { type: Excel.ConditionalFormatColorCriterionType.percentile, formula: "50", color: _colorCf(c1) },
+            maximum:  { type: Excel.ConditionalFormatColorCriterionType.highestValue,  color: _colorCf(c2) },
+          };
+        }
+        break;
+      }
+      case "barra": {
+        const cf = cfs.add(Excel.ConditionalFormatType.dataBar);
+        cf.dataBar.barDirection = Excel.ConditionalDataBarDirection.leftToRight;
+        const fillColor = _colorCf(regla.color || "azul");
+        cf.dataBar.positiveFormat.fillColor   = fillColor;
+        cf.dataBar.positiveFormat.borderColor = fillColor;
+        break;
+      }
+      case "icono": {
+        const cf     = cfs.add(Excel.ConditionalFormatType.iconSet);
+        const estilo = _ICONOS_CF[regla.estilo] || "threeArrows";
+        cf.iconSet.style = Excel.IconSet[estilo];
+        break;
+      }
+      case "texto": {
+        const cf = cfs.add(Excel.ConditionalFormatType.containsText);
+        const op = _OP_TEXTO_CF[regla.op] || "contains";
+        cf.textComparison.rule = {
+          operator: Excel.ConditionalTextOperator[op],
+          text: String(regla.valor),
+        };
+        cf.textComparison.format.fill.color = _colorCf(regla.color);
+        break;
+      }
+      case "formula": {
+        const cf = cfs.add(Excel.ConditionalFormatType.custom);
+        cf.custom.rule.formula = regla.formula;
+        cf.custom.format.fill.color = _colorCf(regla.color);
+        break;
+      }
+      default:
+        throw new Error(`Tipo de formato desconocido: ${regla.tipo}`);
+    }
+
+    await context.sync();
+  });
 }
 
 // ── Easter egg Zelda ──────────────────────────────────────────────────────────

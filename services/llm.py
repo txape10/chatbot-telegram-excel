@@ -232,6 +232,35 @@ def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
         return None
 
 
+def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> dict | None:
+    """Extrae la regla de formato condicional desde lenguaje natural.
+
+    Devuelve un dict con la regla DSL o None si no se pudo interpretar.
+    """
+    from prompts.excel import FORMATO_DSL_SISTEMA, FORMATO_DSL_USUARIO
+
+    columnas = ", ".join(f"'{c}'" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    muestra  = df.head(3).to_string(index=False)
+
+    try:
+        texto = obtener_proveedor().chat(
+            messages=[
+                {"role": "system", "content": FORMATO_DSL_SISTEMA},
+                {"role": "user",   "content": FORMATO_DSL_USUARIO.format(
+                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=instruccion,
+                )},
+            ],
+            temperature=0,
+            max_tokens=200,
+        )
+        logger.debug("Regla formato del LLM: %s", texto)
+        return json.loads(_limpiar_json(texto.strip()))
+    except Exception as error:
+        logger.warning("Error extrayendo regla de formato: %s", error)
+        return None
+
+
 def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
     """Transcribe un mensaje de voz usando el proveedor activo."""
     return obtener_proveedor().transcribir(audio_bytes, filename)
