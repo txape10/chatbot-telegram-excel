@@ -966,6 +966,31 @@ def _renderizar_admin_html(
         )
         labels_html += f'<div class="bar-lbl">{dia}</div>'
 
+    # ── Helper de usuario: identidad + tipo ─────────────────────────────────
+    # Definido aquí para que esté disponible en filas_usuarios Y en los tops
+    email_por_uid = {u["user_id"]: u.get("email") or "" for u in stats["usuarios"]}
+
+    def _usuario_celda(uid):
+        """Devuelve (identidad_html, tipo_badge) para tablas de usuarios."""
+        email = email_por_uid.get(uid, "")
+        if uid == _ADDIN_ANON_ID:
+            identidad = (
+                f"<span style='font-size:.85rem'>{email}</span>"
+                if email
+                else "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
+            )
+            tipo = "<span class='badge-addin'>Add-in</span>"
+        else:
+            if email:
+                identidad = (
+                    f"<span style='font-size:.85rem'>{email}</span>"
+                    f"<br><small style='color:#aaa'>{uid}</small>"
+                )
+            else:
+                identidad = f"<code>{uid}</code>"
+            tipo = "<span class='badge-tg'>📱 TG</span>"
+        return identidad, tipo
+
     # ── Tabla de usuarios ───────────────────────────────────────────────────
     hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     usuarios_hoy = sum(
@@ -1002,29 +1027,6 @@ def _renderizar_admin_html(
         [u for u in por_usuario_ses if u["dias_inactivo"] > 30],
         key=lambda u: u["dias_inactivo"], reverse=True,
     )[:5]
-
-    email_por_uid = {u["user_id"]: u.get("email") or "" for u in stats["usuarios"]}
-
-    def _usuario_celda(uid):
-        """Devuelve (identidad_html, tipo_badge) para tablas de usuarios."""
-        email = email_por_uid.get(uid, "")
-        if uid == _ADDIN_ANON_ID:
-            identidad = (
-                f"<span style='font-size:.85rem'>{email}</span>"
-                if email
-                else "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
-            )
-            tipo = "<span class='badge-addin'>Add-in</span>"
-        else:
-            if email:
-                identidad = (
-                    f"<span style='font-size:.85rem'>{email}</span>"
-                    f"<br><small style='color:#aaa'>{uid}</small>"
-                )
-            else:
-                identidad = f"<code>{uid}</code>"
-            tipo = "<span class='badge-tg'>📱 TG</span>"
-        return identidad, tipo
 
     filas_top_msgs = ""
     for i, u in enumerate(top_por_msgs, 1):
