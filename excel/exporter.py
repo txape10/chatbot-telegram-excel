@@ -298,12 +298,120 @@ def crear_desde_descripcion(estructura: dict) -> tuple[io.BytesIO, str]:
 
 # ── Tabla dinámica ───────────────────────────────────────────────────────────
 
-def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, str]:
-    """Genera un .xlsx con dos hojas: datos fuente + resumen tipo tabla dinámica.
+def _detectar_columnas(df: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """Detecta columnas categóricas y numéricas de un DataFrame."""
+    umbral_cat = max(10, len(df) // 5)
+    cols_cat = [
+        c for c in df.columns
+        if not pd.api.types.is_numeric_dtype(df[c])
+        or (df[c].nunique() <= umbral_cat and df[c].nunique() < len(df))
+    ]
+    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if not cols_cat and len(df.columns) > 0:
+        cols_cat = [min(df.columns, key=lambda c: df[c].nunique())]
+    cols_num = [c for c in cols_num if c not in cols_cat]
+    if not cols_num:
+        cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    return cols_cat, cols_num
+
+
+def _crear_tabla_dinamica_nativa(
+    df: pd.DataFrame,
+    nombre_archivo: str,
+    cols_cat: list[str],
+    cols_num: list[str],
+) -> tuple[io.BytesIO, str]:
+    """Crea una PivotTable nativa usando xlwings (requiere Windows + Excel instalado)."""
+    import tempfile
+    import os
+    import xlwings as xw
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        df.to_excel(tmp_path, index=False, sheet_name="Datos")
+
+        # Constantes COM de Excel
+        XL_DATABASE     = 1
+        XL_ROW_FIELD    = 1
+        XL_COLUMN_FIELD = 2
+        XL_SUM          = -4157
+
+        app = xw.App(visible=False, add_book=False)
+        try:
+            wb       = app.books.open(tmp_path)
+            ws_datos = wb.sheets["Datos"]
+            ws_datos.autofit()
+
+            ws_pivot = wb.sheets.add("Tabla Dinámica", after=ws_datos)
+
+            pivot_cache = wb.api.PivotCaches().Create(
+                SourceType=XL_DATABASE,
+                SourceData=ws_datos.api.UsedRange,
+            )
+            pivot_table = pivot_cache.CreatePivotTable(
+                TableDestination=ws_pivot.api.Range("A3"),
+                TableName="TablaDinamica",
+            )
+
+            # Filas: primera categoría
+            if cols_cat:
+                pf = pivot_table.PivotFields(cols_cat[0])
+                pf.Orientation = XL_ROW_FIELD
+                pf.Subtotals = [False] * 12
+
+            # Columnas: segunda categoría (si existe)
+            if len(cols_cat) > 1:
+                pivot_table.PivotFields(cols_cat[1]).Orientation = XL_COLUMN_FIELD
+
+            # Valores: columnas numéricas (máx. 3)
+            for col in cols_num[:3]:
+                try:
+                    campo = pivot_table.AddDataField(
+                        pivot_table.PivotFields(col),
+                        f"Suma de {col}",
+                        XL_SUM,
+                    )
+                    campo.NumberFormat = "#,##0.00"
+                except Exception:
+                    pass
+
+            try:
+                pivot_table.TableStyle2 = "PivotStyleMedium9"
+            except Exception:
+                pass
+
+            wb.save()
+            wb.close()
+        finally:
+            app.quit()
+
+        with open(tmp_path, "rb") as f:
+            buf = io.BytesIO(f.read())
+        buf.seek(0)
+        return buf, nombre_archivo
+
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, str, bool]:
+    """Genera un .xlsx con tabla dinámica.
+
+    Devuelve (buffer, nombre_archivo, es_nativa).
+    es_nativa=True  → PivotTable real creada con xlwings (Windows + Excel).
+    es_nativa=False → Excel Table + resúmenes estáticos con openpyxl (fallback).
 
     Si se pasa un DataFrame del usuario se usan sus datos;
     si no, se genera un ejemplo con datos de ventas ficticios.
     """
+    import logging
+    _log = logging.getLogger(__name__)
+
     usar_datos_usuario = df is not None and not df.empty
 
     if not usar_datos_usuario:
@@ -321,25 +429,16 @@ def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, st
     else:
         nombre_archivo = "tabla_dinamica_tus_datos.xlsx"
 
-    # ── Detectar columnas categóricas y numéricas ─────────────────────────────
-    # Categóricas: texto o cualquier columna con pocos valores únicos relativos al total
-    umbral_cat = max(10, len(df) // 5)  # flexible según tamaño del df
-    cols_cat = [
-        c for c in df.columns
-        if not pd.api.types.is_numeric_dtype(df[c])
-        or (df[c].nunique() <= umbral_cat and df[c].nunique() < len(df))
-    ]
-    cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    cols_cat, cols_num = _detectar_columnas(df)
 
-    # Fallback: si no hay categorías claras, usar la columna con menos valores únicos
-    if not cols_cat and len(df.columns) > 0:
-        cols_cat = [min(df.columns, key=lambda c: df[c].nunique())]
-
-    # Excluir de cols_num las que ya usamos como categóricas
-    cols_num = [c for c in cols_num if c not in cols_cat]
-    # Si todas las numéricas quedaron como categóricas, usarlas también como numéricas
-    if not cols_num:
-        cols_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    # ── Intentar PivotTable nativa (Windows + Excel + xlwings) ───────────────
+    from config import PIVOT_NATIVO_DISPONIBLE
+    if PIVOT_NATIVO_DISPONIBLE:
+        try:
+            buf, nombre = _crear_tabla_dinamica_nativa(df, nombre_archivo, cols_cat, cols_num)
+            return buf, nombre, True
+        except Exception as exc:
+            _log.warning("xlwings falló, usando openpyxl como fallback: %s", exc)
 
     wb = openpyxl.Workbook()
 
@@ -510,7 +609,7 @@ def crear_tabla_dinamica(df: pd.DataFrame | None = None) -> tuple[io.BytesIO, st
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    return buf, nombre_archivo
+    return buf, nombre_archivo, False
 
 
 # ── Plantillas de uso ────────────────────────────────────────────────────────

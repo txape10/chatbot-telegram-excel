@@ -1,4 +1,5 @@
 import os
+import platform
 from dotenv import load_dotenv
 from utils.knowledge import cargar_base_conocimiento
 from prompts.excel import SYSTEM_BASE
@@ -18,6 +19,15 @@ AUTHORIZED_USERS = set(
 # empresa  : solo Add-in por defecto; Telegram desactivado; auth estricta
 APP_MODE   = os.getenv("APP_MODE", "personal").lower()
 IS_EMPRESA = APP_MODE == "empresa"
+
+# ── Tablas dinámicas nativas (xlwings) ───────────────────────────────────────
+# Solo disponible en Windows con Microsoft Excel instalado.
+# En Linux (Render, empresa Linux) se usa el fallback de openpyxl automáticamente.
+try:
+    import xlwings as _xw  # noqa: F401
+    PIVOT_NATIVO_DISPONIBLE = platform.system() == "Windows"
+except ImportError:
+    PIVOT_NATIVO_DISPONIBLE = False
 
 # ── Módulos activables ────────────────────────────────────────────────────────
 # Permite instalar solo el bot, solo el Add-in o ambos.

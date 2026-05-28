@@ -281,13 +281,25 @@ async def pivote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         df = _obtener_df(update.effective_user.id)
         usar_datos_usuario = df is not None and not df.empty
 
-        buffer, nombre_archivo = await asyncio.to_thread(crear_tabla_dinamica, df)
+        buffer, nombre_archivo, es_nativa = await asyncio.to_thread(crear_tabla_dinamica, df)
 
-        if usar_datos_usuario:
+        if es_nativa:
             caption = (
                 "📊 Tabla dinámica con tus datos\n\n"
                 "· Hoja Datos — tus datos originales\n"
-                "· Hoja Tabla Dinámica — resúmenes agrupados\n\n"
+                "· Hoja Tabla Dinámica — tabla dinámica interactiva lista para usar\n\n"
+                "Puedes filtrar, agrupar y cambiar los campos directamente en Excel."
+                if usar_datos_usuario else
+                "📊 Ejemplo de tabla dinámica (datos de muestra)\n\n"
+                "· Hoja Datos — datos de ejemplo\n"
+                "· Hoja Tabla Dinámica — tabla dinámica interactiva lista para usar\n\n"
+                "Sube tu Excel y repite la petición para generarla con tus propios datos."
+            )
+        elif usar_datos_usuario:
+            caption = (
+                "📊 Tabla dinámica con tus datos\n\n"
+                "· Hoja Datos — tus datos originales\n"
+                "· Hoja Resúmenes — resúmenes agrupados\n\n"
                 "💡 En Excel: Insertar → Tabla dinámica para la versión interactiva."
             )
         else:

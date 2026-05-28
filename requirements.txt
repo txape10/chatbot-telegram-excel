@@ -13,3 +13,5 @@ uvicorn==0.34.3
 aiofiles==24.1.0
 libsql-experimental==0.0.55
 psutil==6.1.1
+# xlwings  -- opcional: solo en Windows con Excel instalado para tablas dinámicas nativas
+#             Instalar manualmente: pip install xlwings
