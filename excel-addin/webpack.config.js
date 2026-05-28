@@ -86,8 +86,26 @@ module.exports = async (env, options) => {
       new CopyWebpackPlugin({
         patterns: [
           {
-            from: "assets/*",
-            to: "assets/[name][ext][query]",
+            from: path.resolve(__dirname, "assets", "logo-addin"),
+            to: "assets/logo-addin",
+            // Solo iconos funcionales — los assets de Microsoft Store (marquee,
+            // small-tile, store-icon) y archivos de referencia (manifest.json,
+            // *.jpg) se quedan en la carpeta fuente pero no van al dist.
+            globOptions: {
+              ignore: ["**/*.json", "**/*.jpg", "**/marquee-*", "**/small-tile-*", "**/store-icon-*"],
+            },
+          },
+          {
+            from: path.resolve(__dirname, "assets", "logo-github"),
+            to: "assets/logo-github",
+            // Solo las versiones de avatar usadas en el footer
+            globOptions: {
+              ignore: ["**/logo_txape.png", "**/logo_txape_64.png"],
+            },
+          },
+          {
+            from: path.resolve(__dirname, "assets", "logo-theme"),
+            to: "assets/logo-theme",
           },
           {
             from: "manifest*.xml",

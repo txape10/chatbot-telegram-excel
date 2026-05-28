@@ -9,6 +9,9 @@ Asistente de inteligencia artificial para Microsoft Excel accesible desde dos ca
 Ambos canales comparten el mismo motor de IA y pueden instalarse juntos o por separado.
 
 ---
+## HOW — Filosofía de Desarrollo
+Consulta `docs/karpathy-guidelines.md` para aplicar con rigor absoluto las normas de Andrej Karpathy (evitar sobreingeniería, realizar cambios quirúrgicos, mantener la simplicidad y no asumir nada sin preguntar).
+
 
 ## HOW — Stack técnico
 

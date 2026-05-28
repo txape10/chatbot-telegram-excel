@@ -42,7 +42,7 @@ export const TEMAS = [
     id: "zelda",
     nombre: "Zelda",
     activo: false,   // oculto — se desbloquea con el Easter egg
-    logo: "assets/logo_zelda.png",
+    logo: "assets/logo-theme/logo_zelda.png",
     vars: {
       "--color-primario":          "#1B4D1B",
       "--color-acento":            "#C8A84B",
@@ -59,7 +59,7 @@ export const TEMAS = [
     id: "empresa",
     nombre: _NOMBRE_EMPRESA,
     activo: true,
-    logo: "assets/logo_union.png",
+    logo: "assets/logo-theme/logo_union.png",
     subtitulo: _NOMBRE_EMPRESA,
     vars: {
       "--color-primario":          "#D42B2B",

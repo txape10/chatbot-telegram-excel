@@ -556,6 +556,33 @@ textarea:focus {
   cursor: default;
 }
 
+/* --- Footer desarrollador --- */
+.footer-dev {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--color-borde);
+  font-size: 10px;
+  color: #b0b0b0;
+  letter-spacing: .02em;
+}
+
+.footer-dev-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  opacity: .5;
+  filter: grayscale(40%);
+  transition: opacity .2s, filter .2s;
+}
+
+.footer-dev:hover .footer-dev-avatar {
+  opacity: .85;
+  filter: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Acceso no autorizado                                                        */
 /* ═══════════════════════════════════════════════════════════════════════════ */
