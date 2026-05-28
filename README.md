@@ -130,7 +130,7 @@ Las operaciones destructivas piden confirmación. "Deshacer" restaura el estado 
 ### Creación y exportación
 - "Hazme un Excel con columnas Fecha, Concepto, Importe" → genera y envía el `.xlsx`
 - Plantillas listas: presupuesto, gastos, KPIs, inventario
-- Tabla dinámica: Excel Table + resúmenes estáticos
+- Tabla dinámica: PivotTable nativa (Windows + Excel) o Excel Table + resúmenes estáticos (Render/Linux)
 - Gráficos personalizados: barras, líneas, sectores, dispersión
 - Exportar como CSV
 
@@ -282,4 +282,4 @@ pytest
 - [x] Tests completos para todos los sprints (352/352 ✅)
 - [ ] Autenticación SSO con Azure Active Directory
 - [ ] Despliegue en servidor de empresa con Cloudflare Tunnel
-- [ ] Tablas dinámicas interactivas nativas (Windows + Excel en servidor)
+- [x] Tablas dinámicas nativas con xlwings (auto-detect Windows/Linux; activa con `pip install xlwings` en servidor empresa)

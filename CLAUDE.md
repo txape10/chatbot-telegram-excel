@@ -180,7 +180,7 @@ ADDIN_URL=
 | Undo con slot `_undo` en `df_context` | `guardar_df()` auto-guarda antes de sustituir; `restaurar_undo()` hace swap activo↔undo |
 | `context.user_data["op_pendiente"]` para confirmaciones | Persiste el JSON de operación destructiva entre mensaje y callback (límite 64 bytes de callback_data) |
 | Macros como lista DSL en SQLite | Sin código arbitrario; el LLM convierte descripción → lista de operaciones JSON |
-| Excel Table en lugar de TD nativa | openpyxl no puede crear PivotTable interactivas; la Excel Table permite crearla en 2 clicks desde Excel |
+| xlwings para TD nativa + openpyxl como fallback | En Windows + Excel instalado: PivotTable real vía COM API. En Linux/Render: Excel Table + resúmenes estáticos. `PIVOT_NATIVO_DISPONIBLE` detecta el entorno al arrancar. |
 | TTS con `edge-tts` (sin API key) | Microsoft Neural TTS gratuito; voz `es-ES-ElviraNeural`; cap 600 chars |
 | Temas visuales con CSS Custom Properties | Cambio de tema sin recargar la página; localStorage persiste la preferencia |
 | Easter egg Zelda con Web Audio API | Jingle sintetizado con OscillatorNode (onda cuadrada NES); no requiere archivos de audio |
@@ -220,6 +220,11 @@ ADDIN_URL=
 - **Tests Sprint C (2026-05-26)**: 20 tests para formato condicional — `_describir_regla_formato()` (7 tipos) + `POST /format` con mock LLM. Suite total: 403/403 ✅
 - **Notificaciones rediseñadas (2026-05-26)**: tabla `alert_config` con 5 tipos (arranque, bot_error, disco, error_500, ram); activar/desactivar por tipo desde el panel admin (tab Sistema); `utils/alert_config.py`; checks `esta_activo(tipo)` en cada punto de envío
 - **Sprint RAG — Feedback (2026-05-26)**: tabla `feedback_rag` en SQLite; `POST /feedback` desde el Add-in; botón 👍 en respuestas de texto; few-shot inyectado en `_construir_mensajes()` vía `user_id`; `utils/rag.py`
+- **Logos reorganizados (2026-05-28)**: carpetas `logo-addin/`, `logo-theme/`, `logo-github/` en `excel-addin/assets/`; iconos 64px y 80px generados con Pillow; `logo-filled.png` regenerado; webpack CopyPlugin actualizado con `globOptions.ignore`; referencias actualizadas en `manifest.xml`, `themes.js`, `taskpane.html`
+- **Footer desarrollador (2026-05-28)**: avatar circular 18px + texto "Desarrollado por txape10" en footer del Add-in; estilos CSS con hover effect; imágenes a 18px y 36px (retina) generadas con Pillow
+- **Historial LLM persistente (2026-05-28)**: `_CLAVE_HISTORIAL_LLM` en localStorage; `_cargarHistorialLLM()` en `Office.onReady`; `limpiarHistorial()` borra también localStorage; survives page reloads
+- **Exportar stats a CSV (2026-05-28)**: `GET /admin/stats.csv` con `StreamingResponse` y `Content-Disposition`; botón "⬇ CSV" en panel admin tab Usuarios
+- **Tablas dinámicas nativas con xlwings (2026-05-28)**: `PIVOT_NATIVO_DISPONIBLE` en `config.py`; `_detectar_columnas()` + `_crear_tabla_dinamica_nativa()` en `excel/exporter.py`; `crear_tabla_dinamica()` devuelve 3-tupla `(buf, nombre, es_nativa)`; `/pivote` muestra caption diferenciado; fallback automático a openpyxl si xlwings no está disponible o falla
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
@@ -230,7 +235,7 @@ ADDIN_URL=
 
 - **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
-- Tablas dinámicas interactivas nativas con **xlwings** (gratuito, requiere Windows + Excel en el servidor). Activación automática: al arrancar se detecta `platform.system() == "Windows"` + `xlwings` disponible → flag `PIVOT_NATIVO_DISPONIBLE`. En Linux (Render) sigue usando la alternativa actual de openpyxl. Implementar cuando esté disponible el servidor Windows de empresa.
+- **xlwings**: código ya implementado y desplegado. Solo requiere `pip install xlwings` en el servidor Windows de empresa para activarse automáticamente.
 
 ---
 
