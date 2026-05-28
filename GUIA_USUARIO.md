@@ -343,7 +343,19 @@ Elige entre cuatro plantillas listas para usar: **Presupuesto personal**, **Cont
 /pivote
 ```
 
-Genera un `.xlsx` con tu archivo activo formateado como **Excel Table** (con filtros activados) y una segunda hoja con resúmenes estáticos. Para crear la tabla dinámica interactiva en Excel: `Insertar → Tabla dinámica → Aceptar`.
+Genera un `.xlsx` listo para analizar con tabla dinámica:
+
+- **Con datos propios**: sube primero tu archivo `.xlsx` o `.csv` y luego ejecuta `/pivote`. El bot usa tus columnas reales.
+- **Sin datos**: genera un ejemplo con datos de ventas ficticios para que veas cómo funciona.
+
+El archivo resultante incluye siempre una hoja **Datos** con la tabla fuente y una segunda hoja con el análisis:
+
+| Entorno | Segunda hoja |
+|---|---|
+| Windows + Excel instalado | **Tabla Dinámica** — PivotTable interactiva nativa, lista para filtrar y agrupar directamente |
+| Render / Linux (producción cloud) | **Resúmenes** — resúmenes agrupados estáticos + nota para crear la PivotTable desde `Insertar → Tabla dinámica` |
+
+> 💡 Si el servidor de empresa está en Windows con Excel instalado, recibirás la PivotTable interactiva directamente. En la instancia cloud (Render) recibirás los resúmenes estáticos.
 
 ---
 
@@ -579,6 +591,17 @@ El Add-in es un panel lateral dentro de Excel que te permite consultar y modific
    - *Debajo* — escribe debajo del rango
    - *Nueva hoja* — crea una hoja nueva con el resultado
 
+### Enviar al bot de Telegram
+
+El botón **📤 Enviar al bot** convierte el rango seleccionado en un `.xlsx` y lo envía directamente a tu chat de Telegram, sin copiar ni pegar nada.
+
+**Primera vez — vincular el dispositivo:**
+
+1. En Telegram escribe `/vincular tu@email.com`
+2. Luego escribe `/codigo` — recibirás un código de 6 dígitos (válido 5 minutos)
+3. En el Add-in pulsa **📤 Enviar al bot** e introduce el código cuando se pida
+4. A partir de ese momento el botón envía directamente sin pedir código
+
 ### Barra de archivo activo
 
 La barra superior del panel muestra en todo momento:
@@ -587,9 +610,11 @@ La barra superior del panel muestra en todo momento:
 
 ### Historial de conversación
 
-El panel guarda tus últimas 20 preguntas y respuestas en el navegador (localStorage). Puedes:
-- **Plegar/desplegar** el historial haciendo clic en la cabecera `💬 Historial`
-- **Limpiar** el historial con el botón 🗑
+El panel guarda tus preguntas y respuestas en el navegador (localStorage). Cierra y vuelve a abrir Excel: el historial sigue ahí.
+
+- **Historial visible**: las últimas conversaciones mostradas en el panel, plegable con clic en `💬 Historial`
+- **Contexto para la IA**: los últimos 3 turnos (6 mensajes) se incluyen en cada petición para que la IA recuerde el hilo de la conversación
+- **Limpiar**: botón 🗑 borra tanto el historial visible como el contexto de la IA
 
 ### Temas visuales
 
@@ -612,6 +637,9 @@ Pulsa ⚙️ en la cabecera para cambiar entre los temas disponibles. Hay un tem
 | `/estado` | Ver estado actual de la sesión |
 | `/privado` | Activar/desactivar modo privado |
 | `/limpiar` | Borrar historial y archivos activos |
+| `/vincular [email]` | Vincular tu cuenta con el Add-in de Excel |
+| `/desvincular [email]` | Eliminar vinculación (uno o todos los emails) |
+| `/codigo` | Genera un código efímero de 6 dígitos para emparejar el Add-in |
 
 ### Modo privado
 
@@ -637,7 +665,7 @@ Borra el historial de conversación y libera los archivos activos (activo, secun
 No de forma permanente. Los archivos se procesan en memoria y se eliminan al limpiar la sesión o al reiniciar el bot. Solo se guardan en SQLite las preferencias de usuario, el historial de conversación y las macros que tú guardes explícitamente. Si activas el modo privado (`/privado`), ni siquiera el historial se guarda.
 
 **¿Qué pasa si subo un archivo muy grande?**
-El bot tiene límites de seguridad (por defecto: 50.000 filas, 100 columnas, 10 hojas). Si tu archivo los supera, recibirás un mensaje de aviso.
+El bot tiene límites de seguridad (por defecto: 100.000 filas, 100 columnas, 10 hojas, 20 MB). Si tu archivo los supera, recibirás un mensaje de aviso.
 
 **¿El bot puede ejecutar código en mi PC?**
 No. Todas las operaciones sobre datos usan un lenguaje de instrucciones estructurado (DSL). El LLM extrae la intención y la convierte en una operación concreta, pero nunca se ejecuta código arbitrario.
