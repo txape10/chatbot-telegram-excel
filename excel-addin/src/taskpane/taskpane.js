@@ -30,8 +30,9 @@ const _MAX_HISTORIAL     = 20;
 let _historialAbierto    = true;
 
 // Historial de conversación enviado al LLM (contexto multi-turno)
-let _historialLLM        = [];
-const _MAX_TURNOS_LLM    = 6; // 3 turnos (user+model) para no saturar el contexto
+const _CLAVE_HISTORIAL_LLM = "asistente-excel-historial-llm";
+let _historialLLM          = [];
+const _MAX_TURNOS_LLM      = 6; // 3 turnos (user+model) para no saturar el contexto
 
 Office.onReady(() => {
   if (!estaAutorizado()) {
@@ -52,6 +53,7 @@ Office.onReady(() => {
   construirSelectorTemas();
   _inicializarBarraArchivo();
   _renderizarHistorial();
+  _cargarHistorialLLM();
   cargarConfigAddin();
 
   document.getElementById("pregunta").addEventListener("keydown", (e) => {
@@ -822,6 +824,16 @@ function _actualizarHistorialLLM(pregunta, respuesta) {
   if (_historialLLM.length > _MAX_TURNOS_LLM) {
     _historialLLM = _historialLLM.slice(_historialLLM.length - _MAX_TURNOS_LLM);
   }
+  localStorage.setItem(_CLAVE_HISTORIAL_LLM, JSON.stringify(_historialLLM));
+}
+
+function _cargarHistorialLLM() {
+  try {
+    const guardado = localStorage.getItem(_CLAVE_HISTORIAL_LLM);
+    if (guardado) _historialLLM = JSON.parse(guardado);
+  } catch (_e) {
+    _historialLLM = [];
+  }
 }
 
 function _renderizarHistorial() {
@@ -886,6 +898,7 @@ function toggleHistorial() {
 function limpiarHistorial(event) {
   event.stopPropagation();   // no colapsar el panel al limpiar
   localStorage.removeItem(_CLAVE_HISTORIAL);
+  localStorage.removeItem(_CLAVE_HISTORIAL_LLM);
   _historialLLM = [];        // también limpiar el contexto enviado al LLM
   _renderizarHistorial();
 }

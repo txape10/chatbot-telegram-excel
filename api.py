@@ -731,6 +731,36 @@ def admin_stats(_: None = Depends(_verificar_admin)) -> dict:
     return obtener_estadisticas()
 
 
+@app.get("/admin/stats.csv")
+def admin_stats_csv(_: None = Depends(_verificar_admin)):
+    """Exporta la tabla de usuarios en formato CSV."""
+    import csv, io
+    from utils.stats import obtener_estadisticas
+    from fastapi.responses import StreamingResponse
+
+    stats = obtener_estadisticas()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["user_id", "email", "msgs_enviados", "total_msgs",
+                     "ultima_actividad", "version_excel", "modo_respuesta"])
+    for u in stats["usuarios"]:
+        writer.writerow([
+            u["user_id"],
+            u.get("email") or "",
+            u.get("msgs_enviados", 0),
+            u.get("total_msgs", 0),
+            u.get("ultima_actividad", ""),
+            u.get("version_excel") or "",
+            u.get("modo_respuesta") or "",
+        ])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=usuarios.csv"},
+    )
+
+
 
 @app.delete("/admin/vinculos")
 def admin_eliminar_vinculo(telegram_id: int = Query(...),
@@ -1466,7 +1496,13 @@ def _renderizar_admin_html(
     </div>
 
     <div class="section">
-      <div class="section-head">👤 Todos los usuarios ({stats['total_usuarios']})</div>
+      <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>👤 Todos los usuarios ({stats['total_usuarios']})</span>
+        <a onclick="const k=new URLSearchParams(location.search).get('key');location.href='/admin/stats.csv?key='+encodeURIComponent(k)"
+           style="font-size:.75rem;padding:4px 10px;background:#217346;color:#fff;border-radius:3px;text-decoration:none;cursor:pointer;">
+          ⬇ CSV
+        </a>
+      </div>
       <table>
         <thead>
           <tr>
