@@ -110,13 +110,13 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
         return None
 
 
-def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
+def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> list[dict] | dict | None:
     """Llama al LLM con el prompt de edición y parsea el JSON.
 
     Devuelve:
-      - dict con la operación DSL     → aplicar edición
-      - {"aclaracion_necesaria": True, "pregunta": ..., "opciones": [...]}  → pedir aclaración
-      - None                           → RESPUESTA_LIBRE o error de parseo
+      - list[dict]  → pipeline de operaciones DSL a ejecutar en orden
+      - dict con aclaracion_necesaria=True → pedir aclaración al usuario
+      - None        → RESPUESTA_LIBRE o error de parseo
     """
     from prompts.excel import EDITOR_DSL_SISTEMA, EDITOR_DSL_USUARIO
 
@@ -133,15 +133,22 @@ def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> dict | None:
                 )},
             ],
             temperature=0,
-            max_tokens=500,
+            max_tokens=600,
         )
         logger.debug("Respuesta editor DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
         parsed = json.loads(_limpiar_json(texto))
-        # Propagar aclaración tal cual — el handler decide qué hacer
-        return parsed
+        # Aclaración → dict plano (no es un pipeline)
+        if isinstance(parsed, dict) and parsed.get("aclaracion_necesaria"):
+            return parsed
+        # Pipeline → siempre lista; normalizar dict suelto por si el LLM no siguió el formato
+        if isinstance(parsed, dict):
+            return [parsed]
+        if isinstance(parsed, list):
+            return parsed
+        return None
     except Exception as error:
         logger.warning("Error extrayendo operación de edición: %s", error)
         return None

@@ -454,70 +454,110 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
     )}
 
 
-@app.post("/edit")
-def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
-         __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
-    df = _a_dataframe(peticion.datos)
+def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) -> list[dict]:
+    """Ejecuta una lista de operaciones DSL secuencialmente.
 
-    op = extraer_operacion_edicion(df, peticion.instruccion)
-    if op:
+    Las operaciones de datos (ordenar, filtrar, etc.) modifican df_actual en orden.
+    Las operaciones visuales (formato_condicional, grafico, tabla_dinamica) se ejecutan
+    con el df_actual resultante de todos los pasos de datos anteriores.
+
+    Devuelve la lista de pasos con sus resultados, lista para devolver al cliente.
+    """
+    pasos: list[dict] = []
+    df_actual = df
+
+    for op in ops:
+        # Normalizar nombre del campo op
         if "op" not in op and "operacion" in op:
+            op = dict(op)
             op["op"] = op.pop("operacion")
 
-        # formato_condicional → delegar en CF real de Office.js (no coloreado estático pandas)
-        if op.get("op") == "formato_condicional":
-            reglas = extraer_regla_formato(df, peticion.instruccion)
+        nombre_op = op.get("op", "")
+
+        # ── Ops visuales: no modifican df, usan df_actual hasta este punto ──────
+        if nombre_op == "formato_condicional":
+            reglas = extraer_regla_formato(df_actual, instruccion)
             if reglas:
-                return {
+                pasos.append({
                     "tipo": "formato",
                     "reglas": reglas,
                     "descripcion": _describir_reglas_formato(reglas),
-                }
+                })
 
-        # grafico → extraer parámetros y preparar datos para Office.js chart
-        if op.get("op") == "grafico":
-            params = extraer_peticion_grafico(df, peticion.instruccion)
+        elif nombre_op == "grafico":
+            params = extraer_peticion_grafico(df_actual, instruccion)
             if params:
-                return _preparar_respuesta_grafico(df, params)
+                pasos.append(_preparar_respuesta_grafico(df_actual, params))
 
-        # tabla_dinamica → extraer parámetros y delegar en PivotTable de Office.js
-        if op.get("op") == "tabla_dinamica":
-            params = extraer_params_pivote(df, peticion.instruccion)
+        elif nombre_op == "tabla_dinamica":
+            params = extraer_params_pivote(df_actual, instruccion)
             if params:
-                return {
+                pasos.append({
                     "tipo": "tabla_dinamica",
                     "params": params,
                     "descripcion": (
                         f"Tabla dinámica: {', '.join(params.get('filas', []))} "
                         f"→ {params.get('valores')} ({params.get('funcion', 'suma')})"
                     ),
-                }
+                })
 
-        try:
-            df_mod, descripcion, _extras = aplicar_edicion(df, op)
+        # ── Ops de datos: modifican df_actual ────────────────────────────────────
+        else:
+            try:
+                df_actual, descripcion, _extras = aplicar_edicion(df_actual, op)
+                pasos.append({
+                    "tipo": "edicion",
+                    "datos_modificados": _df_a_matriz(df_actual),
+                    "descripcion": descripcion,
+                })
+            except EditorError as error:
+                logger.warning("Op '%s' falló en pipeline: %s", nombre_op, error)
+
+    return pasos
+
+
+@app.post("/edit")
+def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
+         __: None = Depends(_verificar_addin_activo)) -> dict:
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
+    df = _a_dataframe(peticion.datos)
+
+    resultado = extraer_operacion_edicion(df, peticion.instruccion)
+
+    # Aclaración → devolver al frontend antes de ejecutar nada
+    if isinstance(resultado, dict) and resultado.get("aclaracion_necesaria"):
+        return {"tipo": "aclaracion", **resultado}
+
+    if isinstance(resultado, list) and resultado:
+        # Verificar si algún op de la lista necesita aclaración
+        for op in resultado:
+            if isinstance(op, dict) and op.get("aclaracion_necesaria"):
+                return {"tipo": "aclaracion", **op}
+
+        pasos = _ejecutar_pipeline(df, resultado, peticion.instruccion)
+
+        if pasos:
+            # Un solo paso → devolver directamente (retrocompatibilidad con frontend)
+            if len(pasos) == 1:
+                return pasos[0]
             return {
-                "tipo": "edicion",
-                "datos_modificados": _df_a_matriz(df_mod),
-                "descripcion": descripcion,
+                "tipo": "pipeline",
+                "pasos": pasos,
+                "descripcion": "; ".join(p.get("descripcion", "") for p in pasos),
             }
-        except EditorError as error:
-            logger.warning("Editor falló, intentando query DSL: %s", error)
 
     # La petición no es una edición → intentar como consulta de datos
     query = extraer_query_dsl(df, peticion.instruccion)
     if query and not query.get("aclaracion_necesaria"):
         try:
-            resultado, descripcion = ejecutar_query(df, query)
-            if isinstance(resultado, pd.DataFrame) and not resultado.empty:
-                # Resultado tabular → se puede escribir en celdas
+            resultado_q, descripcion = ejecutar_query(df, query)
+            if isinstance(resultado_q, pd.DataFrame) and not resultado_q.empty:
                 return {
                     "tipo": "edicion",
-                    "datos_modificados": _df_a_matriz(resultado),
+                    "datos_modificados": _df_a_matriz(resultado_q),
                     "descripcion": descripcion,
                 }
-            # Resultado escalar → mostrar como texto
-            return {"tipo": "texto", "respuesta": _resultado_a_texto(resultado, descripcion)}
+            return {"tipo": "texto", "respuesta": _resultado_a_texto(resultado_q, descripcion)}
         except QueryError as error:
             logger.warning("Query DSL falló, usando LLM libre: %s", error)
 

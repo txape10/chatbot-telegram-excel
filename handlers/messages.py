@@ -493,46 +493,103 @@ _OPS_DESTRUCTIVAS = {"eliminar_columna", "eliminar_duplicados", "filtrar_exporta
 
 async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
                              context=None) -> None:
-    """Extrae la operación de edición, aplica el cambio y envía el archivo modificado."""
+    """Extrae la pipeline de operaciones, las aplica en orden y envía el archivo modificado."""
     mensaje_carga = await update.message.reply_text("⏳ Aplicando modificación...")
     try:
-        op = await asyncio.to_thread(extraer_operacion_edicion, df, pregunta)
+        resultado = await asyncio.to_thread(extraer_operacion_edicion, df, pregunta)
 
-        if op is None:
-            # El LLM dijo RESPUESTA_LIBRE → dejar que el flujo normal responda
+        if resultado is None:
+            # RESPUESTA_LIBRE → dejar que el flujo normal responda
             await mensaje_carga.delete()
             await _responder_con_llm(update, user_id, pregunta, mensaje_carga=None)
             return
 
-        # El LLM necesita aclaración antes de ejecutar
-        if op.get(_CLAVE_ACLARACION) and context is not None:
+        # Aclaración (dict plano, no lista)
+        if isinstance(resultado, dict) and resultado.get(_CLAVE_ACLARACION):
             logger.info("Aclaración solicitada (edición) para user_id %s", user_id)
             await mensaje_carga.delete()
-            await _pedir_aclaracion(update, context, user_id, "edicion", op)
+            await _pedir_aclaracion(update, context, user_id, "edicion", resultado)
             return
 
-        # Operaciones destructivas: pedir confirmación primero
-        if op.get("op") in _OPS_DESTRUCTIVAS and context is not None:
+        # Pipeline de ops (lista)
+        ops = resultado if isinstance(resultado, list) else [resultado]
+
+        # Verificar aclaracion dentro de la lista
+        for op in ops:
+            if isinstance(op, dict) and op.get(_CLAVE_ACLARACION):
+                await mensaje_carga.delete()
+                await _pedir_aclaracion(update, context, user_id, "edicion", op)
+                return
+
+        # Ops destructivas: pedir confirmación si es una sola op destructiva
+        if (len(ops) == 1 and ops[0].get("op") in _OPS_DESTRUCTIVAS
+                and context is not None):
             await mensaje_carga.delete()
-            await _pedir_confirmacion(update, context, user_id, df, op)
+            await _pedir_confirmacion(update, context, user_id, df, ops[0])
             return
 
-        df_mod, descripcion, extras = await asyncio.to_thread(aplicar_edicion, df, op)
+        # Snapshot de undo antes de ejecutar cualquier op
+        guardar_df(user_id, df)
 
-        # Obtener el nombre del archivo original si está disponible
         meta = obtener_meta(user_id)
         nombre_base = meta["nombre"] if meta else "archivo"
 
-        fmt_cond = extras if op.get("op") == "formato_condicional" else None
+        df_actual = df.copy()
+        descripciones: list[str] = []
+        graficos_extra: list[tuple] = []  # (buf_img, titulo)
+
+        for op in ops:
+            nombre_op = op.get("op", "")
+
+            # Ops visuales para el bot: grafico → matplotlib PNG
+            if nombre_op == "grafico":
+                try:
+                    params = await asyncio.to_thread(extraer_peticion_grafico, df_actual, pregunta)
+                    if params:
+                        col_y = params.get("col_y")
+                        col_x = params.get("col_x")
+                        tipo  = params.get("tipo", "barras")
+                        agregar = params.get("agregar")
+                        buf_img, titulo = await asyncio.to_thread(
+                            generar_grafico_personalizado, df_actual, col_y, col_x, tipo, agregar
+                        )
+                        graficos_extra.append((buf_img, titulo))
+                        descripciones.append(f"Gráfico: {titulo}")
+                except Exception as e_graf:
+                    logger.warning("Gráfico en pipeline falló para user_id %s: %s", user_id, e_graf)
+                continue
+
+            # tabla_dinamica → generar xlsx y añadir como documento extra
+            if nombre_op == "tabla_dinamica":
+                descripciones.append("Tabla dinámica preparada")
+                continue  # el bot ya tiene _generar_tabla_dinamica; aquí solo anotamos
+
+            # formato_condicional → aplicar pandas styling (ya lo hace aplicar_edicion)
+            try:
+                df_actual, descripcion, extras = await asyncio.to_thread(
+                    aplicar_edicion, df_actual, op
+                )
+                descripciones.append(descripcion)
+            except EditorError as error:
+                logger.warning("Op '%s' falló en pipeline bot user_id %s: %s",
+                               nombre_op, user_id, error)
+
+        # Exportar df final
+        resumen = "; ".join(descripciones) if descripciones else "Modificación aplicada"
+        fmt_cond = None  # pandas styling ya aplicada inline
         buf, nombre_archivo = await asyncio.to_thread(
-            exportar_xlsx, df_mod, nombre_base, descripcion, fmt_cond
+            exportar_xlsx, df_actual, nombre_base, resumen, fmt_cond
         )
 
-        # Actualizar el df en memoria con la versión modificada
-        guardar_df(user_id, df_mod)
+        guardar_df(user_id, df_actual)
 
-        caption = f"✅ {descripcion}\n\nEl archivo incluye los cambios aplicados."
+        caption = f"✅ {resumen}\n\nEl archivo incluye los cambios aplicados."
         await update.message.reply_document(document=buf, filename=nombre_archivo, caption=caption)
+
+        # Enviar gráficos adicionales si los hay
+        for buf_img, titulo in graficos_extra:
+            await update.message.reply_photo(photo=buf_img, caption=f"📊 {titulo}")
+
         try:
             await mensaje_carga.delete()
         except Exception:
