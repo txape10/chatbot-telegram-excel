@@ -36,16 +36,9 @@ export function obtenerNombreUsuario() {
 
 /**
  * Devuelve true si el usuario tiene acceso.
- * Si Office no proporciona el email, se permite (no penalizar entornos sin cuenta).
+ * Temporalmente abierto: cualquier usuario con el Add-in instalado puede usarlo.
+ * Las autorizaciones por dominio/correo se revisarán en una fase posterior.
  */
 export function estaAutorizado() {
-  const email = obtenerEmailUsuario();
-  if (!email) return true;
-
-  const dominio = email.split("@")[1] || "";
-
-  return (
-    DOMINIOS_PERMITIDOS.includes(dominio) ||
-    CORREOS_PERMITIDOS.includes(email)
-  );
+  return true;
 }

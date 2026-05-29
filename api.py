@@ -268,6 +268,7 @@ class PeticionPregunta(BaseModel):
     historial: list[dict] = []
     device_id: str | None = None
     user_email: str | None = None
+    display_name: str | None = None
     excel_version: str | None = None
 
 
@@ -281,6 +282,7 @@ class PeticionEdicion(BaseModel):
     historial: list[dict] = []
     device_id: str | None = None
     user_email: str | None = None
+    display_name: str | None = None
     excel_version: str | None = None
 
 
@@ -289,6 +291,7 @@ class PeticionFormato(BaseModel):
     instruccion: str
     device_id: str | None = None
     user_email: str | None = None
+    display_name: str | None = None
     excel_version: str | None = None
 
 
@@ -371,29 +374,38 @@ def health():
 _ADDIN_ANON_ID = 0
 
 
-def _usuario_addin(device_id: str | None) -> int:
-    """Devuelve el telegram_id vinculado al device_id, o _ADDIN_ANON_ID si no hay vínculo."""
-    if device_id:
-        from utils.user_links import obtener_device_link
-        link = obtener_device_link(device_id)
-        if link:
-            return link["telegram_id"]
-    return _ADDIN_ANON_ID
+def _usuario_addin(device_id: str | None, display_name: str | None = None) -> int:
+    """Devuelve el user_id para este device_id.
+
+    Prioridad:
+    1. telegram_id si el dispositivo está vinculado (flujo B / por nombre / por email)
+    2. user_id negativo estable asignado por device_emails (usuario Add-in propio)
+    3. _ADDIN_ANON_ID (0) si no hay device_id en absoluto
+    """
+    if not device_id:
+        return _ADDIN_ANON_ID
+    from utils.user_links import obtener_device_link
+    link = obtener_device_link(device_id)
+    if link:
+        return link["telegram_id"]
+    from utils.device_emails import obtener_o_crear_usuario
+    return obtener_o_crear_usuario(device_id, display_name=display_name)
 
 
 def _registrar_addin(
     device_id: str | None,
     texto: str,
     user_email: str | None = None,
+    display_name: str | None = None,
     excel_version: str | None = None,
 ) -> None:
     """Escribe la pregunta del Add-in en historial para que el usuario aparezca en el panel."""
     try:
         from utils.history import agregar_mensaje
-        agregar_mensaje(_usuario_addin(device_id), "user", texto[:2000])
-        if device_id and user_email:
+        agregar_mensaje(_usuario_addin(device_id, display_name), "user", texto[:2000])
+        if device_id:
             from utils.device_emails import guardar_email
-            guardar_email(device_id, user_email, excel_version)
+            guardar_email(device_id, user_email, display_name, excel_version)
     except Exception as exc:
         logger.warning("No se pudo registrar uso del Add-in: %s", exc)
 
@@ -406,9 +418,9 @@ def _verificar_addin_activo():
 @app.post("/ask")
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email, peticion.excel_version)
+    _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email, peticion.display_name, peticion.excel_version)
     # Sin datos: el LLM decide si crear tabla o responder como chat
-    _uid_ask = _usuario_addin(peticion.device_id)
+    _uid_ask = _usuario_addin(peticion.device_id, peticion.display_name)
     if not peticion.datos or len(peticion.datos) < 2:
         estructura = extraer_estructura_excel(peticion.pregunta)
         if estructura:
@@ -519,7 +531,7 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
 @app.post("/edit")
 def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
          __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.display_name, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
 
     resultado = extraer_operacion_edicion(df, peticion.instruccion)
@@ -643,7 +655,7 @@ def _describir_reglas_formato(reglas: list[dict]) -> str:
 @app.post("/format")
 def format_condicional(peticion: PeticionFormato, _: None = Depends(_verificar_clave),
                        __: None = Depends(_verificar_addin_activo)) -> dict:
-    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
+    _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.display_name, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
     reglas = extraer_regla_formato(df, peticion.instruccion)
     if not reglas:
@@ -931,20 +943,19 @@ def admin_panel(_: None = Depends(_verificar_admin)):
     stats_ses = obtener_stats_usuarios_avanzadas()
     sistema  = _obtener_info_sistema()
     logs     = _leer_logs_recientes(150)
-    # Parchar email y versión Excel para usuario anónimo del Add-in (user_id=0)
-    from utils.device_emails import obtener_info_devices
-    devices_addin = obtener_info_devices()
-    if devices_addin:
-        emails = [d["email"] for d in devices_addin]
-        # Versión: tomar la más reciente (último en la lista por email asc, o la única)
-        versiones = [d["excel_version"] for d in devices_addin if d["excel_version"]]
-        version_addin = versiones[-1] if versiones else None
-        for u in stats["usuarios"]:
-            if u["user_id"] == _ADDIN_ANON_ID:
-                if not u["email"]:
-                    u["email"] = ", ".join(emails)
-                if not u["version_excel"] and version_addin:
-                    u["version_excel"] = version_addin
+    # Enriquecer usuarios Add-in (user_id negativo) con email, display_name y excel_version
+    from utils.device_emails import obtener_info_devices, obtener_info_por_user_id
+    devices_addin = {d["user_id"]: d for d in obtener_info_devices() if d.get("user_id")}
+    for u in stats["usuarios"]:
+        uid = u["user_id"]
+        if uid < 0 and uid in devices_addin:
+            d = devices_addin[uid]
+            if not u["email"]:
+                u["email"] = d["email"]
+            if not u.get("display_name"):
+                u["display_name"] = d.get("display_name")
+            if not u["version_excel"] and d.get("excel_version"):
+                u["version_excel"] = d["excel_version"]
     return _renderizar_admin_html(stats, stats_ia, sistema, logs, stats_ses)
 
 
@@ -1115,15 +1126,23 @@ def _renderizar_admin_html(
 
     def _usuario_celda(uid):
         """Devuelve (identidad_html, tipo_badge) para tablas de usuarios."""
-        email = email_por_uid.get(uid, "")
-        if uid == _ADDIN_ANON_ID:
-            identidad = (
-                f"<span style='font-size:.85rem'>{email}</span>"
-                if email
-                else "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
-            )
+        u_data = next((u for u in stats["usuarios"] if u["user_id"] == uid), {})
+        email  = u_data.get("email") or email_por_uid.get(uid, "")
+        nombre = u_data.get("display_name") or ""
+        if uid <= 0:  # Add-in: uid negativo (propio) o 0 (legacy anónimo)
+            if nombre and email and not email.startswith("("):
+                identidad = (
+                    f"<span style='font-size:.85rem'>{nombre}</span>"
+                    f"<br><small style='color:#aaa'>{email}</small>"
+                )
+            elif nombre:
+                identidad = f"<span style='font-size:.85rem'>{nombre}</span>"
+            elif email:
+                identidad = f"<span style='font-size:.85rem'>{email}</span>"
+            else:
+                identidad = "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
             tipo = "<span class='badge-addin'>Add-in</span>"
-        else:
+        else:  # Telegram
             if email:
                 identidad = (
                     f"<span style='font-size:.85rem'>{email}</span>"

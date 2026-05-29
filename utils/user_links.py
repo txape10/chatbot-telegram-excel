@@ -187,3 +187,36 @@ def obtener_device_link(device_id: str) -> dict | None:
     if not fila:
         return None
     return {"telegram_id": fila[0], "email": fila[1]}
+
+
+def vincular_por_nombre(display_name: str, telegram_id: int) -> list[str]:
+    """Vincula todos los device_id cuyo display_name coincida con el telegram_id.
+
+    Búsqueda case-insensitive y sin espacios extra.
+    Devuelve la lista de device_ids vinculados.
+    Preparado para uso futuro desde el bot de Telegram.
+    """
+    from utils.device_emails import obtener_info_devices
+    nombre = display_name.strip().lower()
+    vinculados = []
+    for d in obtener_info_devices():
+        if (d.get("display_name") or "").strip().lower() == nombre:
+            guardar_device_link(d["device_id"], telegram_id, d["email"])
+            vinculados.append(d["device_id"])
+    return vinculados
+
+
+def vincular_por_email(email: str, telegram_id: int) -> list[str]:
+    """Vincula todos los device_id cuyo email coincida con el telegram_id.
+
+    Devuelve la lista de device_ids vinculados.
+    Preparado para uso futuro (SSO, Azure AD, etc.).
+    """
+    from utils.device_emails import obtener_info_devices
+    email_norm = email.strip().lower()
+    vinculados = []
+    for d in obtener_info_devices():
+        if (d.get("email") or "").strip().lower() == email_norm:
+            guardar_device_link(d["device_id"], telegram_id, email_norm)
+            vinculados.append(d["device_id"])
+    return vinculados

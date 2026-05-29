@@ -4,7 +4,7 @@ import {
   cargarTema, aplicarTema, aplicarTemaId, temasVisibles,
   TEMAS, desbloquearZelda, estaZeldaDesbloqueado,
 } from "./themes.js";
-import { estaAutorizado, obtenerEmailUsuario } from "./auth.js";
+import { estaAutorizado, obtenerEmailUsuario, obtenerNombreUsuario } from "./auth.js";
 
 const API_URL = "";          // relativo: misma origin que el servidor FastAPI
 /* global __API_KEY__ */
@@ -192,12 +192,30 @@ async function preguntar() {
       mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
       const respuesta = await llamarApi("/edit", {
         datos: valores, instruccion, historial: _historialLLM,
-        device_id: _obtenerOCrearDeviceId(),
-        user_email: obtenerEmailUsuario(),
+        device_id:    _obtenerOCrearDeviceId(),
+        user_email:   obtenerEmailUsuario(),
+        display_name: obtenerNombreUsuario(),
         excel_version: _obtenerExcelVersion(),
       });
 
-      if (respuesta.tipo === "tabla_dinamica" && respuesta.params) {
+      if (respuesta.tipo === "pipeline" && respuesta.pasos) {
+        // Pipeline multi-op: ejecutar cada paso en orden
+        mostrarEstado("Ejecutando pipeline...");
+        let ultimaEdicion = null;
+        for (const paso of respuesta.pasos) {
+          await _aplicarPaso(paso);
+          if (paso.tipo === "edicion") ultimaEdicion = paso;
+        }
+        // Si hay edición en el pipeline, abrir diálogo para el último dato modificado
+        if (ultimaEdicion) {
+          _datosModificados = ultimaEdicion.datos_modificados;
+          mostrarDialogo(respuesta.descripcion);
+        }
+        mostrarRespuesta("✅ " + respuesta.descripcion);
+        mostrarEstado("Pipeline aplicada · " + direccion);
+        _agregarAlHistorial(instruccion, "✅ " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "tabla_dinamica" && respuesta.params) {
         mostrarEstado("Creando tabla dinámica...");
         await _insertarTablaDinamica(respuesta.params);
         mostrarRespuesta("📊 " + respuesta.descripcion + "\n\nTabla dinámica creada en hoja nueva.");
@@ -211,9 +229,10 @@ async function preguntar() {
         mostrarEstado("Gráfico insertado · " + direccion);
         _agregarAlHistorial(instruccion, "📊 " + respuesta.descripcion);
         _actualizarHistorialLLM(instruccion, respuesta.descripcion);
-      } else if (respuesta.tipo === "formato" && respuesta.regla) {
-        // Formato condicional real de Office.js
-        await _aplicarFormatoCondicional(respuesta.regla);
+      } else if (respuesta.tipo === "formato" && (respuesta.reglas || respuesta.regla)) {
+        // Formato condicional real de Office.js (reglas = array; regla = legacy)
+        const reglas = respuesta.reglas || [respuesta.regla];
+        await _aplicarFormatosCondicionales(reglas);
         mostrarRespuesta("🎨 " + respuesta.descripcion);
         mostrarEstado("Formato aplicado · " + direccion);
         _agregarAlHistorial(instruccion, "🎨 " + respuesta.descripcion);
@@ -225,6 +244,12 @@ async function preguntar() {
         mostrarEstado("Edición lista · " + direccion);
         _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
         _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "aclaracion") {
+        // El backend necesita más info antes de ejecutar — mostrar como pregunta
+        const pregunta = respuesta.pregunta || "¿Puedes concretar más?";
+        const opciones = (respuesta.opciones || []).map((o) => `• ${o}`).join("\n");
+        mostrarRespuesta(`🤔 ${pregunta}${opciones ? "\n\n" + opciones : ""}`);
+        mostrarEstado("Se necesita aclaración");
       } else {
         const msg = respuesta.respuesta || respuesta.mensaje || "Sin respuesta";
         mostrarRespuesta(msg);
@@ -244,8 +269,9 @@ async function preguntar() {
       mostrarEstado("Consultando al asistente...");
       const respuesta = await llamarApi("/ask", {
         pregunta: instruccion, historial: _historialLLM,
-        device_id: _obtenerOCrearDeviceId(),
-        user_email: obtenerEmailUsuario(),
+        device_id:    _obtenerOCrearDeviceId(),
+        user_email:   obtenerEmailUsuario(),
+        display_name: obtenerNombreUsuario(),
         excel_version: _obtenerExcelVersion(),
       });
 
@@ -447,111 +473,162 @@ async function escribirEnExcel(destino) {
   }
 }
 
-async function _aplicarFormatoCondicional(regla) {
+/** Aplica una regla DSL individual sobre un rango ya cargado (sin sync propio). */
+function _aplicarUnaRegla(cfs, regla) {
+  switch (regla.tipo) {
+    case "valor": {
+      const cf   = cfs.add(Excel.ConditionalFormatType.cellValue);
+      const op   = _OP_CF[regla.op] || "greaterThan";
+      const rule = { formula1: String(regla.valor), operator: op };
+      if (regla.op === "entre" || regla.op === "fuera") {
+        rule.formula2 = String(regla.valor2 ?? regla.valor);
+      }
+      cf.cellValue.rule = rule;
+      cf.cellValue.format.fill.color = _colorCf(regla.color);
+      break;
+    }
+    case "top_bottom": {
+      const cf   = cfs.add(Excel.ConditionalFormatType.topBottom);
+      const tipo = regla.porcentaje
+        ? (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topPercent    : Excel.ConditionalTopBottomCriterionType.bottomPercent)
+        : (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topItems      : Excel.ConditionalTopBottomCriterionType.bottomItems);
+      cf.topBottom.rule = { rank: regla.n || 10, type: tipo };
+      cf.topBottom.format.fill.color = _colorCf(regla.color);
+      break;
+    }
+    case "escala": {
+      const cf     = cfs.add(Excel.ConditionalFormatType.colorScale);
+      const colors = regla.colores || ["rojo", "verde"];
+      const [c0, c1, c2] = colors;
+      if (colors.length === 2) {
+        cf.colorScale.criteria = {
+          minimum: { type: Excel.ConditionalFormatColorCriterionType.lowestValue,  color: _colorCf(c0) },
+          maximum: { type: Excel.ConditionalFormatColorCriterionType.highestValue, color: _colorCf(c1) },
+        };
+      } else {
+        cf.colorScale.criteria = {
+          minimum:  { type: Excel.ConditionalFormatColorCriterionType.lowestValue,   color: _colorCf(c0) },
+          midpoint: { type: Excel.ConditionalFormatColorCriterionType.percentile, formula: "50", color: _colorCf(c1) },
+          maximum:  { type: Excel.ConditionalFormatColorCriterionType.highestValue,  color: _colorCf(c2) },
+        };
+      }
+      break;
+    }
+    case "barra": {
+      const cf        = cfs.add(Excel.ConditionalFormatType.dataBar);
+      cf.dataBar.barDirection = Excel.ConditionalDataBarDirection.leftToRight;
+      const fillColor = _colorCf(regla.color || "azul");
+      cf.dataBar.positiveFormat.fillColor   = fillColor;
+      cf.dataBar.positiveFormat.borderColor = fillColor;
+      break;
+    }
+    case "icono": {
+      const cf     = cfs.add(Excel.ConditionalFormatType.iconSet);
+      const estilo = _ICONOS_CF[regla.estilo] || "threeArrows";
+      cf.iconSet.style = Excel.IconSet[estilo];
+      break;
+    }
+    case "texto": {
+      const cf = cfs.add(Excel.ConditionalFormatType.containsText);
+      const op = _OP_TEXTO_CF[regla.op] || "contains";
+      cf.textComparison.rule = {
+        operator: Excel.ConditionalTextOperator[op],
+        text: String(regla.valor),
+      };
+      cf.textComparison.format.fill.color = _colorCf(regla.color);
+      break;
+    }
+    case "formula": {
+      const cf = cfs.add(Excel.ConditionalFormatType.custom);
+      cf.custom.rule.formula = regla.formula;
+      cf.custom.format.fill.color = _colorCf(regla.color);
+      break;
+    }
+    default:
+      throw new Error(`Tipo de formato desconocido: ${regla.tipo}`);
+  }
+}
+
+/** Aplica un array de reglas DSL. Agrupa por columna para hacer un solo clearAll por columna. */
+/** Despacha un paso individual de un pipeline. Reutiliza los handlers existentes. */
+async function _aplicarPaso(paso) {
+  switch (paso.tipo) {
+    case "edicion":
+      // Los datos se escriben al final (el caller maneja _datosModificados)
+      break;
+    case "formato":
+      if (paso.reglas || paso.regla) {
+        await _aplicarFormatosCondicionales(paso.reglas || [paso.regla]);
+      }
+      break;
+    case "grafico":
+      if (paso.datos_chart) {
+        await _insertarGrafico(paso.tipo_grafico, paso.datos_chart, paso.titulo);
+      }
+      break;
+    case "tabla_dinamica":
+      if (paso.params) {
+        await _insertarTablaDinamica(paso.params);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+async function _aplicarFormatosCondicionales(reglas) {
   if (!_rangoAddress) throw new Error("No hay rango seleccionado.");
 
   await Excel.run(async (context) => {
-    const sheet    = context.workbook.worksheets.getActiveWorksheet();
+    const sheet     = context.workbook.worksheets.getActiveWorksheet();
     const localAddr = _rangoAddress.includes("!") ? _rangoAddress.split("!")[1] : _rangoAddress;
-    const selRange = sheet.getRange(localAddr);
+    const selRange  = sheet.getRange(localAddr);
     selRange.load(["values", "rowIndex", "columnIndex", "rowCount", "columnCount"]);
     await context.sync();
 
     const cabeceras = selRange.values[0] || [];
-    let rangoFormato;
 
-    if (regla.col) {
-      const colIdx = cabeceras.findIndex((c) => String(c) === String(regla.col));
-      if (colIdx < 0) throw new Error(`Columna '${regla.col}' no encontrada en el rango seleccionado.`);
-      rangoFormato = sheet.getRangeByIndexes(
-        selRange.rowIndex + 1,
-        selRange.columnIndex + colIdx,
-        selRange.rowCount - 1,
-        1,
-      );
-    } else {
-      rangoFormato = sheet.getRangeByIndexes(
-        selRange.rowIndex + 1,
-        selRange.columnIndex,
-        selRange.rowCount - 1,
-        selRange.columnCount,
-      );
+    // Agrupar reglas por columna objetivo para hacer clearAll una vez por columna
+    const porColumna = new Map(); // colKey → { rangoFormato, reglas[] }
+
+    for (const regla of reglas) {
+      let colKey, rangoFormato;
+
+      if (regla.col) {
+        const colIdx = cabeceras.findIndex((c) => String(c) === String(regla.col));
+        if (colIdx < 0) throw new Error(`Columna '${regla.col}' no encontrada en el rango seleccionado.`);
+        colKey = String(colIdx);
+        if (!porColumna.has(colKey)) {
+          rangoFormato = sheet.getRangeByIndexes(
+            selRange.rowIndex + 1,
+            selRange.columnIndex + colIdx,
+            selRange.rowCount - 1,
+            1,
+          );
+          porColumna.set(colKey, { rangoFormato, reglas: [] });
+        }
+      } else {
+        colKey = "__all__";
+        if (!porColumna.has(colKey)) {
+          rangoFormato = sheet.getRangeByIndexes(
+            selRange.rowIndex + 1,
+            selRange.columnIndex,
+            selRange.rowCount - 1,
+            selRange.columnCount,
+          );
+          porColumna.set(colKey, { rangoFormato, reglas: [] });
+        }
+      }
+      porColumna.get(colKey).reglas.push(regla);
     }
 
-    rangoFormato.conditionalFormats.clearAll();
-    const cfs = rangoFormato.conditionalFormats;
-
-    switch (regla.tipo) {
-      case "valor": {
-        const cf  = cfs.add(Excel.ConditionalFormatType.cellValue);
-        const op  = _OP_CF[regla.op] || "greaterThan";
-        const rule = { formula1: String(regla.valor), operator: op };
-        if (regla.op === "entre" || regla.op === "fuera") {
-          rule.formula2 = String(regla.valor2 ?? regla.valor);
-        }
-        cf.cellValue.rule = rule;
-        cf.cellValue.format.fill.color = _colorCf(regla.color);
-        break;
+    // Aplicar reglas por columna (un clearAll + N reglas añadidas)
+    for (const { rangoFormato, reglas: reglasCol } of porColumna.values()) {
+      rangoFormato.conditionalFormats.clearAll();
+      const cfs = rangoFormato.conditionalFormats;
+      for (const regla of reglasCol) {
+        _aplicarUnaRegla(cfs, regla);
       }
-      case "top_bottom": {
-        const cf   = cfs.add(Excel.ConditionalFormatType.topBottom);
-        const tipo = regla.porcentaje
-          ? (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topPercent    : Excel.ConditionalTopBottomCriterionType.bottomPercent)
-          : (regla.direccion === "top" ? Excel.ConditionalTopBottomCriterionType.topItems      : Excel.ConditionalTopBottomCriterionType.bottomItems);
-        cf.topBottom.rule = { rank: regla.n || 10, type: tipo };
-        cf.topBottom.format.fill.color = _colorCf(regla.color);
-        break;
-      }
-      case "escala": {
-        const cf     = cfs.add(Excel.ConditionalFormatType.colorScale);
-        const colors = regla.colores || ["rojo", "verde"];
-        const [c0, c1, c2] = colors;
-        if (colors.length === 2) {
-          cf.colorScale.criteria = {
-            minimum: { type: Excel.ConditionalFormatColorCriterionType.lowestValue,  color: _colorCf(c0) },
-            maximum: { type: Excel.ConditionalFormatColorCriterionType.highestValue, color: _colorCf(c1) },
-          };
-        } else {
-          cf.colorScale.criteria = {
-            minimum:  { type: Excel.ConditionalFormatColorCriterionType.lowestValue,   color: _colorCf(c0) },
-            midpoint: { type: Excel.ConditionalFormatColorCriterionType.percentile, formula: "50", color: _colorCf(c1) },
-            maximum:  { type: Excel.ConditionalFormatColorCriterionType.highestValue,  color: _colorCf(c2) },
-          };
-        }
-        break;
-      }
-      case "barra": {
-        const cf = cfs.add(Excel.ConditionalFormatType.dataBar);
-        cf.dataBar.barDirection = Excel.ConditionalDataBarDirection.leftToRight;
-        const fillColor = _colorCf(regla.color || "azul");
-        cf.dataBar.positiveFormat.fillColor   = fillColor;
-        cf.dataBar.positiveFormat.borderColor = fillColor;
-        break;
-      }
-      case "icono": {
-        const cf     = cfs.add(Excel.ConditionalFormatType.iconSet);
-        const estilo = _ICONOS_CF[regla.estilo] || "threeArrows";
-        cf.iconSet.style = Excel.IconSet[estilo];
-        break;
-      }
-      case "texto": {
-        const cf = cfs.add(Excel.ConditionalFormatType.containsText);
-        const op = _OP_TEXTO_CF[regla.op] || "contains";
-        cf.textComparison.rule = {
-          operator: Excel.ConditionalTextOperator[op],
-          text: String(regla.valor),
-        };
-        cf.textComparison.format.fill.color = _colorCf(regla.color);
-        break;
-      }
-      case "formula": {
-        const cf = cfs.add(Excel.ConditionalFormatType.custom);
-        cf.custom.rule.formula = regla.formula;
-        cf.custom.format.fill.color = _colorCf(regla.color);
-        break;
-      }
-      default:
-        throw new Error(`Tipo de formato desconocido: ${regla.tipo}`);
     }
 
     await context.sync();
