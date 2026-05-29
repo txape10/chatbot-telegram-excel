@@ -406,24 +406,23 @@ def _verificar_addin_activo():
 def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         __: None = Depends(_verificar_addin_activo)) -> dict:
     _registrar_addin(peticion.device_id, peticion.pregunta, peticion.user_email, peticion.excel_version)
-    # Sin datos: pregunta general o creación desde cero
+    # Sin datos: el LLM decide si crear tabla o responder como chat
     _uid_ask = _usuario_addin(peticion.device_id)
     if not peticion.datos or len(peticion.datos) < 2:
-        if _RE_CREAR_TABLA_ADDIN.search(peticion.pregunta):
-            estructura = extraer_estructura_excel(peticion.pregunta)
-            if estructura:
-                columnas = estructura.get("columnas", [])
-                datos_filas = estructura.get("datos", [])
-                matriz = [columnas] + [
-                    [("" if v is None else v) for v in fila]
-                    for fila in datos_filas
-                ]
-                titulo = estructura.get("titulo", "Nueva tabla")
-                return {
-                    "tipo": "datos",
-                    "datos_modificados": matriz,
-                    "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
-                }
+        estructura = extraer_estructura_excel(peticion.pregunta)
+        if estructura:
+            columnas = estructura.get("columnas", [])
+            datos_filas = estructura.get("datos", [])
+            matriz = [columnas] + [
+                [("" if v is None else v) for v in fila]
+                for fila in datos_filas
+            ]
+            titulo = estructura.get("titulo", "Nueva tabla")
+            return {
+                "tipo": "datos",
+                "datos_modificados": matriz,
+                "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
+            }
         return {"respuesta": obtener_respuesta(
             peticion.historial, peticion.pregunta,
             system_override=SYSTEM_PROMPT_ADDIN,
@@ -464,6 +463,17 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
     if op:
         if "op" not in op and "operacion" in op:
             op["op"] = op.pop("operacion")
+
+        # formato_condicional → delegar en CF real de Office.js (no coloreado estático pandas)
+        if op.get("op") == "formato_condicional":
+            regla = extraer_regla_formato(df, peticion.instruccion)
+            if regla:
+                return {
+                    "tipo": "formato",
+                    "regla": regla,
+                    "descripcion": _describir_regla_formato(regla),
+                }
+
         try:
             df_mod, descripcion, _extras = aplicar_edicion(df, op)
             return {

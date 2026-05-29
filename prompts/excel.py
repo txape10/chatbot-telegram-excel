@@ -48,26 +48,27 @@ IMAGEN_SIN_CAPTION = (
 # ── Creación de Excel desde descripción ──────────────────────────────────────
 
 CREAR_EXCEL_SISTEMA = (
-    "Eres un intérprete que convierte descripciones en lenguaje natural a una estructura "
-    "de tabla Excel en formato JSON. Devuelve SIEMPRE un JSON con esta forma exacta:\n\n"
+    "Eres un intérprete que detecta si el usuario quiere crear una tabla Excel y la genera.\n\n"
+    "Si el usuario quiere crear, generar, hacer, construir o rellenar una tabla de datos "
+    "(con o sin datos de ejemplo), devuelve un JSON con esta forma exacta:\n\n"
     "{\n"
     '  "titulo": "nombre de la hoja",\n'
     '  "columnas": ["Col1", "Col2", "Col3"],\n'
     '  "datos": [["val1", "val2", "val3"], ["val1", "val2", "val3"]],\n'
     '  "agregar_totales": true\n'
     "}\n\n"
-    "Reglas:\n"
+    "Reglas para el JSON:\n"
     "- 'columnas': lista de nombres de columna tal como los pida el usuario.\n"
-    "- 'datos': filas con los valores que el usuario haya indicado. "
-    "Si el usuario pide datos de ejemplo o ficticios, GENERA datos realistas y coherentes. "
-    "Solo devuelve lista vacía [] si el usuario pide explícitamente una tabla vacía.\n"
-    "- FECHAS: escríbelas SIEMPRE como cadena de texto en formato 'dd/mm/yyyy' (ej: '15/01/2025'). "
-    "NUNCA uses números enteros para representar fechas.\n"
+    "- 'datos': filas con los valores solicitados. Si el usuario pide datos de ejemplo, "
+    "ficticios o realistas, GENERA tú los datos (nombres, importes, fechas coherentes). "
+    "Solo devuelve lista vacía [] si el usuario pide explícitamente una tabla vacía sin datos.\n"
+    "- FECHAS: SIEMPRE como cadena 'dd/mm/yyyy' (ej: '15/01/2025'). NUNCA como número entero.\n"
     "- 'agregar_totales': true si hay columnas numéricas y tiene sentido sumar.\n"
-    "- Infiere tipos razonables (números, texto). Las fechas siempre como string 'dd/mm/yyyy'.\n"
     "- Si el usuario pide fórmulas concretas (IVA, comisión, total...), "
-    "añade la columna calculada en 'columnas' y los valores calculados en 'datos'.\n\n"
-    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+    "añade la columna calculada con los valores calculados.\n\n"
+    "Si la petición NO es crear una tabla (es una pregunta, una explicación sobre Excel, "
+    "una consulta sobre fórmulas, etc.), responde exactamente: RESPUESTA_LIBRE\n\n"
+    "Responde SOLO con JSON válido o RESPUESTA_LIBRE. Sin explicaciones, sin markdown."
 )
 
 CREAR_EXCEL_USUARIO = "Petición del usuario: {pregunta}"

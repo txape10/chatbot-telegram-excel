@@ -101,7 +101,10 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
             max_tokens=800,
         )
         logger.debug("Estructura Excel del LLM: %s", texto)
-        return json.loads(_limpiar_json(texto.strip()))
+        texto = texto.strip()
+        if texto == "RESPUESTA_LIBRE":
+            return None
+        return json.loads(_limpiar_json(texto))
     except Exception as error:
         logger.warning("Error extrayendo estructura Excel: %s", error)
         return None

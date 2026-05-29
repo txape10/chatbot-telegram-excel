@@ -188,52 +188,36 @@ async function preguntar() {
       _rangoCols       = (valores[0] || []).length;
       mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
 
-      if (_esFormatoCondicional(instruccion)) {
-        // ── Flujo de formato condicional ──────────────────────────────────────
-        mostrarEstado("Aplicando formato condicional...");
-        const respuesta = await llamarApi("/format", {
-          datos: valores, instruccion,
-          device_id: _obtenerOCrearDeviceId(),
-          user_email: obtenerEmailUsuario(),
-          excel_version: _obtenerExcelVersion(),
-        });
+      // ── Flujo con datos: el backend decide edición, formato condicional o consulta ──
+      mostrarEstado("Consultando al asistente... (rango: " + direccion + ")");
+      const respuesta = await llamarApi("/edit", {
+        datos: valores, instruccion, historial: _historialLLM,
+        device_id: _obtenerOCrearDeviceId(),
+        user_email: obtenerEmailUsuario(),
+        excel_version: _obtenerExcelVersion(),
+      });
 
-        if (respuesta.tipo === "formato" && respuesta.regla) {
-          await _aplicarFormatoCondicional(respuesta.regla);
-          mostrarRespuesta("🎨 " + respuesta.descripcion);
-          mostrarEstado("Formato aplicado · " + direccion);
-          _agregarAlHistorial(instruccion, "🎨 " + respuesta.descripcion);
-          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
-        } else {
-          const msg = (respuesta && respuesta.respuesta) || "No se pudo interpretar la regla de formato.";
-          mostrarRespuesta(msg);
-          mostrarEstado("Listo · " + direccion);
-          _agregarAlHistorial(instruccion, msg);
-          _actualizarHistorialLLM(instruccion, msg);
-        }
+      if (respuesta.tipo === "formato" && respuesta.regla) {
+        // Formato condicional real de Office.js
+        await _aplicarFormatoCondicional(respuesta.regla);
+        mostrarRespuesta("🎨 " + respuesta.descripcion);
+        mostrarEstado("Formato aplicado · " + direccion);
+        _agregarAlHistorial(instruccion, "🎨 " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "edicion") {
+        _datosModificados = respuesta.datos_modificados;
+        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+        mostrarDialogo(respuesta.descripcion);
+        mostrarEstado("Edición lista · " + direccion);
+        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else {
-        // ── Flujo de edición ──────────────────────────────────────────────────
-        const respuesta = await llamarApi("/edit", {
-          datos: valores, instruccion, historial: _historialLLM,
-          device_id: _obtenerOCrearDeviceId(),
-          user_email: obtenerEmailUsuario(),
-          excel_version: _obtenerExcelVersion(),
-        });
-
-        if (respuesta.tipo === "edicion") {
-          _datosModificados = respuesta.datos_modificados;
-          mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
-          mostrarDialogo(respuesta.descripcion);
-          mostrarEstado("Edición lista · " + direccion);
-          _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
-          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
-        } else {
-          mostrarRespuesta(respuesta.respuesta);
-          mostrarEstado("Listo · " + direccion);
-          _agregarAlHistorial(instruccion, respuesta.respuesta);
-          _actualizarHistorialLLM(instruccion, respuesta.respuesta);
-          _mostrarFeedback(instruccion, respuesta.respuesta);
-        }
+        const msg = respuesta.respuesta || respuesta.mensaje || "Sin respuesta";
+        mostrarRespuesta(msg);
+        mostrarEstado("Listo · " + direccion);
+        _agregarAlHistorial(instruccion, msg);
+        _actualizarHistorialLLM(instruccion, msg);
+        _mostrarFeedback(instruccion, msg);
       }
 
     } else {
