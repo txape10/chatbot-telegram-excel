@@ -327,16 +327,25 @@ async function llamarApi(endpoint, payload) {
  * Fila 0 (cabecera): "General". Columnas numéricas: "#,##0.00" o "#,##0".
  * Devuelve null si no hay ninguna columna numérica (nada que aplicar).
  */
+const _DATE_HEADER_KW = ["fecha", "date", "día", "dia", "vencim", "alta", "baja", "inicio", "fin"];
+
 function _inferirFormatos(datos) {
   if (!datos || datos.length < 2) return null;
-  const filas = datos.length;
-  const cols  = datos[0].length;
+  const filas   = datos.length;
+  const cols    = datos[0].length;
+  const headers = datos[0].map(h => String(h || "").toLowerCase());
 
-  // Inicializar con "General"
   const fmts = Array.from({ length: filas }, () => Array(cols).fill("General"));
   let hayAlguno = false;
 
   for (let c = 0; c < cols; c++) {
+    // Detectar columna de fecha por nombre de cabecera
+    if (_DATE_HEADER_KW.some(kw => headers[c].includes(kw))) {
+      for (let r = 1; r < filas; r++) fmts[r][c] = "dd/mm/yyyy";
+      hayAlguno = true;
+      continue;
+    }
+
     const vals = datos.slice(1)
       .map(row => row[c])
       .filter(v => v !== null && v !== "" && v !== undefined);
@@ -418,6 +427,18 @@ async function escribirEnExcel(destino) {
       }
 
       await context.sync();
+
+      // Aplicar estilo de tabla Excel (cabecera + al menos 1 fila de datos).
+      // Si ya existe una tabla en ese rango se ignora el error silenciosamente.
+      if (filas >= 2) {
+        try {
+          const tabla = sheet.tables.add(targetRange, true); // true = hasHeaders
+          tabla.style = "TableStyleMedium2";
+          await context.sync();
+        } catch (_) {
+          // Rango ya pertenece a una tabla existente — no hacer nada
+        }
+      }
     });
 
     mostrarEstado("✅ Datos escritos correctamente.");
@@ -433,7 +454,8 @@ async function _aplicarFormatoCondicional(regla) {
 
   await Excel.run(async (context) => {
     const sheet    = context.workbook.worksheets.getActiveWorksheet();
-    const selRange = sheet.getRange(_rangoAddress);
+    const localAddr = _rangoAddress.includes("!") ? _rangoAddress.split("!")[1] : _rangoAddress;
+    const selRange = sheet.getRange(localAddr);
     selRange.load(["values", "rowIndex", "columnIndex", "rowCount", "columnCount"]);
     await context.sync();
 
