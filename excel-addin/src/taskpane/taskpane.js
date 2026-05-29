@@ -163,8 +163,8 @@ async function preguntar() {
     return;
   }
 
-  // Easter egg: detectar palabras mágicas
-  if (!estaZeldaDesbloqueado() && _PALABRAS_ZELDA.includes(instruccion.toLowerCase())) {
+  // Easter egg: detectar palabras mágicas (siempre, aunque ya esté desbloqueado)
+  if (_PALABRAS_ZELDA.includes(instruccion.toLowerCase())) {
     mostrarEasterEgg();
     return;
   }
@@ -197,7 +197,21 @@ async function preguntar() {
         excel_version: _obtenerExcelVersion(),
       });
 
-      if (respuesta.tipo === "formato" && respuesta.regla) {
+      if (respuesta.tipo === "tabla_dinamica" && respuesta.params) {
+        mostrarEstado("Creando tabla dinámica...");
+        await _insertarTablaDinamica(respuesta.params);
+        mostrarRespuesta("📊 " + respuesta.descripcion + "\n\nTabla dinámica creada en hoja nueva.");
+        mostrarEstado("Tabla dinámica lista.");
+        _agregarAlHistorial(instruccion, "📊 " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "grafico" && respuesta.datos_chart) {
+        mostrarEstado("Insertando gráfico...");
+        await _insertarGrafico(respuesta.tipo_grafico, respuesta.datos_chart, respuesta.titulo);
+        mostrarRespuesta("📊 " + respuesta.descripcion);
+        mostrarEstado("Gráfico insertado · " + direccion);
+        _agregarAlHistorial(instruccion, "📊 " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "formato" && respuesta.regla) {
         // Formato condicional real de Office.js
         await _aplicarFormatoCondicional(respuesta.regla);
         mostrarRespuesta("🎨 " + respuesta.descripcion);
@@ -539,6 +553,115 @@ async function _aplicarFormatoCondicional(regla) {
       default:
         throw new Error(`Tipo de formato desconocido: ${regla.tipo}`);
     }
+
+    await context.sync();
+  });
+}
+
+// ── Gráficos nativos Office.js ────────────────────────────────────────────────
+
+const _CHART_TYPES = {
+  barras:     "ColumnClustered",
+  lineas:     "Line",
+  sectores:   "Pie",
+  dispersion: "XYScatter",
+};
+
+async function _insertarGrafico(tipoGrafico, datosChart, titulo) {
+  const filas = datosChart.length;
+  const cols  = (datosChart[0] || []).length;
+  if (filas < 2) throw new Error("No hay suficientes datos para crear el gráfico.");
+
+  await Excel.run(async (context) => {
+    const sheet = context.workbook.worksheets.getActiveWorksheet();
+
+    // Escribir datos en una hoja temporal oculta
+    const tempNombre = "_chart_temp_" + Date.now();
+    const tempSheet  = context.workbook.worksheets.add(tempNombre);
+    tempSheet.visibility = Excel.SheetVisibility.veryHidden;
+    const dataRange = tempSheet.getRangeByIndexes(0, 0, filas, cols);
+    dataRange.values = datosChart;
+    await context.sync();
+
+    // Crear el gráfico en la hoja activa con los datos de la hoja temporal
+    const chartType = Excel.ChartType[_CHART_TYPES[tipoGrafico] || "ColumnClustered"];
+    const chart = sheet.charts.add(chartType, dataRange, Excel.ChartSeriesBy.columns);
+
+    chart.title.text    = titulo;
+    chart.title.visible = true;
+    chart.legend.visible = cols > 2;
+
+    // Posicionar el gráfico debajo de los datos actuales (estimación)
+    const anchorRow = _rangoFilas > 0 ? _rangoFilas + 2 : 2;
+    const anchorCol = 0;
+    chart.setPosition(
+      sheet.getRangeByIndexes(anchorRow, anchorCol, 1, 1),
+      sheet.getRangeByIndexes(anchorRow + 15, anchorCol + 8, 1, 1),
+    );
+
+    await context.sync();
+  });
+}
+
+// ── Tabla dinámica nativa Office.js ──────────────────────────────────────────
+
+const _AGGFUNC_MAP = {
+  suma:     "Sum",
+  promedio: "Average",
+  contar:   "Count",
+  max:      "Max",
+  min:      "Min",
+};
+
+async function _insertarTablaDinamica(params) {
+  const filas    = params.filas    || [];
+  const columnas = params.columnas || [];
+  const valores  = params.valores;
+  const funcion  = _AGGFUNC_MAP[params.funcion] || "Sum";
+
+  if (!valores) throw new Error("Falta la columna de valores para la tabla dinámica.");
+  if (!filas.length) throw new Error("Falta al menos una columna de filas para la tabla dinámica.");
+
+  await Excel.run(async (context) => {
+    const sheet      = context.workbook.worksheets.getActiveWorksheet();
+    const localAddr  = _rangoAddress.includes("!") ? _rangoAddress.split("!")[1] : _rangoAddress;
+    const sourceRange = sheet.getRange(localAddr);
+
+    // Crear tabla dinámica en una hoja nueva
+    const tdNombre = "TD_" + Date.now().toString().slice(-6);
+    const tdSheet  = context.workbook.worksheets.add(tdNombre);
+    tdSheet.activate();
+
+    const pivotTable = tdSheet.pivotTables.add(
+      tdNombre,
+      sourceRange,
+      tdSheet.getCell(1, 0),  // destino: B1 (deja una fila de margen)
+    );
+    await context.sync();
+
+    // Añadir campos de fila
+    for (const col of filas) {
+      try {
+        pivotTable.rowHierarchies.add(pivotTable.hierarchies.getItem(col));
+      } catch (_) { /* columna no encontrada — ignorar */ }
+    }
+
+    // Añadir campos de columna (opcional)
+    for (const col of columnas) {
+      try {
+        pivotTable.columnHierarchies.add(pivotTable.hierarchies.getItem(col));
+      } catch (_) { /* ignorar */ }
+    }
+
+    // Añadir campo de valores con la función de agregación
+    try {
+      const dataHierarchy = pivotTable.dataHierarchies.add(
+        pivotTable.hierarchies.getItem(valores),
+      );
+      dataHierarchy.summarizeBy = Excel.AggregationFunction[funcion];
+    } catch (_) { /* ignorar */ }
+
+    pivotTable.layout.layoutType = Excel.PivotLayoutType.tabular;
 
     await context.sync();
   });

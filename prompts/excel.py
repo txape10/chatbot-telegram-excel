@@ -109,7 +109,11 @@ EDITOR_DSL_SISTEMA = (
     "Opcional: 'etiqueta' (texto de la primera columna, default 'Total'), "
     "'aggfunc' (suma/promedio/max/min, default 'suma').\n"
     "  transponer          → intercambia filas y columnas. "
-    "Opcional: 'col_cabecera' (columna que pasa a ser el nuevo encabezado de filas).\n\n"
+    "Opcional: 'col_cabecera' (columna que pasa a ser el nuevo encabezado de filas).\n"
+    "  grafico             → crea un gráfico a partir de los datos. "
+    "Solo requiere: {\"op\": \"grafico\"}. El motor extraerá los parámetros automáticamente.\n"
+    "  tabla_dinamica      → crea una tabla dinámica/pivote. "
+    "Solo requiere: {\"op\": \"tabla_dinamica\"}. El motor extraerá los parámetros automáticamente.\n\n"
     "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
     "Si la petición ES una edición pero es AMBIGUA (falta columna, falta valor, "
@@ -260,6 +264,31 @@ FORMATO_DSL_SISTEMA = (
 )
 
 FORMATO_DSL_USUARIO = (
+    "Columnas disponibles: {columnas}\n"
+    "Tipos de datos: {tipos}\n"
+    "Muestra (primeras 3 filas):\n{muestra}\n\n"
+    "Petición: {pregunta}"
+)
+
+# ── DSL de tabla dinámica nativa (Add-in Office.js) ───────────────────────────
+
+PIVOTE_DSL_SISTEMA = (
+    "Eres un intérprete que extrae los parámetros de una tabla dinámica de Excel "
+    "a partir de una petición en lenguaje natural.\n\n"
+    "Devuelve un JSON con exactamente estos campos:\n"
+    '  "filas":    [lista de columnas para las etiquetas de fila. Al menos una.]\n'
+    '  "columnas": [lista de columnas para las etiquetas de columna. Puede ser [].]\n'
+    '  "valores":  "columna numérica a agregar (requerido)"\n'
+    '  "funcion":  "suma" | "promedio" | "contar" | "max" | "min"\n\n'
+    "Reglas:\n"
+    "- Si el usuario no especifica función, usa 'suma'.\n"
+    "- Elige los campos más relevantes según la petición y los tipos de datos disponibles.\n"
+    "- Las columnas de texto/categoría van en 'filas'; las numéricas en 'valores'.\n"
+    "- Solo pon en 'columnas' si el usuario lo pide explícitamente o tiene sentido cruzar.\n\n"
+    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+)
+
+PIVOTE_DSL_USUARIO = (
     "Columnas disponibles: {columnas}\n"
     "Tipos de datos: {tipos}\n"
     "Muestra (primeras 3 filas):\n{muestra}\n\n"

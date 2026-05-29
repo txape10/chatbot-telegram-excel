@@ -36,6 +36,7 @@ from excel.query_engine import QueryError, ejecutar_query
 from logging_config import configurar_logging
 from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_estructura_excel, extraer_regla_formato,
+                          extraer_peticion_grafico, extraer_params_pivote,
                           obtener_respuesta)
 from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
 
@@ -474,6 +475,25 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
                     "descripcion": _describir_regla_formato(regla),
                 }
 
+        # grafico → extraer parámetros y preparar datos para Office.js chart
+        if op.get("op") == "grafico":
+            params = extraer_peticion_grafico(df, peticion.instruccion)
+            if params:
+                return _preparar_respuesta_grafico(df, params)
+
+        # tabla_dinamica → extraer parámetros y delegar en PivotTable de Office.js
+        if op.get("op") == "tabla_dinamica":
+            params = extraer_params_pivote(df, peticion.instruccion)
+            if params:
+                return {
+                    "tipo": "tabla_dinamica",
+                    "params": params,
+                    "descripcion": (
+                        f"Tabla dinámica: {', '.join(params.get('filas', []))} "
+                        f"→ {params.get('valores')} ({params.get('funcion', 'suma')})"
+                    ),
+                }
+
         try:
             df_mod, descripcion, _extras = aplicar_edicion(df, op)
             return {
@@ -512,6 +532,42 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
         peticion.historial, contexto,
         system_override=SYSTEM_PROMPT_ADDIN,
     )}
+
+
+def _preparar_respuesta_grafico(df: pd.DataFrame, params: dict) -> dict:
+    """Prepara los datos para que el Add-in cree un gráfico nativo en Office.js."""
+    col_y   = params.get("col_y")
+    col_x   = params.get("col_x")
+    tipo    = params.get("tipo", "barras")
+    agregar = params.get("agregar")
+
+    _AGG = {"suma": "sum", "promedio": "mean", "contar": "count", "max": "max", "min": "min"}
+
+    try:
+        if agregar and col_x and col_x in df.columns and col_y in df.columns:
+            df_chart = (
+                df.groupby(col_x)[col_y]
+                .agg(_AGG.get(agregar, "sum"))
+                .reset_index()
+            )
+        elif col_x and col_x in df.columns and col_y in df.columns:
+            df_chart = df[[col_x, col_y]].copy()
+        elif col_y in df.columns:
+            df_chart = df[[col_y]].copy()
+        else:
+            df_chart = df.copy()
+    except Exception:
+        df_chart = df.copy()
+
+    titulo = f"{col_y} por {col_x}" if col_x else str(col_y)
+
+    return {
+        "tipo": "grafico",
+        "tipo_grafico": tipo,
+        "datos_chart": _df_a_matriz(df_chart),
+        "titulo": titulo,
+        "descripcion": f"Gráfico de {tipo}: {titulo}",
+    }
 
 
 def _describir_regla_formato(regla: dict) -> str:

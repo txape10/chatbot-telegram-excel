@@ -12,6 +12,26 @@ Ambos canales comparten el mismo motor de IA y pueden instalarse juntos o por se
 ## HOW — Filosofía de Desarrollo
 Consulta `docs/karpathy-guidelines.md` para aplicar con rigor absoluto las normas de Andrej Karpathy (evitar sobreingeniería, realizar cambios quirúrgicos, mantener la simplicidad y no asumir nada sin preguntar).
 
+### Regla de routing del Add-in: siempre LLM, nunca keywords
+
+**El Add-in nunca detecta intenciones por keywords en el frontend (JavaScript).**
+Todo el routing de intenciones se hace mediante LLM en el backend.
+
+Patrón de dos niveles:
+1. **Nivel 1 — Editor DSL** (`extraer_operacion_edicion`): detecta la intención con `max_tokens=500`. Devuelve `{"op": "nombre_op"}` para operaciones complejas o la operación completa para ediciones simples. Responde `RESPUESTA_LIBRE` si no es edición.
+2. **Nivel 2 — DSL específico**: para operaciones que requieren parámetros adicionales (gráfico, tabla dinámica, formato condicional), una segunda llamada LLM pequeña (`max_tokens=150-200`) extrae los parámetros concretos.
+
+Por qué este enfoque:
+- Keywords JS = frágil, se rompe con sinónimos o variaciones de idioma.
+- Dos llamadas pequeñas y enfocadas > una llamada grande con prompt monolítico.
+- El primer nivel ya se ejecuta para TODAS las peticiones con datos → coste marginal cero cuando la operación es simple.
+
+Al añadir nueva funcionalidad al Add-in:
+1. Añadir `nueva_op` al `EDITOR_DSL_SISTEMA` con una línea descriptiva.
+2. Crear `extraer_params_nueva_op()` en `services/llm.py` con su prompt específico.
+3. Interceptar `op == "nueva_op"` en `/edit` del backend.
+4. Implementar la lógica en el frontend (Office.js).
+
 
 ## HOW — Stack técnico
 

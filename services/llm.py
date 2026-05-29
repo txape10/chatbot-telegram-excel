@@ -236,6 +236,32 @@ def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
         return None
 
 
+def extraer_params_pivote(df: pd.DataFrame, pregunta: str) -> dict | None:
+    """Extrae los parámetros de tabla dinámica (filas, columnas, valores, función)."""
+    from prompts.excel import PIVOTE_DSL_SISTEMA, PIVOTE_DSL_USUARIO
+
+    columnas = ", ".join(f"'{c}'" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    muestra  = df.head(3).to_string(index=False)
+
+    try:
+        texto = obtener_proveedor().chat(
+            messages=[
+                {"role": "system", "content": PIVOTE_DSL_SISTEMA},
+                {"role": "user",   "content": PIVOTE_DSL_USUARIO.format(
+                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
+                )},
+            ],
+            temperature=0,
+            max_tokens=200,
+        )
+        logger.debug("Params pivote del LLM: %s", texto)
+        return json.loads(_limpiar_json(texto.strip()))
+    except Exception as error:
+        logger.warning("Error extrayendo params de tabla dinámica: %s", error)
+        return None
+
+
 def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
     """Convierte una descripción de macro en una lista de operaciones DSL."""
     from prompts.excel import MACRO_DSL_SISTEMA, MACRO_DSL_USUARIO
