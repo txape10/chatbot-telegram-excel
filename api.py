@@ -467,12 +467,12 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
 
         # formato_condicional → delegar en CF real de Office.js (no coloreado estático pandas)
         if op.get("op") == "formato_condicional":
-            regla = extraer_regla_formato(df, peticion.instruccion)
-            if regla:
+            reglas = extraer_regla_formato(df, peticion.instruccion)
+            if reglas:
                 return {
                     "tipo": "formato",
-                    "regla": regla,
-                    "descripcion": _describir_regla_formato(regla),
+                    "reglas": reglas,
+                    "descripcion": _describir_reglas_formato(reglas),
                 }
 
         # grafico → extraer parámetros y preparar datos para Office.js chart
@@ -570,16 +570,16 @@ def _preparar_respuesta_grafico(df: pd.DataFrame, params: dict) -> dict:
     }
 
 
-def _describir_regla_formato(regla: dict) -> str:
+def _describir_una_regla(regla: dict) -> str:
     tipo = regla.get("tipo", "")
     col  = regla.get("col") or ""
     if tipo == "valor":
-        return f"Formato en '{col}': celdas donde valor {regla.get('op')} {regla.get('valor')}"
+        return f"'{col}' {regla.get('op')} {regla.get('valor')} → {regla.get('color', '')}"
     if tipo == "top_bottom":
         dir_ = "superiores" if regla.get("direccion") == "top" else "inferiores"
         n    = regla.get("n", 10)
         pct  = "%" if regla.get("porcentaje") else ""
-        return f"Formato en '{col}': {n}{pct} valores {dir_}"
+        return f"'{col}': {n}{pct} valores {dir_} → {regla.get('color', '')}"
     if tipo == "escala":
         return f"Escala de color en '{col}'"
     if tipo == "barra":
@@ -587,10 +587,17 @@ def _describir_regla_formato(regla: dict) -> str:
     if tipo == "icono":
         return f"Iconos ({regla.get('estilo', '')}) en '{col}'"
     if tipo == "texto":
-        return f"Formato en '{col}': celdas que {regla.get('op')} '{regla.get('valor')}'"
+        return f"'{col}' {regla.get('op')} '{regla.get('valor')}' → {regla.get('color', '')}"
     if tipo == "formula":
-        return f"Formato condicional con fórmula en '{col or 'todo el rango'}'"
-    return "Formato condicional aplicado"
+        return f"Fórmula en '{col or 'rango'}' → {regla.get('color', '')}"
+    return "Regla de formato"
+
+
+def _describir_reglas_formato(reglas: list[dict]) -> str:
+    if len(reglas) == 1:
+        return "Formato condicional: " + _describir_una_regla(reglas[0])
+    partes = "; ".join(_describir_una_regla(r) for r in reglas)
+    return f"Formato condicional ({len(reglas)} reglas): {partes}"
 
 
 @app.post("/format")
@@ -598,8 +605,8 @@ def format_condicional(peticion: PeticionFormato, _: None = Depends(_verificar_c
                        __: None = Depends(_verificar_addin_activo)) -> dict:
     _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
-    regla = extraer_regla_formato(df, peticion.instruccion)
-    if not regla:
+    reglas = extraer_regla_formato(df, peticion.instruccion)
+    if not reglas:
         return {
             "tipo": "texto",
             "respuesta": (
@@ -609,8 +616,8 @@ def format_condicional(peticion: PeticionFormato, _: None = Depends(_verificar_c
         }
     return {
         "tipo": "formato",
-        "regla": regla,
-        "descripcion": _describir_regla_formato(regla),
+        "reglas": reglas,
+        "descripcion": _describir_reglas_formato(reglas),
     }
 
 

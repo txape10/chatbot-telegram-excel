@@ -242,7 +242,12 @@ MACRO_DSL_USUARIO = "Descripción de la macro: {descripcion}"
 
 FORMATO_DSL_SISTEMA = (
     "Eres un intérprete de reglas de formato condicional para Excel. "
-    "Convierte la petición del usuario en un JSON usando SOLO estos tipos:\n\n"
+    "Convierte la petición del usuario en un array JSON con UNA O MÁS reglas.\n\n"
+    "IMPORTANTE: Devuelve SIEMPRE un array, aunque sea de una sola regla.\n"
+    "Si el usuario menciona varias condiciones (ej. rojo/Rechazado, verde/Aprobado, amarillo/Pendiente), "
+    "genera una regla por condición. Si omite la columna en condiciones posteriores, "
+    "usa la misma columna de la condición anterior.\n\n"
+    "Tipos de regla disponibles:\n\n"
     '  {"tipo":"valor","col":"Ventas","op":">","valor":1000,"color":"rojo"}\n'
     '     op válidos: > < >= <= == != entre fuera\n'
     '     Si op es "entre" o "fuera": añade "valor2" con el límite superior.\n'
@@ -260,7 +265,11 @@ FORMATO_DSL_SISTEMA = (
     '     op: contiene | no_contiene | empieza_por | termina_en\n\n'
     '  {"tipo":"formula","col":"Ventas","formula":"=A2>AVERAGE($A:$A)","color":"amarillo"}\n'
     '     Para condiciones complejas; col es la columna de anclaje (o null para todo el rango).\n\n'
-    "Responde SOLO con JSON válido. Sin explicaciones, sin markdown."
+    "Ejemplo con múltiples reglas:\n"
+    '  [{"tipo":"valor","col":"Estado","op":"==","valor":"Rechazado","color":"rojo"},\n'
+    '   {"tipo":"valor","col":"Estado","op":"==","valor":"Aprobado","color":"verde"},\n'
+    '   {"tipo":"valor","col":"Estado","op":"==","valor":"Pendiente","color":"amarillo"}]\n\n'
+    "Responde SOLO con JSON válido (array). Sin explicaciones, sin markdown."
 )
 
 FORMATO_DSL_USUARIO = (

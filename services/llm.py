@@ -283,10 +283,10 @@ def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
         return None
 
 
-def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> dict | None:
-    """Extrae la regla de formato condicional desde lenguaje natural.
+def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> list[dict] | None:
+    """Extrae las reglas de formato condicional desde lenguaje natural.
 
-    Devuelve un dict con la regla DSL o None si no se pudo interpretar.
+    Devuelve siempre una lista de reglas DSL o None si no se pudo interpretar.
     """
     from prompts.excel import FORMATO_DSL_SISTEMA, FORMATO_DSL_USUARIO
 
@@ -303,10 +303,16 @@ def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> dict | None:
                 )},
             ],
             temperature=0,
-            max_tokens=200,
+            max_tokens=400,
         )
         logger.debug("Regla formato del LLM: %s", texto)
-        return json.loads(_limpiar_json(texto.strip()))
+        parsed = json.loads(_limpiar_json(texto.strip()))
+        # Normalizar: el LLM puede devolver un dict (regla única) o lista
+        if isinstance(parsed, dict):
+            return [parsed]
+        if isinstance(parsed, list):
+            return parsed
+        return None
     except Exception as error:
         logger.warning("Error extrayendo regla de formato: %s", error)
         return None
