@@ -115,10 +115,13 @@ EDITOR_DSL_SISTEMA = (
     "  grafico             → crea un gráfico. "
     "Solo requiere: {\"op\": \"grafico\"}. El motor extraerá los parámetros.\n"
     "  tabla_dinamica      → crea una tabla dinámica. "
-    "Solo requiere: {\"op\": \"tabla_dinamica\"}. El motor extraerá los parámetros.\n\n"
+    "Solo requiere: {\"op\": \"tabla_dinamica\"}. El motor extraerá los parámetros.\n"
+    "  formula             → inserta una nueva columna con una fórmula Excel (=SUMA, =SI, =D{row}-C{row}, etc.). "
+    "Solo requiere: {\"op\": \"formula\"}. El motor extraerá la fórmula y el nombre de la columna.\n\n"
     "Ejemplos de respuesta con varias operaciones:\n"
     '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"formato_condicional"}]\n'
-    '  [{"op":"eliminar_duplicados"},{"op":"ordenar","col":"Importe","orden":"desc"},{"op":"grafico"}]\n\n'
+    '  [{"op":"eliminar_duplicados"},{"op":"ordenar","col":"Importe","orden":"desc"},{"op":"grafico"}]\n'
+    '  [{"op":"formula"}]\n\n'
     "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
     "Si la petición ES una edición pero es AMBIGUA (falta columna clave, falta valor imprescindible, "
@@ -307,4 +310,38 @@ PIVOTE_DSL_USUARIO = (
     "Tipos de datos: {tipos}\n"
     "Muestra (primeras 3 filas):\n{muestra}\n\n"
     "Petición: {pregunta}"
+)
+
+# ── DSL de fórmulas Excel ─────────────────────────────────────────────────────
+
+FORMULA_DSL_SISTEMA = (
+    "Eres un intérprete de fórmulas Excel. El usuario quiere añadir una columna con una fórmula.\n\n"
+    "Devuelve SOLO un JSON con esta estructura exacta:\n"
+    '{\n'
+    '  "col_nueva": "Nombre de la columna a crear",\n'
+    '  "formula": "=FORMULA_CON_{row}_COMO_PLACEHOLDER"\n'
+    '}\n\n'
+    "Reglas:\n"
+    "- 'col_nueva': nombre descriptivo para la nueva columna\n"
+    "- 'formula': fórmula Excel válida con {row} como placeholder del número de fila\n"
+    "  (fila 2 = primera fila de datos, fila 3 = segunda, etc.)\n"
+    "- Las columnas del DataFrame se mapean a letras Excel en el mismo orden (A, B, C...)\n"
+    "- IMPORTANTE: usa SIEMPRE los nombres de función en INGLÉS (IF, SUM, AVERAGE, MAX, MIN, "
+    "COUNT, ROUND, VLOOKUP, IF, AND, OR…). Excel los mostrará localizados al usuario "
+    "automáticamente. Nunca uses SI, SUMA, PROMEDIO, BUSCARV, Y, O ni ningún nombre localizado.\n"
+    "- Ejemplos de fórmulas (en inglés):\n"
+    "    Beneficio = Ingresos - Costes (Ingresos=C, Costes=D) → \"=C{row}-D{row}\"\n"
+    "    Margen % = Beneficio / Ingresos                      → \"=E{row}/C{row}\"\n"
+    "    Suma de la fila completa (A a E)                     → \"=SUM(A{row}:E{row})\"\n"
+    "    Si Ventas > 1000 → 'Alto', si no → 'Bajo' (Ventas=B) → \"=IF(B{row}>1000,\\\"Alto\\\",\\\"Bajo\\\")\"\n"
+    "    IVA al 21% sobre Importe (Importe=B)                 → \"=B{row}*0.21\"\n"
+    "    Redondear a 2 decimales                              → \"=ROUND(C{row},2)\"\n"
+    "Responde SOLO con el JSON. Sin markdown, sin explicaciones."
+)
+
+FORMULA_DSL_USUARIO = (
+    "Columnas del DataFrame (nombre → letra Excel):\n{columnas_info}\n"
+    "La nueva columna irá en la columna {nueva_col_letra}.\n"
+    "Muestra (primeras 3 filas; fila 2 en Excel = primera fila de datos):\n{muestra}\n\n"
+    "Petición: {instruccion}"
 )

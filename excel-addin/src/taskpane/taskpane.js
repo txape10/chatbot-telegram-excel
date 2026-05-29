@@ -556,6 +556,11 @@ async function _aplicarPaso(paso) {
     case "edicion":
       // Los datos se escriben al final (el caller maneja _datosModificados)
       break;
+    case "formula":
+      if (paso.col_nueva && paso.formulas) {
+        await _aplicarFormula(paso);
+      }
+      break;
     case "formato":
       if (paso.reglas || paso.regla) {
         await _aplicarFormatosCondicionales(paso.reglas || [paso.regla]);
@@ -574,6 +579,31 @@ async function _aplicarPaso(paso) {
     default:
       break;
   }
+}
+
+async function _aplicarFormula(paso) {
+  const { col_nueva, formulas } = paso;
+  if (!col_nueva || !formulas || formulas.length === 0) return;
+  await Excel.run(async (context) => {
+    const sheet     = context.workbook.worksheets.getActiveWorksheet();
+    const usedRange = sheet.getUsedRange();
+    usedRange.load(["columnCount", "rowCount"]);
+    await context.sync();
+
+    const nCols   = usedRange.columnCount;
+    const nRows   = usedRange.rowCount;
+    if (nRows < 2) return; // solo cabecera, sin datos
+
+    // Cabecera de la nueva columna
+    sheet.getRangeByIndexes(0, nCols, 1, 1).values = [[col_nueva]];
+
+    // Fórmulas para cada fila de datos
+    const dataRows  = Math.min(formulas.length, nRows - 1);
+    const dataRange = sheet.getRangeByIndexes(1, nCols, dataRows, 1);
+    dataRange.formulas = formulas.slice(0, dataRows);
+
+    await context.sync();
+  });
 }
 
 async function _aplicarFormatosCondicionales(reglas) {

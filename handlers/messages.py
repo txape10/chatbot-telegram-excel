@@ -8,7 +8,8 @@ from telegram.error import TelegramError
 from services.llm import (LLMError, obtener_respuesta, obtener_proveedor_privado,
                           extraer_query_dsl, extraer_operacion_edicion,
                           extraer_estructura_excel, extraer_operacion_combinar,
-                          extraer_peticion_grafico, extraer_operaciones_macro)
+                          extraer_peticion_grafico, extraer_operaciones_macro,
+                          extraer_formula)
 from utils.macros import guardar_macro, obtener_macro, listar_macros, borrar_macro
 from utils.user_prefs import get_modo_respuesta, get_modo_privado
 from services.tts import texto_a_audio
@@ -563,6 +564,26 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
             if nombre_op == "tabla_dinamica":
                 descripciones.append("Tabla dinámica preparada")
                 continue  # el bot ya tiene _generar_tabla_dinamica; aquí solo anotamos
+
+            # formula → añade columna con fórmulas Excel (openpyxl las escribe como fórmulas)
+            if nombre_op == "formula":
+                try:
+                    params = await asyncio.to_thread(extraer_formula, df_actual, pregunta)
+                    if params:
+                        formula_tmpl = params.get("formula", "")
+                        col_nueva    = params.get("col_nueva", "Fórmula")
+                        formulas_col = [
+                            formula_tmpl.replace("{row}", str(row))
+                            for row in range(2, len(df_actual) + 2)
+                        ]
+                        df_actual = df_actual.copy()
+                        df_actual[col_nueva] = formulas_col
+                        descripciones.append(
+                            f"Columna '{col_nueva}' con fórmula Excel"
+                        )
+                except Exception as e_form:
+                    logger.warning("Fórmula en pipeline bot user_id %s: %s", user_id, e_form)
+                continue
 
             # formato_condicional → aplicar pandas styling (ya lo hace aplicar_edicion)
             try:

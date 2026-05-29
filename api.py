@@ -37,6 +37,7 @@ from logging_config import configurar_logging
 from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_estructura_excel, extraer_regla_formato,
                           extraer_peticion_grafico, extraer_params_pivote,
+                          extraer_formula, _col_letra,
                           obtener_respuesta)
 from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
 
@@ -510,6 +511,25 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                     "descripcion": (
                         f"Tabla dinámica: {', '.join(params.get('filas', []))} "
                         f"→ {params.get('valores')} ({params.get('funcion', 'suma')})"
+                    ),
+                })
+
+        elif nombre_op == "formula":
+            params = extraer_formula(df_actual, instruccion)
+            if params:
+                formula_tmpl = params.get("formula", "")
+                col_nueva    = params.get("col_nueva", "Fórmula")
+                formulas = [
+                    [formula_tmpl.replace("{row}", str(row))]
+                    for row in range(2, len(df_actual) + 2)
+                ]
+                pasos.append({
+                    "tipo": "formula",
+                    "col_nueva": col_nueva,
+                    "formulas": formulas,
+                    "descripcion": (
+                        f"Columna '{col_nueva}' con fórmula "
+                        f"{formula_tmpl.replace('{row}', 'N')}"
                     ),
                 })
 

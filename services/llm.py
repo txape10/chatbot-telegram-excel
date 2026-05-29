@@ -325,6 +325,54 @@ def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> list[dict] | No
         return None
 
 
+def _col_letra(n: int) -> str:
+    """Convierte índice 0-based a letra de columna Excel (A, B, ..., Z, AA, ...)."""
+    result = ""
+    n += 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        result = chr(65 + r) + result
+    return result
+
+
+def extraer_formula(df: pd.DataFrame, instruccion: str) -> dict | None:
+    """Extrae la definición de una fórmula Excel desde lenguaje natural.
+
+    Devuelve {"col_nueva": str, "formula": "=D{row}-C{row}"} o None si falla.
+    El placeholder {row} se sustituye por el número de fila real al expandir.
+    """
+    from prompts.excel import FORMULA_DSL_SISTEMA, FORMULA_DSL_USUARIO
+
+    columnas_info = "\n".join(
+        f"  '{c}' → {_col_letra(i)}" for i, c in enumerate(df.columns)
+    )
+    nueva_col_letra = _col_letra(len(df.columns))
+    muestra = df.head(3).to_string(index=False)
+
+    try:
+        texto = obtener_proveedor().chat(
+            messages=[
+                {"role": "system", "content": FORMULA_DSL_SISTEMA},
+                {"role": "user", "content": FORMULA_DSL_USUARIO.format(
+                    columnas_info=columnas_info,
+                    nueva_col_letra=nueva_col_letra,
+                    muestra=muestra,
+                    instruccion=instruccion,
+                )},
+            ],
+            temperature=0,
+            max_tokens=150,
+        )
+        logger.debug("Respuesta formula DSL del LLM: %s", texto)
+        parsed = json.loads(_limpiar_json(texto.strip()))
+        if isinstance(parsed, dict) and "formula" in parsed and "col_nueva" in parsed:
+            return parsed
+        return None
+    except Exception as error:
+        logger.warning("Error extrayendo fórmula Excel: %s", error)
+        return None
+
+
 def transcribir_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> str:
     """Transcribe un mensaje de voz usando el proveedor activo."""
     return obtener_proveedor().transcribir(audio_bytes, filename)
