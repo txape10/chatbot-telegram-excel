@@ -654,16 +654,16 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                 # y emitir un paso formula_columna para que el frontend la escriba como
                 # fórmula Excel viva en lugar de valor calculado.
                 if nombre_op == "añadir_columna":
-                    col1     = op.get("col1")
-                    col2     = op.get("col2")
-                    operador = op.get("operador")
+                    col1       = op.get("col1")
+                    col2       = op.get("col2")
+                    operador   = op.get("operador")
+                    valor_fijo = op.get("valor_fijo")
                     cols_nuevas = [c for c in df_actual.columns if c not in cols_antes]
-                    if cols_nuevas and col1 and col2 and operador:
+                    if cols_nuevas and col1 and operador:
                         col_nueva = cols_nuevas[0]
                         cols_list = list(df_actual.columns)
-                        if col1 in cols_list and col2 in cols_list:
-                            # Quitar la columna fórmula de datos_modificados
-                            # para que escribirEnExcel no la pinte como valor.
+                        if col2 and col1 in cols_list and col2 in cols_list:
+                            # col op col → fórmula con dos referencias (=E2*F2)
                             pasos[-1]["datos_modificados"] = _df_a_matriz(
                                 df_actual.drop(columns=[col_nueva])
                             )
@@ -674,6 +674,19 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                                 "col2_idx": cols_list.index(col2),
                                 "operador": operador,
                                 "descripcion": f"{col_nueva} = {col1} {operador} {col2}",
+                            })
+                        elif valor_fijo is not None and col1 in cols_list:
+                            # col op constante → fórmula con referencia + literal (=E2*1.21)
+                            pasos[-1]["datos_modificados"] = _df_a_matriz(
+                                df_actual.drop(columns=[col_nueva])
+                            )
+                            pasos.append({
+                                "tipo": "formula_columna",
+                                "col": col_nueva,
+                                "col1_idx": cols_list.index(col1),
+                                "valor_fijo": valor_fijo,
+                                "operador": operador,
+                                "descripcion": f"{col_nueva} = {col1} {operador} {valor_fijo}",
                             })
             except (EditorError, Exception) as error:
                 logger.warning("Op '%s' falló en pipeline: %s", nombre_op, error)

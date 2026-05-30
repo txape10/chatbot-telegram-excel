@@ -228,7 +228,6 @@ async function preguntar() {
 
       if (respuesta.tipo === "pipeline" && respuesta.pasos) {
         // Pipeline multi-op: ejecutar cada paso en orden
-        console.log("[DEBUG] pipeline pasos tipos:", respuesta.pasos.map(p => p.tipo));
         mostrarEstado("Ejecutando pipeline...");
         let ultimaEdicion = null;
         const resultadosQuery = [];
@@ -256,7 +255,6 @@ async function preguntar() {
           await escribirEnExcel(_da);
           // Sobreescribir columnas aritméticas con fórmulas Excel vivas
           const _fmlCols = respuesta.pasos.filter(p => p.tipo === "formula_columna");
-          console.log("[DEBUG] formula_columna pasos:", _fmlCols);
           for (const fml of _fmlCols) { await _aplicarFormulaColumna(fml); }
           // Aplicar formatos numéricos pendientes (columnas con N decimales)
           const _fmtNums = respuesta.pasos.filter(p => p.tipo === "formato_numero");
@@ -594,17 +592,21 @@ async function _aplicarFormulaColumna(paso) {
     if (numDataRows <= 0) return;
 
     const col1Letra = _idxToColLetter(anchorCol + paso.col1_idx);
-    const col2Letra = _idxToColLetter(anchorCol + paso.col2_idx);
+    const col2Letra = paso.col2_idx !== undefined
+      ? _idxToColLetter(anchorCol + paso.col2_idx)
+      : null;
     const op        = paso.operador;
 
     // Cabecera de la nueva columna
     sheet.getRangeByIndexes(anchorRow, newColIdx, 1, 1).values = [[paso.col]];
 
     // Fórmulas para cada fila de datos
+    // col op col → =E2*F2 | col op constante → =E2*1.21
     const formulas = [];
     for (let i = 0; i < numDataRows; i++) {
-      const rowNum = anchorRow + i + 2;  // fila Excel 1-based: +1 cabecera, +1 base 1
-      formulas.push([`=${col1Letra}${rowNum}${op}${col2Letra}${rowNum}`]);
+      const rowNum    = anchorRow + i + 2;  // fila Excel 1-based: +1 cabecera, +1 base 1
+      const operando2 = col2Letra ? `${col2Letra}${rowNum}` : String(paso.valor_fijo);
+      formulas.push([`=${col1Letra}${rowNum}${op}${operando2}`]);
     }
     sheet.getRangeByIndexes(anchorRow + 1, newColIdx, numDataRows, 1).formulas = formulas;
     await ctx.sync();
