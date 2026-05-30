@@ -561,6 +561,41 @@ textarea:focus {
   border-color: rgba(211, 47, 47, 0.4) !important;
 }
 
+/* --- Botones de opciones de aclaración --- */
+.opciones-aclaracion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.btn-aclaracion {
+  width: 100%;
+  text-align: left !important;
+  background-color: var(--color-fondo-panel) !important;
+  border: 1px solid var(--color-acento) !important;
+  border-radius: 4px;
+  padding: 6px 10px !important;
+  cursor: pointer;
+  white-space: normal !important;
+  height: auto !important;
+  min-height: 32px;
+}
+
+.btn-aclaracion:hover {
+  background-color: var(--color-acento) !important;
+}
+
+.btn-aclaracion:hover .ms-Button-label {
+  color: var(--color-btn-copiar-texto) !important;
+}
+
+.btn-aclaracion .ms-Button-label {
+  font-size: 12px;
+  white-space: normal !important;
+  line-height: 1.4;
+}
+
 /* --- Footer desarrollador --- */
 .footer-dev {
   display: flex;

@@ -23,6 +23,9 @@ let _operacionActual  = null;
 let _feedbackPregunta  = "";
 let _feedbackRespuesta = "";
 
+// Aclaración pendiente: instrucción original guardada hasta que el usuario responda
+let _instruccionPreAclaracion = null;
+
 // Easter egg
 let _eggInterval = null;
 
@@ -159,10 +162,16 @@ function _esFormatoCondicional(texto) {
 const _PALABRAS_ZELDA = ["zelda", "link"];
 
 async function preguntar() {
-  const instruccion = document.getElementById("pregunta").value.trim();
+  let instruccion = document.getElementById("pregunta").value.trim();
   if (!instruccion) {
     mostrarEstado("Escribe una pregunta primero.");
     return;
+  }
+
+  // Si hay una aclaración pendiente, fusionar instrucción original + respuesta del usuario
+  if (_instruccionPreAclaracion) {
+    instruccion = _instruccionPreAclaracion + " — " + instruccion;
+    _instruccionPreAclaracion = null;
   }
 
   // Easter egg: detectar palabras mágicas (siempre, aunque ya esté desbloqueado)
@@ -320,10 +329,24 @@ async function preguntar() {
         _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
         _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else if (respuesta.tipo === "aclaracion") {
-        // El backend necesita más info antes de ejecutar — mostrar como pregunta
-        const pregunta = respuesta.pregunta || "¿Puedes concretar más?";
-        const opciones = (respuesta.opciones || []).map((o) => `• ${o}`).join("\n");
-        mostrarRespuesta(`🤔 ${pregunta}${opciones ? "\n\n" + opciones : ""}`);
+        // Guardar instrucción original para fusionarla con la respuesta del usuario
+        _instruccionPreAclaracion = instruccion;
+        const preguntaTexto = respuesta.pregunta || "¿Puedes concretar más?";
+        const opciones = respuesta.opciones || [];
+        // Mostrar pregunta + botones pulsables (un clic envía directamente)
+        let html = `<p>🤔 ${preguntaTexto}</p>`;
+        if (opciones.length > 0) {
+          html += '<div class="opciones-aclaracion">';
+          opciones.forEach((o) => {
+            const esc = o.replace(/"/g, "&quot;");
+            html += `<button class="ms-Button btn-aclaracion" onclick="elegirAclaracion(&quot;${esc}&quot;)">
+              <span class="ms-Button-label">${o}</span>
+            </button>`;
+          });
+          html += "</div>";
+        }
+        document.getElementById("respuesta").innerHTML = html;
+        document.getElementById("bloque-respuesta").style.display = "block";
         mostrarEstado("Se necesita aclaración");
       } else {
         const msg = respuesta.respuesta || respuesta.mensaje || "Sin respuesta";
@@ -1297,6 +1320,12 @@ function _detenerFuegos() {
 
 function mostrarEstado(texto) {
   document.getElementById("estado").textContent = texto;
+}
+
+/** El usuario pulsó una opción de aclaración → rellenar el campo y enviar. */
+function elegirAclaracion(opcion) {
+  document.getElementById("pregunta").value = opcion;
+  preguntar();
 }
 
 function _mostrarFeedback(pregunta, respuesta) {
