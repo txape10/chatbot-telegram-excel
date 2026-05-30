@@ -1305,13 +1305,13 @@ function _mostrarFeedback(pregunta, respuesta) {
   const zona = document.getElementById("zona-feedback");
   if (!zona) return;
   zona.style.display = "flex";
-  // Resetear a estado inicial por si ya se había valorado antes
-  const btnPos  = document.getElementById("btn-feedback-pos");
-  const btnNeg  = document.getElementById("btn-feedback-neg");
-  const confirm = document.getElementById("feedback-confirmacion");
-  if (btnPos)  btnPos.style.display  = "";
-  if (btnNeg)  btnNeg.style.display  = "";
-  if (confirm) confirm.style.display = "none";
+  // Resetear a estado inicial: ambos botones visibles, icono oculto
+  const btnPos = document.getElementById("btn-feedback-pos");
+  const btnNeg = document.getElementById("btn-feedback-neg");
+  const icon   = document.getElementById("feedback-icon");
+  if (btnPos) btnPos.style.display = "";
+  if (btnNeg) btnNeg.style.display = "";
+  if (icon)   icon.style.display   = "none";
 }
 
 function _ocultarFeedback() {
@@ -1321,13 +1321,19 @@ function _ocultarFeedback() {
 
 async function enviarFeedback(tipo) {
   if (!_feedbackPregunta || !_feedbackRespuesta) return;
-  // Ocultar los botones y mostrar el check de confirmación
-  const btnPos  = document.getElementById("btn-feedback-pos");
-  const btnNeg  = document.getElementById("btn-feedback-neg");
-  const confirm = document.getElementById("feedback-confirmacion");
-  if (btnPos)  btnPos.style.display  = "none";
-  if (btnNeg)  btnNeg.style.display  = "none";
-  if (confirm) confirm.style.display = "inline";
+  const btnPos = document.getElementById("btn-feedback-pos");
+  const btnNeg = document.getElementById("btn-feedback-neg");
+  const icon   = document.getElementById("feedback-icon");
+  // El icono muestra el voto dado; el botón contrario sigue visible para cambiar
+  if (tipo === "positivo") {
+    if (btnPos) btnPos.style.display = "none";
+    if (btnNeg) btnNeg.style.display = "";
+    if (icon)   { icon.textContent = "✅"; icon.style.display = "inline"; }
+  } else {
+    if (btnNeg) btnNeg.style.display = "none";
+    if (btnPos) btnPos.style.display = "";
+    if (icon)   { icon.textContent = "❌"; icon.style.display = "inline"; }
+  }
   try {
     await llamarApi("/feedback", {
       device_id: _obtenerOCrearDeviceId(),
