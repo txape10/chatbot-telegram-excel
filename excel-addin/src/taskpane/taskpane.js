@@ -202,19 +202,35 @@ async function preguntar() {
         // Pipeline multi-op: ejecutar cada paso en orden
         mostrarEstado("Ejecutando pipeline...");
         let ultimaEdicion = null;
+        const resultadosQuery = [];
+        let graficosInsertados = 0;
         for (const paso of respuesta.pasos) {
-          await _aplicarPaso(paso);
+          await _aplicarPaso(paso, graficosInsertados);
           if (paso.tipo === "edicion") ultimaEdicion = paso;
+          if (paso.tipo === "query_resultado") resultadosQuery.push(paso);
+          if (paso.tipo === "grafico" && paso.datos_chart) graficosInsertados++;
         }
-        // Si hay edición en el pipeline, abrir diálogo para el último dato modificado
         if (ultimaEdicion) {
           _datosModificados = ultimaEdicion.datos_modificados;
           mostrarDialogo(respuesta.descripcion);
         }
-        mostrarRespuesta("✅ " + respuesta.descripcion);
+        // Respuesta organizada: cambios + consultas
+        const partesEdicion = respuesta.pasos
+          .filter(p => p.tipo !== "query_resultado")
+          .map(p => p.descripcion).filter(Boolean);
+        let textoRespuesta = "";
+        if (partesEdicion.length > 0) {
+          textoRespuesta += "✅ **Cambios aplicados:**\n" + partesEdicion.map(d => `• ${d}`).join("\n");
+        }
+        if (resultadosQuery.length > 0) {
+          if (textoRespuesta) textoRespuesta += "\n\n";
+          textoRespuesta += "📊 **Consultas:**\n" + resultadosQuery.map(q => `**${q.pregunta}**\n${q.resultado}`).join("\n\n");
+        }
+        if (!textoRespuesta) textoRespuesta = "✅ " + respuesta.descripcion;
+        mostrarRespuesta(textoRespuesta);
         mostrarEstado("Pipeline aplicada · " + direccion);
-        _agregarAlHistorial(instruccion, "✅ " + respuesta.descripcion);
-        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        _agregarAlHistorial(instruccion, textoRespuesta);
+        _actualizarHistorialLLM(instruccion, textoRespuesta);
       } else if (respuesta.tipo === "tabla_dinamica" && respuesta.params) {
         mostrarEstado("Creando tabla dinámica...");
         await _insertarTablaDinamica(respuesta.params);
@@ -551,7 +567,7 @@ function _aplicarUnaRegla(cfs, regla) {
 
 /** Aplica un array de reglas DSL. Agrupa por columna para hacer un solo clearAll por columna. */
 /** Despacha un paso individual de un pipeline. Reutiliza los handlers existentes. */
-async function _aplicarPaso(paso) {
+async function _aplicarPaso(paso, chartIndex = 0) {
   switch (paso.tipo) {
     case "edicion":
       // Los datos se escriben al final (el caller maneja _datosModificados)
@@ -568,13 +584,16 @@ async function _aplicarPaso(paso) {
       break;
     case "grafico":
       if (paso.datos_chart) {
-        await _insertarGrafico(paso.tipo_grafico, paso.datos_chart, paso.titulo);
+        await _insertarGrafico(paso.tipo_grafico, paso.datos_chart, paso.titulo, chartIndex);
       }
       break;
     case "tabla_dinamica":
       if (paso.params) {
         await _insertarTablaDinamica(paso.params);
       }
+      break;
+    case "query_resultado":
+      // Solo se muestra en texto — no modifica la hoja
       break;
     default:
       break;
@@ -674,13 +693,19 @@ const _CHART_TYPES = {
   dispersion: "XYScatter",
 };
 
-async function _insertarGrafico(tipoGrafico, datosChart, titulo) {
+async function _insertarGrafico(tipoGrafico, datosChart, titulo, chartIndex = 0) {
   const filas = datosChart.length;
   const cols  = (datosChart[0] || []).length;
   if (filas < 2) throw new Error("No hay suficientes datos para crear el gráfico.");
 
   await Excel.run(async (context) => {
     const sheet = context.workbook.worksheets.getActiveWorksheet();
+
+    // Calcular la primera fila libre debajo de todo el contenido de la hoja
+    const usedRange = sheet.getUsedRangeOrNullObject();
+    usedRange.load(["rowIndex", "rowCount"]);
+    await context.sync();
+    const lastDataRow = usedRange.isNullObject ? 0 : (usedRange.rowIndex + usedRange.rowCount);
 
     // Escribir datos en una hoja temporal oculta
     const tempNombre = "_chart_temp_" + Date.now();
@@ -698,8 +723,8 @@ async function _insertarGrafico(tipoGrafico, datosChart, titulo) {
     chart.title.visible = true;
     chart.legend.visible = cols > 2;
 
-    // Posicionar el gráfico debajo de los datos actuales (estimación)
-    const anchorRow = _rangoFilas > 0 ? _rangoFilas + 2 : 2;
+    // Posicionar debajo del último contenido de la hoja + desplazamiento por índice
+    const anchorRow = lastDataRow + 2 + chartIndex * 17;
     const anchorCol = 0;
     chart.setPosition(
       sheet.getRangeByIndexes(anchorRow, anchorCol, 1, 1),

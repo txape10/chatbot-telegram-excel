@@ -538,6 +538,7 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
         df_actual = df.copy()
         descripciones: list[str] = []
         graficos_extra: list[tuple] = []  # (buf_img, titulo)
+        resultados_query: list[str] = []  # respuestas de ops query
 
         for op in ops:
             nombre_op = op.get("op", "")
@@ -585,6 +586,23 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
                     logger.warning("Fórmula en pipeline bot user_id %s: %s", user_id, e_form)
                 continue
 
+            # query → consulta inline sobre df_actual en su estado actual
+            if nombre_op == "query":
+                pregunta_q = op.get("pregunta", "")
+                if pregunta_q:
+                    try:
+                        dsl_q = await asyncio.to_thread(extraer_query_dsl, df_actual, pregunta_q)
+                        if dsl_q and not dsl_q.get("aclaracion_necesaria"):
+                            resultado_q, descripcion_q = await asyncio.to_thread(
+                                ejecutar_query, df_actual, dsl_q
+                            )
+                            from excel.query_engine import formatear_resultado
+                            texto_q = formatear_resultado(resultado_q, descripcion_q)
+                            resultados_query.append(f"*{pregunta_q}*\n{texto_q}")
+                    except Exception as e_q:
+                        logger.warning("Query inline bot user_id %s: %s", user_id, e_q)
+                continue
+
             # formato_condicional → aplicar pandas styling (ya lo hace aplicar_edicion)
             try:
                 df_actual, descripcion, extras = await asyncio.to_thread(
@@ -595,17 +613,23 @@ async def _intentar_edicion(update: Update, user_id: int, df, pregunta: str,
                 logger.warning("Op '%s' falló en pipeline bot user_id %s: %s",
                                nombre_op, user_id, error)
 
-        # Exportar df final
-        resumen = "; ".join(descripciones) if descripciones else "Modificación aplicada"
-        fmt_cond = None  # pandas styling ya aplicada inline
-        buf, nombre_archivo = await asyncio.to_thread(
-            exportar_xlsx, df_actual, nombre_base, resumen, fmt_cond
-        )
-
+        # Guardar estado resultante (puede haber cambiado por ediciones)
         guardar_df(user_id, df_actual)
 
-        caption = f"✅ {resumen}\n\nEl archivo incluye los cambios aplicados."
-        await update.message.reply_document(document=buf, filename=nombre_archivo, caption=caption)
+        # Exportar xlsx solo si hubo ops de datos reales
+        resumen = "; ".join(descripciones) if descripciones else None
+        if resumen:
+            fmt_cond = None
+            buf, nombre_archivo = await asyncio.to_thread(
+                exportar_xlsx, df_actual, nombre_base, resumen, fmt_cond
+            )
+            caption = f"✅ {resumen}\n\nEl archivo incluye los cambios aplicados."
+            await update.message.reply_document(document=buf, filename=nombre_archivo, caption=caption)
+
+        # Enviar resultados de consultas inline
+        if resultados_query:
+            texto_queries = "\n\n".join(resultados_query)
+            await update.message.reply_text(f"📊 *Resultados:*\n\n{texto_queries}", parse_mode="Markdown")
 
         # Enviar gráficos adicionales si los hay
         for buf_img, titulo in graficos_extra:

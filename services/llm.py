@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import time
 import pandas as pd
 
 from config import SYSTEM_PROMPT
@@ -16,6 +17,17 @@ logger = logging.getLogger(__name__)
 def _estimar_tokens(texto: str) -> int:
     """Estimación rápida: ~4 caracteres por token."""
     return len(texto) // 4
+
+
+def _chat_timed(nombre: str, messages: list, temperature: float = 0,
+                max_tokens: int | None = None) -> str:
+    """Llama al LLM activo y logea el tiempo empleado."""
+    t0 = time.perf_counter()
+    resultado = obtener_proveedor().chat(messages=messages, temperature=temperature,
+                                         max_tokens=max_tokens)
+    ms = (time.perf_counter() - t0) * 1000
+    logger.info("LLM %-25s → %6.0f ms", nombre, ms)
+    return resultado
 
 
 def _construir_mensajes(historial: list[dict], pregunta: str,
@@ -110,7 +122,11 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
         return None
 
 
-def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> list[dict] | dict | None:
+def extraer_operacion_edicion(
+    df: pd.DataFrame,
+    pregunta: str,
+    macros_disponibles: list[str] | None = None,
+) -> list[dict] | dict | None:
     """Llama al LLM con el prompt de edición y parsea el JSON.
 
     Devuelve:
@@ -124,17 +140,20 @@ def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> list[dict] | d
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
+    if macros_disponibles:
+        macros_info = "Macros guardadas del usuario: " + ", ".join(macros_disponibles) + "\n"
+    else:
+        macros_info = ""
+
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": EDITOR_DSL_SISTEMA},
-                {"role": "user",   "content": EDITOR_DSL_USUARIO.format(
-                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
-                )},
-            ],
-            temperature=0,
-            max_tokens=600,
-        )
+        texto = _chat_timed("editor_dsl", [
+            {"role": "system", "content": EDITOR_DSL_SISTEMA},
+            {"role": "user",   "content": EDITOR_DSL_USUARIO.format(
+                columnas=columnas, tipos=tipos, muestra=muestra,
+                macros_info=macros_info, pregunta=pregunta,
+            )},
+        ], temperature=0, max_tokens=600)
         logger.debug("Respuesta editor DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
@@ -150,7 +169,7 @@ def extraer_operacion_edicion(df: pd.DataFrame, pregunta: str) -> list[dict] | d
             return parsed
         return None
     except Exception as error:
-        logger.warning("Error extrayendo operación de edición: %s", error)
+        logger.warning("Error extrayendo operación de edición: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -168,17 +187,14 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": QUERY_DSL_SISTEMA},
-                {"role": "user",   "content": QUERY_DSL_USUARIO.format(
-                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
-                )},
-            ],
-            temperature=0,
-            max_tokens=400,
-        )
+        texto = _chat_timed("query_dsl", [
+            {"role": "system", "content": QUERY_DSL_SISTEMA},
+            {"role": "user",   "content": QUERY_DSL_USUARIO.format(
+                columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
+            )},
+        ], temperature=0, max_tokens=400)
         logger.debug("Respuesta DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
@@ -187,7 +203,7 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
         # Propagar aclaración tal cual — el handler decide qué hacer
         return parsed
     except Exception as error:
-        logger.warning("Error extrayendo query DSL: %s", error)
+        logger.warning("Error extrayendo query DSL: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -200,21 +216,18 @@ def extraer_operacion_combinar(df1: pd.DataFrame, df2: pd.DataFrame,
     cols_b       = ", ".join(f"'{c}'" for c in df2.columns)
     cols_comunes = ", ".join(f"'{c}'" for c in df1.columns if c in df2.columns) or "ninguna"
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": COMBINAR_DSL_SISTEMA},
-                {"role": "user",   "content": COMBINAR_DSL_USUARIO.format(
-                    cols_a=cols_a, cols_b=cols_b, cols_comunes=cols_comunes, pregunta=pregunta,
-                )},
-            ],
-            temperature=0,
-            max_tokens=100,
-        )
+        texto = _chat_timed("combinar_dsl", [
+            {"role": "system", "content": COMBINAR_DSL_SISTEMA},
+            {"role": "user",   "content": COMBINAR_DSL_USUARIO.format(
+                cols_a=cols_a, cols_b=cols_b, cols_comunes=cols_comunes, pregunta=pregunta,
+            )},
+        ], temperature=0, max_tokens=100)
         logger.debug("Respuesta combinar DSL del LLM: %s", texto)
         return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
-        logger.warning("Error extrayendo operación combinar: %s", error)
+        logger.warning("Error extrayendo operación combinar: %s | respuesta LLM: %r", error, texto)
         return {"col": None, "como": "inner"}
 
 
@@ -225,21 +238,18 @@ def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
     columnas = ", ".join(f"'{c}'" for c in df.columns)
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": GRAFICO_DSL_SISTEMA},
-                {"role": "user",   "content": GRAFICO_DSL_USUARIO.format(
-                    columnas=columnas, tipos=tipos, pregunta=pregunta,
-                )},
-            ],
-            temperature=0,
-            max_tokens=150,
-        )
+        texto = _chat_timed("grafico_dsl", [
+            {"role": "system", "content": GRAFICO_DSL_SISTEMA},
+            {"role": "user",   "content": GRAFICO_DSL_USUARIO.format(
+                columnas=columnas, tipos=tipos, pregunta=pregunta,
+            )},
+        ], temperature=0, max_tokens=150)
         logger.debug("Respuesta gráfico DSL del LLM: %s", texto)
         return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
-        logger.warning("Error extrayendo petición de gráfico: %s", error)
+        logger.warning("Error extrayendo petición de gráfico: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -251,21 +261,18 @@ def extraer_params_pivote(df: pd.DataFrame, pregunta: str) -> dict | None:
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": PIVOTE_DSL_SISTEMA},
-                {"role": "user",   "content": PIVOTE_DSL_USUARIO.format(
-                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
-                )},
-            ],
-            temperature=0,
-            max_tokens=200,
-        )
+        texto = _chat_timed("pivote_dsl", [
+            {"role": "system", "content": PIVOTE_DSL_SISTEMA},
+            {"role": "user",   "content": PIVOTE_DSL_USUARIO.format(
+                columnas=columnas, tipos=tipos, muestra=muestra, pregunta=pregunta,
+            )},
+        ], temperature=0, max_tokens=200)
         logger.debug("Params pivote del LLM: %s", texto)
         return json.loads(_limpiar_json(texto.strip()))
     except Exception as error:
-        logger.warning("Error extrayendo params de tabla dinámica: %s", error)
+        logger.warning("Error extrayendo params de tabla dinámica: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -273,20 +280,17 @@ def extraer_operaciones_macro(descripcion: str) -> list[dict] | None:
     """Convierte una descripción de macro en una lista de operaciones DSL."""
     from prompts.excel import MACRO_DSL_SISTEMA, MACRO_DSL_USUARIO
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": MACRO_DSL_SISTEMA},
-                {"role": "user",   "content": MACRO_DSL_USUARIO.format(descripcion=descripcion)},
-            ],
-            temperature=0,
-            max_tokens=400,
-        )
+        texto = _chat_timed("macro_dsl", [
+            {"role": "system", "content": MACRO_DSL_SISTEMA},
+            {"role": "user",   "content": MACRO_DSL_USUARIO.format(descripcion=descripcion)},
+        ], temperature=0, max_tokens=400)
         logger.debug("Operaciones macro del LLM: %s", texto)
         ops = json.loads(_limpiar_json(texto.strip()))
         return ops if isinstance(ops, list) else None
     except Exception as error:
-        logger.warning("Error extrayendo operaciones de macro: %s", error)
+        logger.warning("Error extrayendo operaciones de macro: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -301,17 +305,14 @@ def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> list[dict] | No
     tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
     muestra  = df.head(3).to_string(index=False)
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": FORMATO_DSL_SISTEMA},
-                {"role": "user",   "content": FORMATO_DSL_USUARIO.format(
-                    columnas=columnas, tipos=tipos, muestra=muestra, pregunta=instruccion,
-                )},
-            ],
-            temperature=0,
-            max_tokens=400,
-        )
+        texto = _chat_timed("formato_dsl", [
+            {"role": "system", "content": FORMATO_DSL_SISTEMA},
+            {"role": "user",   "content": FORMATO_DSL_USUARIO.format(
+                columnas=columnas, tipos=tipos, muestra=muestra, pregunta=instruccion,
+            )},
+        ], temperature=0, max_tokens=400)
         logger.debug("Regla formato del LLM: %s", texto)
         parsed = json.loads(_limpiar_json(texto.strip()))
         # Normalizar: el LLM puede devolver un dict (regla única) o lista
@@ -321,7 +322,7 @@ def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> list[dict] | No
             return parsed
         return None
     except Exception as error:
-        logger.warning("Error extrayendo regla de formato: %s", error)
+        logger.warning("Error extrayendo regla de formato: %s | respuesta LLM: %r", error, texto)
         return None
 
 
@@ -349,27 +350,24 @@ def extraer_formula(df: pd.DataFrame, instruccion: str) -> dict | None:
     nueva_col_letra = _col_letra(len(df.columns))
     muestra = df.head(3).to_string(index=False)
 
+    texto = None
     try:
-        texto = obtener_proveedor().chat(
-            messages=[
-                {"role": "system", "content": FORMULA_DSL_SISTEMA},
-                {"role": "user", "content": FORMULA_DSL_USUARIO.format(
-                    columnas_info=columnas_info,
-                    nueva_col_letra=nueva_col_letra,
-                    muestra=muestra,
-                    instruccion=instruccion,
-                )},
-            ],
-            temperature=0,
-            max_tokens=150,
-        )
+        texto = _chat_timed("formula_dsl", [
+            {"role": "system", "content": FORMULA_DSL_SISTEMA},
+            {"role": "user", "content": FORMULA_DSL_USUARIO.format(
+                columnas_info=columnas_info,
+                nueva_col_letra=nueva_col_letra,
+                muestra=muestra,
+                instruccion=instruccion,
+            )},
+        ], temperature=0, max_tokens=150)
         logger.debug("Respuesta formula DSL del LLM: %s", texto)
         parsed = json.loads(_limpiar_json(texto.strip()))
         if isinstance(parsed, dict) and "formula" in parsed and "col_nueva" in parsed:
             return parsed
         return None
     except Exception as error:
-        logger.warning("Error extrayendo fórmula Excel: %s", error)
+        logger.warning("Error extrayendo fórmula Excel: %s | respuesta LLM: %r", error, texto)
         return None
 
 

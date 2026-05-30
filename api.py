@@ -19,6 +19,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 
 import pandas as pd
@@ -40,6 +41,7 @@ from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_formula, _col_letra,
                           obtener_respuesta)
 from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
+from utils.macros import listar_macros as _listar_macros_db, obtener_macro as _obtener_macro_db
 
 load_dotenv()
 configurar_logging()
@@ -101,7 +103,6 @@ async def _notificar_telegram(texto: str) -> None:
 
 async def _monitor_alertas_sistema() -> None:
     """Comprueba RAM y disco cada 10 min y avisa si superan el umbral rojo."""
-    import time
     from utils.alert_config import esta_activo as _alerta_activa
     _ultima: dict[str, float] = {}
 
@@ -150,7 +151,6 @@ _COOLDOWN_BOT_ERR = 300   # segundos entre alertas del mismo tipo de error
 
 async def _manejador_error_bot(update: object, context: object) -> None:
     """Handler de errores de python-telegram-bot — notifica al administrador."""
-    import time
     from utils.alert_config import esta_activo as _alerta_activa
     error = context.error  # type: ignore[attr-defined]
     logger.error("Error PTB: %s", error, exc_info=error)
@@ -233,17 +233,19 @@ _errores_500_vistos: dict[str, float] = {}
 _COOLDOWN_500 = 300  # segundos
 
 @app.middleware("http")
-async def _middleware_errores_500(request: Request, call_next):
-    import time
+async def _middleware_http(request: Request, call_next):
     from utils.alert_config import esta_activo as _alerta_activa
+    t0 = time.perf_counter()
     response = await call_next(request)
+    ms = (time.perf_counter() - t0) * 1000
+    ruta = f"{request.method} {request.url.path}"
+    logger.info("HTTP %-30s → %d  (%.0f ms)", ruta, response.status_code, ms)
     if response.status_code == 500 and _alerta_activa("error_500"):
-        clave = f"{request.method} {request.url.path}"
         ahora = time.time()
-        if ahora - _errores_500_vistos.get(clave, 0) > _COOLDOWN_500:
-            _errores_500_vistos[clave] = ahora
+        if ahora - _errores_500_vistos.get(ruta, 0) > _COOLDOWN_500:
+            _errores_500_vistos[ruta] = ahora
             asyncio.create_task(_notificar_telegram(
-                f"💥 *Error 500 en el servidor*\n`{clave}`"
+                f"💥 *Error 500 en el servidor*\n`{ruta}`"
             ))
     return response
 
@@ -533,6 +535,22 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                     ),
                 })
 
+        elif nombre_op == "query":
+            pregunta_q = op.get("pregunta", "")
+            if pregunta_q:
+                try:
+                    dsl_q = extraer_query_dsl(df_actual, pregunta_q)
+                    if dsl_q and not dsl_q.get("aclaracion_necesaria"):
+                        resultado_q, descripcion_q = ejecutar_query(df_actual, dsl_q)
+                        pasos.append({
+                            "tipo": "query_resultado",
+                            "pregunta": pregunta_q,
+                            "resultado": _resultado_a_texto(resultado_q, descripcion_q),
+                            "descripcion": descripcion_q,
+                        })
+                except (QueryError, Exception) as e_q:
+                    logger.warning("Query inline falló en pipeline: %s", e_q)
+
         # ── Ops de datos: modifican df_actual ────────────────────────────────────
         else:
             try:
@@ -551,10 +569,14 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
 @app.post("/edit")
 def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
          __: None = Depends(_verificar_addin_activo)) -> dict:
+    user_id = _usuario_addin(peticion.device_id, peticion.display_name)
     _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.display_name, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
 
-    resultado = extraer_operacion_edicion(df, peticion.instruccion)
+    # Inyectar macros disponibles para que el LLM pueda emitir {"op":"macro","nombre":"X"}
+    nombres_macros = [m["nombre"] for m in _listar_macros_db(user_id)]
+    resultado = extraer_operacion_edicion(df, peticion.instruccion,
+                                          macros_disponibles=nombres_macros or None)
 
     # Aclaración → devolver al frontend antes de ejecutar nada
     if isinstance(resultado, dict) and resultado.get("aclaracion_necesaria"):
@@ -566,7 +588,22 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
             if isinstance(op, dict) and op.get("aclaracion_necesaria"):
                 return {"tipo": "aclaracion", **op}
 
-        pasos = _ejecutar_pipeline(df, resultado, peticion.instruccion)
+        # Expandir ops de macro → sustituir por sus operaciones almacenadas
+        ops_expandidas: list[dict] = []
+        for op in resultado:
+            if isinstance(op, dict) and op.get("op") == "macro":
+                nombre_m = op.get("nombre", "").lower()
+                macro_ops = _obtener_macro_db(user_id, nombre_m)
+                if macro_ops:
+                    logger.info("Macro '%s' expandida: %d pasos", nombre_m, len(macro_ops))
+                    ops_expandidas.extend(macro_ops)
+                else:
+                    logger.warning("Macro '%s' no encontrada para user_id=%s — op ignorada",
+                                   nombre_m, user_id)
+            else:
+                ops_expandidas.append(op)
+
+        pasos = _ejecutar_pipeline(df, ops_expandidas, peticion.instruccion)
 
         if pasos:
             # Un solo paso → devolver directamente (retrocompatibilidad con frontend)

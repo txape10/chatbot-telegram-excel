@@ -117,12 +117,22 @@ EDITOR_DSL_SISTEMA = (
     "  tabla_dinamica      → crea una tabla dinámica. "
     "Solo requiere: {\"op\": \"tabla_dinamica\"}. El motor extraerá los parámetros.\n"
     "  formula             → inserta una nueva columna con una fórmula Excel (=SUMA, =SI, =D{row}-C{row}, etc.). "
-    "Solo requiere: {\"op\": \"formula\"}. El motor extraerá la fórmula y el nombre de la columna.\n\n"
+    "Solo requiere: {\"op\": \"formula\"}. El motor extraerá la fórmula y el nombre de la columna.\n"
+    "  query               → realiza una consulta/cálculo sobre los datos actuales y devuelve el resultado como texto. "
+    "Requiere: {\"op\": \"query\", \"pregunta\": \"la pregunta de consulta en lenguaje natural\"}.\n"
+    "  macro               → ejecuta una macro guardada del usuario como parte del pipeline. "
+    "Requiere: 'nombre' (nombre exacto en minúsculas de una macro del usuario). "
+    "Solo úsalo si el usuario menciona una macro guardada por su nombre.\n\n"
+    "IMPORTANTE: si el usuario pide a la vez editar Y consultar datos, incluye AMBAS en el array. "
+    "Los pasos se ejecutan en orden, así que pon las ediciones primero y las consultas después "
+    "para que la consulta se haga sobre el dato ya modificado.\n\n"
     "Ejemplos de respuesta con varias operaciones:\n"
     '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"formato_condicional"}]\n'
     '  [{"op":"eliminar_duplicados"},{"op":"ordenar","col":"Importe","orden":"desc"},{"op":"grafico"}]\n'
-    '  [{"op":"formula"}]\n\n'
-    "Si la petición NO es una edición de datos (es una pregunta, consulta o explicación), "
+    '  [{"op":"formula"}]\n'
+    '  [{"op":"filtrar_exportar","filtros":[{"col":"Ventas","op":">","val":1000}]},{"op":"query","pregunta":"¿cuántas filas quedan y cuál es el total de Ventas?"}]\n'
+    '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"query","pregunta":"¿cuál es la venta más reciente?"},{"op":"query","pregunta":"¿cuántos registros hay?"}]\n\n'
+    "Si la petición NO contiene ninguna edición ni consulta sobre datos (es solo una pregunta teórica o explicación sobre Excel), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
     "Si la petición ES una edición pero es AMBIGUA (falta columna clave, falta valor imprescindible, "
     "podría interpretarse de formas incompatibles), responde con este JSON de aclaración "
@@ -138,8 +148,9 @@ EDITOR_DSL_SISTEMA = (
 EDITOR_DSL_USUARIO = (
     "Columnas disponibles: {columnas}\n"
     "Tipos de datos: {tipos}\n"
-    "Muestra (primeras 3 filas):\n{muestra}\n\n"
-    "Petición: {pregunta}"
+    "Muestra (primeras 3 filas):\n{muestra}\n"
+    "{macros_info}"
+    "\nPetición: {pregunta}"
 )
 
 # ── DSL de consultas sobre datos ─────────────────────────────────────────────
