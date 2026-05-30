@@ -11,6 +11,7 @@ from services.llm import (LLMError, obtener_respuesta, obtener_proveedor_privado
                           extraer_peticion_grafico, extraer_operaciones_macro,
                           extraer_formula)
 from utils.macros import guardar_macro, obtener_macro, listar_macros, borrar_macro
+from utils.feature_config import esta_activo as _feature_activa
 from utils.user_prefs import get_modo_respuesta, get_modo_privado
 from services.tts import texto_a_audio
 from utils.history import obtener_historial, agregar_mensaje
@@ -408,6 +409,17 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
 
     # ── Macros (F4) ───────────────────────────────────────────────────────────
+    _hay_peticion_macro = (
+        _RE_LISTAR_MACROS.search(pregunta)
+        or _RE_GUARDAR_MACRO.search(pregunta)
+        or _RE_BORRAR_MACRO.search(pregunta)
+        or _RE_EJECUTAR_MACRO.search(pregunta)
+    )
+    if _hay_peticion_macro and not _feature_activa("macros"):
+        await update.message.reply_text(
+            "⚠️ El módulo de macros está desactivado en este momento."
+        )
+        return
     if _RE_LISTAR_MACROS.search(pregunta):
         await _listar_macros(update, user_id)
         return

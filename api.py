@@ -42,6 +42,9 @@ from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           obtener_respuesta)
 from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
 from utils.macros import listar_macros as _listar_macros_db, obtener_macro as _obtener_macro_db
+from utils.feature_config import (obtener_config as _obtener_feature_config,
+                                   esta_activo as _feature_activa,
+                                   toggle_feature as _toggle_feature)
 
 load_dotenv()
 configurar_logging()
@@ -573,8 +576,9 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
     _registrar_addin(peticion.device_id, peticion.instruccion, peticion.user_email, peticion.display_name, peticion.excel_version)
     df = _a_dataframe(peticion.datos)
 
-    # Inyectar macros disponibles para que el LLM pueda emitir {"op":"macro","nombre":"X"}
-    nombres_macros = [m["nombre"] for m in _listar_macros_db(user_id)]
+    # Inyectar macros disponibles solo si el módulo está activo
+    _macros_on = _feature_activa("macros")
+    nombres_macros = [m["nombre"] for m in _listar_macros_db(user_id)] if _macros_on else []
     resultado = extraer_operacion_edicion(df, peticion.instruccion,
                                           macros_disponibles=nombres_macros or None)
 
@@ -990,6 +994,16 @@ def admin_alert_config_toggle(tipo: str,
     return {"ok": True, "activo": nuevo}
 
 
+@app.patch("/admin/feature-config/{feature}/toggle")
+def admin_feature_config_toggle(feature: str,
+                                 _: None = Depends(_verificar_admin)) -> dict:
+    nuevo = _toggle_feature(feature)
+    if nuevo is None:
+        raise HTTPException(status_code=404, detail="Módulo no encontrado")
+    logger.info("Módulo '%s' → %s", feature, "activo" if nuevo else "pausado")
+    return {"ok": True, "activo": nuevo}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel(_: None = Depends(_verificar_admin)):
     """Panel de administración con estadísticas de uso."""
@@ -1312,6 +1326,27 @@ def _renderizar_admin_html(
             "<div class='nota-info' style='color:#e74c3c'>"
             "⚠️ <code>ALERT_TELEGRAM_ID</code> no configurado — las alertas no se enviarán."
             "</div>"
+        )
+
+    # ── Módulos funcionales ──────────────────────────────────────────────────
+    feature_tipos = _obtener_feature_config()
+    filas_modulos = ""
+    for f in feature_tipos:
+        feat   = f["feature"]
+        label  = f["label"]
+        activo = bool(f["activo"])
+        badge     = '<span class="badge-ok">✅ Activo</span>' if activo else '<span class="badge-warn">⏸ Pausado</span>'
+        clase_btn = "btn-sm active" if activo else "btn-sm"
+        texto_btn = "Pausar" if activo else "Activar"
+        filas_modulos += (
+            f"<tr>"
+            f"  <td><code>{feat}</code></td>"
+            f"  <td style='font-size:.82rem'>{label}</td>"
+            f"  <td class='centro'>{badge}</td>"
+            f"  <td class='centro'>"
+            f"    <button class='{clase_btn}' onclick='toggleModulo(\"{feat}\")'>{texto_btn}</button>"
+            f"  </td>"
+            f"</tr>"
         )
 
     # ── Vínculos ────────────────────────────────────────────────────────────
@@ -1742,6 +1777,14 @@ def _renderizar_admin_html(
   <div id="tab-sistema" class="tab-panel">
 
     <div class="section">
+      <div class="section-head">🧩 Módulos funcionales</div>
+      <table>
+        <thead><tr><th>Módulo</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+        <tbody>{filas_modulos}</tbody>
+      </table>
+    </div>
+
+    <div class="section">
       <div class="section-head">🔔 Notificaciones del sistema</div>
       <table>
         <thead><tr><th>Tipo</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
@@ -1804,6 +1847,15 @@ def _renderizar_admin_html(
     );
     if (resp.ok) location.reload();
     else alert("Error al cambiar estado de la alerta");
+  }}
+
+  async function toggleModulo(feature) {{
+    const resp = await fetch(
+      "/admin/feature-config/" + encodeURIComponent(feature) + "/toggle?key=" + encodeURIComponent(_key),
+      {{ method: "PATCH" }}
+    );
+    if (resp.ok) location.reload();
+    else alert("Error al cambiar estado del módulo");
   }}
 
   async function eliminarVinculo(tid, email) {{
