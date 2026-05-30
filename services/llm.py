@@ -110,7 +110,7 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
                 {"role": "user",   "content": CREAR_EXCEL_USUARIO.format(pregunta=pregunta)},
             ],
             temperature=0,
-            max_tokens=800,
+            max_tokens=3000,
         )
         logger.debug("Estructura Excel del LLM: %s", texto)
         texto = texto.strip()
@@ -154,7 +154,7 @@ def extraer_operacion_edicion(
                 macros_info=macros_info, pregunta=pregunta,
             )},
         ], temperature=0, max_tokens=600)
-        logger.debug("Respuesta editor DSL del LLM: %s", texto)
+        logger.info("Respuesta editor DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None

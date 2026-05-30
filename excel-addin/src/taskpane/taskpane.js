@@ -12,10 +12,12 @@ const API_KEY = __API_KEY__; // inyectada por webpack DefinePlugin desde .env �
 
 // Estado de la edición pendiente de ubicar
 let _datosModificados = null;
+let _nombreHoja       = null;
 let _rangoAddress     = null;
 let _rangoHojaNombre  = null;
 let _rangoFilas       = 0;
 let _rangoCols        = 0;
+let _operacionActual  = null;
 
 // Feedback RAG: última pregunta+respuesta de texto para el botón 👍
 let _feedbackPregunta  = "";
@@ -177,8 +179,25 @@ async function preguntar() {
   mostrarEstado("Leyendo selección...");
 
   try {
-    const { valores, direccion, hojaNombre } = await leerRangoSeleccionado();
-    const tienesDatos = valores && valores.length >= 2;
+    const { valores: _valoresSel, direccion: _direccionSel, hojaNombre: _hojaNombreSel } = await leerRangoSeleccionado();
+    let tienesDatos = _valoresSel && _valoresSel.length >= 2;
+    let valores     = _valoresSel;
+    let direccion   = _direccionSel;
+    let hojaNombre  = _hojaNombreSel;
+
+    if (!tienesDatos) {
+      // Sin selección — intentar con el rango usado de la hoja activa
+      try {
+        mostrarEstado("Leyendo hoja activa...");
+        const usedRange = await leerUsedRange();
+        if (usedRange.valores && usedRange.valores.length >= 2) {
+          tienesDatos = true;
+          valores     = usedRange.valores;
+          direccion   = usedRange.direccion;
+          hojaNombre  = usedRange.hojaNombre;
+        }
+      } catch (_e) { /* hoja vacía — continuar con /ask */ }
+    }
 
     if (tienesDatos) {
       // ── Flujo con datos: edición / consulta sobre la tabla seleccionada ──
@@ -200,19 +219,39 @@ async function preguntar() {
 
       if (respuesta.tipo === "pipeline" && respuesta.pasos) {
         // Pipeline multi-op: ejecutar cada paso en orden
+        console.log("[DEBUG] pipeline pasos tipos:", respuesta.pasos.map(p => p.tipo));
         mostrarEstado("Ejecutando pipeline...");
         let ultimaEdicion = null;
         const resultadosQuery = [];
         let graficosInsertados = 0;
+        let hojaAnalisisNombre = null;
         for (const paso of respuesta.pasos) {
-          await _aplicarPaso(paso, graficosInsertados);
+          const res = await _aplicarPaso(paso, graficosInsertados);
           if (paso.tipo === "edicion") ultimaEdicion = paso;
           if (paso.tipo === "query_resultado") resultadosQuery.push(paso);
+          if (paso.tipo === "analisis_hoja") resultadosQuery.push({ pregunta: "Análisis del archivo", resultado: paso.texto });
           if (paso.tipo === "grafico" && paso.datos_chart) graficosInsertados++;
+          if (res?.hojaAnalisis) hojaAnalisisNombre = res.hojaAnalisis;
+        }
+        // Activar la hoja de análisis al final (el gráfico ya se insertó en la hoja original)
+        if (hojaAnalisisNombre) {
+          await Excel.run(async (ctx) => {
+            ctx.workbook.worksheets.getItem(hojaAnalisisNombre).activate();
+            await ctx.sync();
+          });
         }
         if (ultimaEdicion) {
           _datosModificados = ultimaEdicion.datos_modificados;
-          mostrarDialogo(respuesta.descripcion);
+          _operacionActual  = ultimaEdicion.operacion || null;
+          const _da = { final: "debajo", principio: "principio" }[ultimaEdicion.destino] ?? "sustituir";
+          await escribirEnExcel(_da);
+          // Sobreescribir columnas aritméticas con fórmulas Excel vivas
+          const _fmlCols = respuesta.pasos.filter(p => p.tipo === "formula_columna");
+          console.log("[DEBUG] formula_columna pasos:", _fmlCols);
+          for (const fml of _fmlCols) { await _aplicarFormulaColumna(fml); }
+          // Aplicar formatos numéricos pendientes (columnas con N decimales)
+          const _fmtNums = respuesta.pasos.filter(p => p.tipo === "formato_numero");
+          for (const fmt of _fmtNums) { await _aplicarFormatoNumero(fmt); }
         }
         // Respuesta organizada: cambios + consultas
         const partesEdicion = respuesta.pasos
@@ -231,6 +270,18 @@ async function preguntar() {
         mostrarEstado("Pipeline aplicada · " + direccion);
         _agregarAlHistorial(instruccion, textoRespuesta);
         _actualizarHistorialLLM(instruccion, textoRespuesta);
+      } else if (respuesta.tipo === "analisis_hoja" && respuesta.hoja_datos) {
+        const nombre = "Análisis " + (_rangoHojaNombre || "datos");
+        mostrarEstado("Creando hoja de análisis...");
+        await _insertarHojaAnalisis(respuesta.hoja_datos, nombre);
+        await Excel.run(async (ctx) => {
+          ctx.workbook.worksheets.getItem(nombre).activate();
+          await ctx.sync();
+        });
+        mostrarRespuesta("📊 " + respuesta.descripcion + "\n\nHoja **\"" + nombre + "\"** creada con el análisis completo.\n\n" + (respuesta.texto || ""));
+        mostrarEstado("Análisis listo · " + nombre);
+        _agregarAlHistorial(instruccion, "📊 " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else if (respuesta.tipo === "tabla_dinamica" && respuesta.params) {
         mostrarEstado("Creando tabla dinámica...");
         await _insertarTablaDinamica(respuesta.params);
@@ -255,9 +306,17 @@ async function preguntar() {
         _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else if (respuesta.tipo === "edicion") {
         _datosModificados = respuesta.datos_modificados;
-        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
-        mostrarDialogo(respuesta.descripcion);
-        mostrarEstado("Edición lista · " + direccion);
+        _operacionActual  = respuesta.operacion || null;
+        const _destinoAuto = { final: "debajo", principio: "principio" }[respuesta.destino] ?? null;
+        if (_destinoAuto) {
+          mostrarRespuesta("✏️ " + respuesta.descripcion);
+          mostrarEstado("Escribiendo...");
+          await escribirEnExcel(_destinoAuto);
+        } else {
+          mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+          mostrarDialogo(respuesta.descripcion);
+          mostrarEstado("Edición lista · " + direccion);
+        }
         _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
         _actualizarHistorialLLM(instruccion, respuesta.descripcion);
       } else if (respuesta.tipo === "aclaracion") {
@@ -293,11 +352,21 @@ async function preguntar() {
 
       if (respuesta.tipo === "datos" && respuesta.datos_modificados) {
         _datosModificados = respuesta.datos_modificados;
-        mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
-        mostrarDialogo(respuesta.descripcion);
-        mostrarEstado("Tabla lista para escribir.");
-        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
-        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        _operacionActual  = respuesta.operacion || null;
+        _nombreHoja = respuesta.nombre_hoja || null;
+        if (respuesta.nueva_hoja) {
+          await escribirEnExcel("nueva_hoja");
+          mostrarRespuesta("✅ " + respuesta.descripcion);
+          mostrarEstado("✅ Hoja '" + respuesta.nombre_hoja + "' creada.");
+          _agregarAlHistorial(instruccion, "✅ " + respuesta.descripcion);
+          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        } else {
+          mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+          mostrarDialogo(respuesta.descripcion);
+          mostrarEstado("Tabla lista para escribir.");
+          _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+          _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+        }
       } else {
         mostrarRespuesta(respuesta.respuesta);
         mostrarEstado("Listo");
@@ -316,16 +385,49 @@ async function preguntar() {
   }
 }
 
+/**
+ * Combina values y text: sustituye seriales de fecha Excel (enteros 25000–60000)
+ * por su representación de texto formateada, dejando el resto sin tocar.
+ */
+function _combinarFechas(values, text) {
+  return values.map((fila, i) =>
+    fila.map((val, j) => {
+      if (typeof val === "number" && Number.isInteger(val) && val > 25000 && val < 60000) {
+        return (text[i] && text[i][j] != null) ? text[i][j] : val;
+      }
+      return val;
+    })
+  );
+}
+
 async function leerRangoSeleccionado() {
   return Excel.run(async (context) => {
     const rango = context.workbook.getSelectedRange();
-    rango.load(["values", "address"]);
+    rango.load(["values", "text", "address"]);
     rango.worksheet.load("name");
     await context.sync();
     return {
-      valores:    rango.values,
+      valores:    _combinarFechas(rango.values, rango.text),
       direccion:  rango.address,
       hojaNombre: rango.worksheet.name,
+    };
+  });
+}
+
+async function leerUsedRange() {
+  return Excel.run(async (context) => {
+    const sheet = context.workbook.worksheets.getActiveWorksheet();
+    const rango = sheet.getUsedRangeOrNullObject();
+    rango.load(["isNullObject", "values", "text", "address"]);
+    sheet.load("name");
+    await context.sync();
+    if (rango.isNullObject) {
+      return { valores: null, direccion: null, hojaNombre: sheet.name };
+    }
+    return {
+      valores:    _combinarFechas(rango.values, rango.text),
+      direccion:  rango.address,
+      hojaNombre: sheet.name,
     };
   });
 }
@@ -438,6 +540,81 @@ function _prepararDatos(datos) {
   return { valores, formatos: hayAlguno ? fmts : null };
 }
 
+/** Convierte índice de columna 0-based a letra(s) Excel (0→A, 25→Z, 26→AA, …). */
+function _idxToColLetter(colIdx) {
+  let result = "";
+  let n = colIdx + 1;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    n = Math.floor((n - 1) / 26);
+  }
+  return result;
+}
+
+/**
+ * Añade una columna con fórmulas Excel vivas (=E2-F2) al final de los datos escritos.
+ * Usa getUsedRange() para localizar la posición exacta: no depende de _rangoAddress.
+ */
+async function _aplicarFormulaColumna(paso) {
+  await Excel.run(async (ctx) => {
+    const sheet     = ctx.workbook.worksheets.getActiveWorksheet();
+    const usedRange = sheet.getUsedRange();
+    usedRange.load(["rowIndex", "columnIndex", "columnCount", "rowCount"]);
+    await ctx.sync();
+
+    const anchorRow  = usedRange.rowIndex;
+    const anchorCol  = usedRange.columnIndex;
+    const numDataRows = usedRange.rowCount - 1;   // excluir fila de cabecera
+    const newColIdx  = anchorCol + usedRange.columnCount;  // siguiente columna tras los datos
+
+    if (numDataRows <= 0) return;
+
+    const col1Letra = _idxToColLetter(anchorCol + paso.col1_idx);
+    const col2Letra = _idxToColLetter(anchorCol + paso.col2_idx);
+    const op        = paso.operador;
+
+    // Cabecera de la nueva columna
+    sheet.getRangeByIndexes(anchorRow, newColIdx, 1, 1).values = [[paso.col]];
+
+    // Fórmulas para cada fila de datos
+    const formulas = [];
+    for (let i = 0; i < numDataRows; i++) {
+      const rowNum = anchorRow + i + 2;  // fila Excel 1-based: +1 cabecera, +1 base 1
+      formulas.push([`=${col1Letra}${rowNum}${op}${col2Letra}${rowNum}`]);
+    }
+    sheet.getRangeByIndexes(anchorRow + 1, newColIdx, numDataRows, 1).formulas = formulas;
+    await ctx.sync();
+  });
+}
+
+/**
+ * Aplica formato numérico (#,##0.00) a una columna específica tras escribirEnExcel.
+ * Usa _rangoAddress como ancla para localizar la columna en la hoja.
+ */
+async function _aplicarFormatoNumero(paso) {
+  if (paso.col_idx == null || !_rangoAddress || !_rangoHojaNombre) return;
+  const decimales = paso.decimales || 2;
+  const fmtStr = "#,##0." + "0".repeat(decimales);
+  await Excel.run(async (ctx) => {
+    const sheet = ctx.workbook.worksheets.getItem(_rangoHojaNombre);
+    const localAddress = _rangoAddress.split("!").pop();
+    const refRange = sheet.getRange(localAddress);
+    refRange.load("rowIndex, columnIndex");
+    await ctx.sync();
+    const numFilas = (_datosModificados?.length || 2) - 1;  // excluir cabecera
+    if (numFilas <= 0) return;
+    const colRange = sheet.getRangeByIndexes(
+      refRange.rowIndex + 1,
+      refRange.columnIndex + paso.col_idx,
+      numFilas,
+      1
+    );
+    colRange.numberFormat = Array(numFilas).fill([fmtStr]);
+    await ctx.sync();
+  });
+}
+
 async function escribirEnExcel(destino) {
   ocultarDialogo();
   mostrarEstado("Escribiendo en Excel...");
@@ -447,91 +624,184 @@ async function escribirEnExcel(destino) {
     mostrarEstado("No hay datos modificados para escribir.");
     return;
   }
-  const filas = datos.length;
-  const cols  = (datos[0] || []).length;
 
-  // Dirección local sin prefijo de hoja ("Sheet1!A1:D11" → "A1:D11")
   const localAddress = _rangoAddress ? _rangoAddress.split("!").pop() : null;
 
   try {
     await Excel.run(async (context) => {
-      let targetRange;
-      let sourceRange = null;
-      // sheet, anchorRow y anchorCol declarados aquí para ser accesibles
-      // en el bloque de creación de tabla (fuera del if/else)
-      let sheet     = null;
-      let anchorRow = 0;
-      let anchorCol = 0;
 
+      // ── Nueva hoja: flujo independiente ──────────────────────────────────────
       if (destino === "nueva_hoja") {
-        // Capturar el rango fuente antes de crear la nueva hoja
+        let sourceRange = null;
         if (_rangoHojaNombre && localAddress && _rangoFilas > 0) {
           const srcSheet = context.workbook.worksheets.getItem(_rangoHojaNombre);
           sourceRange = srcSheet.getRange(localAddress);
         }
-        sheet = context.workbook.worksheets.add();
+        const sheet       = context.workbook.worksheets.add(_nombreHoja || undefined);
         sheet.activate();
-        targetRange = sheet.getRangeByIndexes(0, 0, filas, cols);
-
-      } else {
-        sheet = context.workbook.worksheets.getActiveWorksheet();
-        // localAddress ya tiene el prefijo de hoja eliminado ("A1", no "Hoja1!A1")
-        const refRange = sheet.getRange(localAddress || "A1");
-        refRange.load(["rowIndex", "columnIndex"]);
-        await context.sync();
-
-        anchorRow = refRange.rowIndex;
-        anchorCol = refRange.columnIndex;
-
-        if (_rangoFilas > 0 && _rangoCols > 0) {
-          sourceRange = sheet.getRangeByIndexes(anchorRow, anchorCol, _rangoFilas, _rangoCols);
+        const filas       = datos.length;
+        const cols        = (datos[0] || []).length;
+        const targetRange = sheet.getRangeByIndexes(0, 0, filas, cols);
+        if (sourceRange) {
+          targetRange.copyFrom(sourceRange, Excel.RangeCopyType.formats, false, false);
         }
+        const { valores: datosPrep, formatos: fmtsPrep } = _prepararDatos(datos);
+        targetRange.values = datosPrep;
+        if (!sourceRange && fmtsPrep) targetRange.numberFormat = fmtsPrep;
+        await context.sync();
+        if (filas >= 2) {
+          try {
+            const tabla = sheet.tables.add(sheet.getRangeByIndexes(0, 0, filas, cols), true);
+            tabla.style = "TableStyleMedium2";
+            await context.sync();
+            tabla.getRange().select();
+          } catch (_) {
+            sheet.getRangeByIndexes(0, 0, filas, cols).select();
+          }
+          await context.sync();
+        }
+        return;
+      }
 
-        if (destino === "sustituir") {
-          targetRange = sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols);
-        } else if (destino === "derecha") {
-          targetRange = sheet.getRangeByIndexes(anchorRow, anchorCol + _rangoCols, filas, cols);
-        } else if (destino === "debajo") {
-          targetRange = sheet.getRangeByIndexes(anchorRow + _rangoFilas, anchorCol, filas, cols);
+      // ── Destinos en hoja activa ───────────────────────────────────────────────
+      const sheet    = context.workbook.worksheets.getActiveWorksheet();
+      const refRange = sheet.getRange(localAddress || "A1");
+      refRange.load(["rowIndex", "columnIndex"]);
+      await context.sync();
+
+      const anchorRow = refRange.rowIndex;
+      const anchorCol = refRange.columnIndex;
+
+      // Detectar tabla adyacente (debajo/derecha): necesario antes de escribir
+      // para saber si hay que saltar la cabecera del resultado.
+      let tablaInfo = null;
+      if ((destino === "debajo" || destino === "derecha" || destino === "principio") && _rangoFilas > 0 && _rangoCols > 0) {
+        const srcRange = sheet.getRangeByIndexes(anchorRow, anchorCol, _rangoFilas, _rangoCols);
+        const tablas   = srcRange.getTables(false);
+        tablas.load("items/id");
+        await context.sync();
+        if (tablas.items.length > 0) {
+          const tablaRango = tablas.items[0].getRange();
+          tablaRango.load(["rowIndex", "rowCount", "columnIndex", "columnCount"]);
+          await context.sync();
+          tablaInfo = {
+            tabla:       tablas.items[0],
+            rowIndex:    tablaRango.rowIndex,
+            rowCount:    tablaRango.rowCount,
+            columnIndex: tablaRango.columnIndex,
+            columnCount: tablaRango.columnCount,
+          };
         }
       }
 
-      // Opción A: copiar formato del rango origen (colores, bordes, número).
-      // Si target es más ancho que source, Office.js repite el patrón (tiling).
+      // Los datos del backend siempre incluyen cabecera en [0].
+      // Al escribir DEBAJO de una tabla existente hay dos casos:
+      //   a) El resultado tiene MÁS filas que la selección original → operación que añade filas
+      //      (duplicar_filas, añadir_fila_total…): escribir solo las filas extra.
+      //   b) Igual o menos filas → resultado transformado (filtro, sort…): escribir sin cabecera
+      //      para evitar duplicarla, pero como bloque separado (no extiende la tabla).
+      const _filasNuevas = (_rangoFilas > 0 && datos.length > _rangoFilas)
+        ? datos.length - _rangoFilas   // solo las filas añadidas
+        : 0;
+      const _conTablaFilas = (destino === "debajo" || destino === "principio") && tablaInfo;
+      const datosAEscribir = _conTablaFilas
+        ? (_filasNuevas > 0 ? datos.slice(_rangoFilas) : datos.slice(1))
+        : datos;
+
+      const filas = datosAEscribir.length;
+      const cols  = (datosAEscribir[0] || []).length;
+      if (filas === 0 || cols === 0) return;
+
+      // Rango fuente para copyFrom (formato visual)
+      const sourceRange = (_rangoFilas > 0 && _rangoCols > 0)
+        ? sheet.getRangeByIndexes(anchorRow, anchorCol, _rangoFilas, _rangoCols)
+        : null;
+
+      // Rango destino según modo
+      let targetRange;
+      if (destino === "sustituir") {
+        targetRange = sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols);
+      } else if (destino === "derecha") {
+        targetRange = sheet.getRangeByIndexes(anchorRow, anchorCol + _rangoCols, filas, cols);
+      } else if (destino === "principio") {
+        if (tablaInfo) {
+          // rows.add() dentro de una tabla evita el error de range.insert() y expande el ListObject
+          const { valores: vprinc } = _prepararDatos(datosAEscribir);
+          tablaInfo.tabla.rows.add(0, vprinc);
+          await context.sync();
+          tablaInfo.tabla.getRange().select();
+          await context.sync();
+          return;
+        }
+        // Sin tabla: insertar filas desplazando hacia abajo y escribir normalmente
+        targetRange = sheet.getRangeByIndexes(anchorRow + 1, anchorCol, filas, cols);
+        targetRange.insert(Excel.InsertShiftDirection.down);
+        await context.sync();
+      } else {
+        targetRange = sheet.getRangeByIndexes(anchorRow + _rangoFilas, anchorCol, filas, cols);
+      }
+
       if (sourceRange) {
         targetRange.copyFrom(sourceRange, Excel.RangeCopyType.formats, false, false);
       }
 
-      // Convertir fechas a serial y preparar formatos antes de escribir.
-      // Los seriales se escriben siempre (sin ellos Excel los alinea como texto).
-      // El formato de celda solo se aplica cuando no hay rango fuente; si lo hay,
-      // se hereda de los formatos copiados en copyFrom.
-      const { valores: datosPrep, formatos: fmtsPrep } = _prepararDatos(datos);
-      targetRange.values = datosPrep;
+      // _prepararDatos necesita la cabecera para detectar tipos de columna;
+      // cuando saltamos filas pasamos datos completos y luego cortamos el resultado.
+      const datosParaFormato = _conTablaFilas ? datos : datosAEscribir;
+      const { valores: datosPrep, formatos: fmtsPrep } = _prepararDatos(datosParaFormato);
+      // Índice de corte: _rangoFilas cuando hay filas nuevas (caso a), 1 en caso contrario
+      const _sliceIdx = _conTablaFilas ? (_filasNuevas > 0 ? _rangoFilas : 1) : 0;
+      const valoresAEscribir = _sliceIdx > 0 ? datosPrep.slice(_sliceIdx) : datosPrep;
+      targetRange.values = valoresAEscribir;
 
       if (!sourceRange && fmtsPrep) {
-        targetRange.numberFormat = fmtsPrep;
+        const fmtsAEscribir = _sliceIdx > 0 ? fmtsPrep.slice(_sliceIdx) : fmtsPrep;
+        targetRange.numberFormat = fmtsAEscribir;
       }
 
       await context.sync();
 
-      // Aplicar formato de Tabla Excel (cabecera + al menos 1 fila de datos).
-      // sheet está garantizado en scope. Se usa una referencia nueva tras el sync
-      // para evitar estado inconsistente del proxy anterior.
-      if (filas >= 2 && sheet) {
+      // Gestionar tabla Excel: extender la existente o crear nueva para sustituir.
+      // Solo extender en debajo si hay filas verdaderamente nuevas (operación añade filas);
+      // si el resultado es transformado (filtro, sort…) se escribe como bloque independiente.
+      if (tablaInfo) {
+        const filasExtra = (destino === "debajo" && _filasNuevas > 0) ? filas : 0;
+        const colsExtra  = destino === "derecha" ? cols : 0;
+        // "principio": el insert() dentro de la tabla ya expande el ListObject — no resize
+        if (filasExtra > 0 || colsExtra > 0) {
+          const nuevoRango = sheet.getRangeByIndexes(
+            tablaInfo.rowIndex,
+            tablaInfo.columnIndex,
+            tablaInfo.rowCount  + filasExtra,
+            tablaInfo.columnCount + colsExtra,
+          );
+          tablaInfo.tabla.resize(nuevoRango);
+          await context.sync();
+        }
+        tablaInfo.tabla.getRange().select();
+        await context.sync();
+      } else if (destino === "sustituir" && filas >= 2) {
         try {
-          const tableRange = sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols);
-          const tabla = sheet.tables.add(tableRange, true); // true = hasHeaders
+          const tabla = sheet.tables.add(
+            sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols), true,
+          );
           tabla.style = "TableStyleMedium2";
           await context.sync();
+          tabla.getRange().select();
+          await context.sync();
         } catch (_) {
-          // Rango ya pertenece a una tabla existente — no hacer nada
+          targetRange.select();
+          await context.sync();
         }
+      } else {
+        targetRange.select();
+        await context.sync();
       }
     });
 
     mostrarEstado("✅ Datos escritos correctamente.");
     _datosModificados = null;
+    _nombreHoja = null;
 
   } catch (error) {
     mostrarEstado("Error al escribir: " + error.message);
@@ -641,12 +911,57 @@ async function _aplicarPaso(paso, chartIndex = 0) {
         await _insertarTablaDinamica(paso.params);
       }
       break;
+    case "analisis_hoja": {
+      const nombre = "Análisis " + (_rangoHojaNombre || "datos");
+      await _insertarHojaAnalisis(paso.hoja_datos, nombre);
+      return { hojaAnalisis: nombre };
+    }
     case "query_resultado":
       // Solo se muestra en texto — no modifica la hoja
       break;
     default:
       break;
   }
+  return null;
+}
+
+async function _insertarHojaAnalisis(datos, nombre) {
+  await Excel.run(async (context) => {
+    const wb = context.workbook;
+    let hoja = wb.worksheets.getItemOrNullObject(nombre);
+    hoja.load("isNullObject");
+    await context.sync();
+
+    if (hoja.isNullObject) {
+      hoja = wb.worksheets.add(nombre);
+    } else {
+      hoja.getRange().clear();
+    }
+
+    if (!datos || datos.length === 0) { await context.sync(); return; }
+
+    const nCols = Math.max(...datos.map(r => r.length));
+    const matriz = datos.map(fila => {
+      const norm = [...fila];
+      while (norm.length < nCols) norm.push("");
+      return norm;
+    });
+
+    hoja.getRangeByIndexes(0, 0, matriz.length, nCols).values = matriz;
+
+    // Negritas + fondo azul claro para filas de sección (todo mayúsculas en col A)
+    datos.forEach((fila, i) => {
+      const celda = String(fila[0] || "").trim();
+      if (celda.length > 2 && celda === celda.toUpperCase()) {
+        const rFila = hoja.getRangeByIndexes(i, 0, 1, nCols);
+        rFila.format.font.bold = true;
+        rFila.format.fill.color = "#D9E1F2";
+      }
+    });
+
+    hoja.getUsedRangeOrNullObject().format.autofitColumns();
+    await context.sync();
+  });
 }
 
 async function _aplicarFormula(paso) {
@@ -736,10 +1051,10 @@ async function _aplicarFormatosCondicionales(reglas) {
 // ── Gráficos nativos Office.js ────────────────────────────────────────────────
 
 const _CHART_TYPES = {
-  barras:     "ColumnClustered",
-  lineas:     "Line",
-  sectores:   "Pie",
-  dispersion: "XYScatter",
+  barras:     "columnClustered",
+  lineas:     "line",
+  sectores:   "pie",
+  dispersion: "xyscatter",
 };
 
 async function _insertarGrafico(tipoGrafico, datosChart, titulo, chartIndex = 0) {
@@ -765,7 +1080,7 @@ async function _insertarGrafico(tipoGrafico, datosChart, titulo, chartIndex = 0)
     await context.sync();
 
     // Crear el gráfico en la hoja activa con los datos de la hoja temporal
-    const chartType = Excel.ChartType[_CHART_TYPES[tipoGrafico] || "ColumnClustered"];
+    const chartType = _CHART_TYPES[tipoGrafico] || "columnClustered";
     const chart = sheet.charts.add(chartType, dataRange, Excel.ChartSeriesBy.columns);
 
     chart.title.text    = titulo;
@@ -987,30 +1302,38 @@ function mostrarEstado(texto) {
 function _mostrarFeedback(pregunta, respuesta) {
   _feedbackPregunta  = pregunta;
   _feedbackRespuesta = respuesta;
-  const btn = document.getElementById("btn-feedback");
-  if (!btn) return;
-  btn.style.display = "inline-block";
-  btn.disabled = false;
-  btn.querySelector(".ms-Button-label").textContent = "👍 Útil";
+  const zona = document.getElementById("zona-feedback");
+  if (!zona) return;
+  zona.style.display = "flex";
+  // Resetear a estado inicial por si ya se había valorado antes
+  const btnPos  = document.getElementById("btn-feedback-pos");
+  const btnNeg  = document.getElementById("btn-feedback-neg");
+  const confirm = document.getElementById("feedback-confirmacion");
+  if (btnPos)  btnPos.style.display  = "";
+  if (btnNeg)  btnNeg.style.display  = "";
+  if (confirm) confirm.style.display = "none";
 }
 
 function _ocultarFeedback() {
-  const btn = document.getElementById("btn-feedback");
-  if (btn) btn.style.display = "none";
+  const zona = document.getElementById("zona-feedback");
+  if (zona) zona.style.display = "none";
 }
 
-async function enviarFeedback() {
+async function enviarFeedback(tipo) {
   if (!_feedbackPregunta || !_feedbackRespuesta) return;
-  const btn = document.getElementById("btn-feedback");
-  if (btn) {
-    btn.disabled = true;
-    btn.querySelector(".ms-Button-label").textContent = "✅ Guardado";
-  }
+  // Ocultar los botones y mostrar el check de confirmación
+  const btnPos  = document.getElementById("btn-feedback-pos");
+  const btnNeg  = document.getElementById("btn-feedback-neg");
+  const confirm = document.getElementById("feedback-confirmacion");
+  if (btnPos)  btnPos.style.display  = "none";
+  if (btnNeg)  btnNeg.style.display  = "none";
+  if (confirm) confirm.style.display = "inline";
   try {
     await llamarApi("/feedback", {
       device_id: _obtenerOCrearDeviceId(),
       pregunta:  _feedbackPregunta,
       respuesta: _feedbackRespuesta,
+      tipo:      tipo || "positivo",
     });
   } catch (_e) {
     // silencioso — el feedback es opcional
@@ -1029,11 +1352,25 @@ function ocultarRespuesta() {
 
 function mostrarDialogo(descripcion) {
   document.getElementById("desc-edicion").textContent = "Resultado: " + descripcion;
+
+  // Operaciones que solo permiten insertar filas (al principio / al final de la tabla)
+  const soloFilas = ["duplicar_filas", "añadir_fila_total"];
+  const restringido = soloFilas.includes(_operacionActual);
+
+  document.getElementById("btn-sustituir").style.display  = restringido ? "none" : "";
+  document.getElementById("btn-derecha").style.display    = restringido ? "none" : "";
+  document.getElementById("btn-nueva-hoja").style.display = restringido ? "none" : "";
+  document.getElementById("btn-principio").style.display  = restringido ? "" : "none";
+  // "Al final" siempre visible; para ops normales etiquetarlo "Debajo"
+  const lblDebajo = document.querySelector("#btn-debajo .ms-Button-label");
+  if (lblDebajo) lblDebajo.textContent = restringido ? "Al final" : "Debajo";
+
   document.getElementById("dialogo-destino").style.display = "block";
 }
 
 function ocultarDialogo() {
   document.getElementById("dialogo-destino").style.display = "none";
+  _operacionActual = null;
 }
 
 async function copiarRespuesta() {

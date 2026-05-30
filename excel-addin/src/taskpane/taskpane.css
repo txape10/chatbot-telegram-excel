@@ -556,6 +556,11 @@ textarea:focus {
   cursor: default;
 }
 
+.boton-dislike:hover {
+  background-color: rgba(211, 47, 47, 0.08) !important;
+  border-color: rgba(211, 47, 47, 0.4) !important;
+}
+
 /* --- Footer desarrollador --- */
 .footer-dev {
   display: flex;

@@ -584,7 +584,10 @@ El Add-in es un panel lateral dentro de Excel que te permite consultar y modific
 1. **Selecciona un rango** en Excel (una tabla, varias columnas…)
 2. Escribe tu pregunta o instrucción en el cuadro de texto
 3. Pulsa **Preguntar** o `Ctrl + Enter`
-4. Si la respuesta es texto → aparece en el panel con botón **Copiar**
+4. Si la respuesta es texto → aparece en el panel con botón **Copiar** y botones de valoración
+   - **👍 Útil** — el asistente aprende de esa respuesta y las incorpora como referencia para ti
+   - **👎 Errónea** — registra la respuesta incorrecta para mejorar el servicio
+   - Al pulsar cualquiera de los dos, los botones desaparecen y aparece un ✅ de confirmación
 5. Si la respuesta es una edición → el panel te pregunta **dónde escribir** el resultado:
    - *Sustituir selección* — sobreescribe el rango original
    - *A la derecha* — escribe justo a la derecha del rango

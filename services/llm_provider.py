@@ -138,7 +138,9 @@ class GroqProvider(LLMProvider):
 
     def __init__(self):
         from groq import Groq
-        self._cliente = Groq(api_key=os.getenv("GROQ_API_KEY", ""), timeout=60.0)
+        # max_retries=0: ante un 429 falla inmediatamente → el FallbackProvider
+        # lo captura y reintenta con el proveedor de respaldo sin esperar 17 s.
+        self._cliente = Groq(api_key=os.getenv("GROQ_API_KEY", ""), timeout=60.0, max_retries=0)
         self.modelo         = os.getenv("LLM_MODEL",        "llama-3.3-70b-versatile")
         self.modelo_vision  = os.getenv("LLM_MODEL_VISION", "meta-llama/llama-4-scout-17b-16e-instruct")
         self.modelo_audio   = os.getenv("LLM_MODEL_AUDIO",  "whisper-large-v3-turbo")

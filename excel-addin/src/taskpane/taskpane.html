@@ -2,6 +2,9 @@
 <html>
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asistente Excel</title>
@@ -102,16 +105,19 @@
       <div id="desc-edicion" class="ms-font-s desc-edicion"></div>
       <p class="ms-font-s etiqueta">¿Dónde escribir el resultado?</p>
       <div class="grid-destinos">
-        <button class="ms-Button boton-destino" onclick="escribirEnExcel('sustituir')">
+        <button id="btn-sustituir" class="ms-Button boton-destino" onclick="escribirEnExcel('sustituir')">
           <span class="ms-Button-label">Sustituir selección</span>
         </button>
-        <button class="ms-Button boton-destino" onclick="escribirEnExcel('derecha')">
+        <button id="btn-derecha" class="ms-Button boton-destino" onclick="escribirEnExcel('derecha')">
           <span class="ms-Button-label">A la derecha</span>
         </button>
-        <button class="ms-Button boton-destino" onclick="escribirEnExcel('debajo')">
-          <span class="ms-Button-label">Debajo</span>
+        <button id="btn-principio" class="ms-Button boton-destino" onclick="escribirEnExcel('principio')">
+          <span class="ms-Button-label">Al principio</span>
         </button>
-        <button class="ms-Button boton-destino" onclick="escribirEnExcel('nueva_hoja')">
+        <button id="btn-debajo" class="ms-Button boton-destino" onclick="escribirEnExcel('debajo')">
+          <span class="ms-Button-label">Al final</span>
+        </button>
+        <button id="btn-nueva-hoja" class="ms-Button boton-destino" onclick="escribirEnExcel('nueva_hoja')">
           <span class="ms-Button-label">Nueva hoja</span>
         </button>
       </div>
@@ -124,9 +130,15 @@
         <button class="ms-Button boton-copiar" onclick="copiarRespuesta()">
           <span class="ms-Button-label">Copiar respuesta</span>
         </button>
-        <button id="btn-feedback" class="ms-Button boton-like" onclick="enviarFeedback()" style="display:none;" title="Marcar como útil">
-          <span class="ms-Button-label">👍 Útil</span>
-        </button>
+        <div id="zona-feedback" style="display:none; align-items:center; gap:6px;">
+          <button id="btn-feedback-pos" class="ms-Button boton-like" onclick="enviarFeedback('positivo')" title="Respuesta útil">
+            <span class="ms-Button-label">👍 Útil</span>
+          </button>
+          <button id="btn-feedback-neg" class="ms-Button boton-like boton-dislike" onclick="enviarFeedback('negativo')" title="Marcar como errónea">
+            <span class="ms-Button-label">👎 Errónea</span>
+          </button>
+          <span id="feedback-confirmacion" style="display:none; font-size:18px; line-height:1;">✅</span>
+        </div>
       </div>
     </div>
 

@@ -204,6 +204,9 @@ ADDIN_URL=
 | TTS con `edge-tts` (sin API key) | Microsoft Neural TTS gratuito; voz `es-ES-ElviraNeural`; cap 600 chars |
 | Temas visuales con CSS Custom Properties | Cambio de tema sin recargar la página; localStorage persiste la preferencia |
 | Easter egg Zelda con Web Audio API | Jingle sintetizado con OscillatorNode (onda cuadrada NES); no requiere archivos de audio |
+| `max_retries=0` en Groq client | Evita la espera interna de ~17 s cuando hay rate-limit; falla rápido y el código salta al proveedor de respaldo |
+| Columnas calculadas como fórmulas Excel (no valores) | Las fórmulas son editables y recalculan al cambiar datos fuente; `_aplicarFormulaColumna()` en taskpane.js usa `getUsedRange()` para escribir las referencias correctas |
+| `tipo` en `feedback_rag` ('positivo'/'negativo') | Solo los ejemplos positivos se inyectan como few-shot; los negativos se almacenan para análisis futuro sin contaminar el contexto del LLM |
 
 ---
 
@@ -245,6 +248,8 @@ ADDIN_URL=
 - **Historial LLM persistente (2026-05-28)**: `_CLAVE_HISTORIAL_LLM` en localStorage; `_cargarHistorialLLM()` en `Office.onReady`; `limpiarHistorial()` borra también localStorage; survives page reloads
 - **Exportar stats a CSV (2026-05-28)**: `GET /admin/stats.csv` con `StreamingResponse` y `Content-Disposition`; botón "⬇ CSV" en panel admin tab Usuarios
 - **Tablas dinámicas nativas con xlwings (2026-05-28)**: `PIVOT_NATIVO_DISPONIBLE` en `config.py`; `_detectar_columnas()` + `_crear_tabla_dinamica_nativa()` en `excel/exporter.py`; `crear_tabla_dinamica()` devuelve 3-tupla `(buf, nombre, es_nativa)`; `/pivote` muestra caption diferenciado; fallback automático a openpyxl si xlwings no está disponible o falla
+- **Fixes pipeline Add-in (2026-05-30)**: columnas calculadas se escriben como fórmulas Excel vivas (no valores estáticos) via `_aplicarFormulaColumna()`; ordenación de fechas DD/MM/YYYY corregida con `dayfirst=True`; capitalización de nuevas columnas en consonancia con el resto de columnas (`_normalizar_nombre_columna()`); nulos en columnas numéricas tratados como 0 en cálculos; fallback instantáneo al proveedor IA secundario (`max_retries=0` en Groq); clarificación innecesaria sobre orden de pasos eliminada
+- **Feedback UI mejorado (2026-05-30)**: zona-feedback con 👍 Útil + 👎 Errónea; al pulsar cualquiera los botones desaparecen y aparece ✅; `tipo` añadido a `feedback_rag` (migración automática vía `ALTER TABLE`); feedback negativo se almacena para análisis pero no se inyecta en el LLM; feedback positivo sigue como few-shot
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 

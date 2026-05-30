@@ -49,15 +49,19 @@ IMAGEN_SIN_CAPTION = (
 
 CREAR_EXCEL_SISTEMA = (
     "Eres un intérprete que detecta si el usuario quiere crear una tabla Excel y la genera.\n\n"
-    "Si el usuario quiere crear, generar, hacer, construir o rellenar una tabla de datos "
+    "Si el usuario quiere crear, generar, hacer, construir, rellenar, escribir o insertar una tabla de datos "
     "(con o sin datos de ejemplo), devuelve un JSON con esta forma exacta:\n\n"
     "{\n"
     '  "titulo": "nombre de la hoja",\n'
+    '  "nueva_hoja": true,\n'
     '  "columnas": ["Col1", "Col2", "Col3"],\n'
     '  "datos": [["val1", "val2", "val3"], ["val1", "val2", "val3"]],\n'
     '  "agregar_totales": true\n'
     "}\n\n"
     "Reglas para el JSON:\n"
+    "- 'nueva_hoja': true si el usuario pide explícitamente una hoja nueva, "
+    "o menciona 'nueva hoja', 'otra hoja', 'añade una hoja', 'en una hoja aparte', etc. "
+    "false si solo pide crear una tabla sin especificar dónde.\n"
     "- 'columnas': lista de nombres de columna tal como los pida el usuario.\n"
     "- 'datos': filas con los valores solicitados. Si el usuario pide datos de ejemplo, "
     "ficticios o realistas, GENERA tú los datos (nombres, importes, fechas coherentes). "
@@ -110,8 +114,17 @@ EDITOR_DSL_SISTEMA = (
     "  añadir_fila_total   → añade una fila de resumen al final. "
     "Opcional: 'etiqueta' (texto de la primera columna, default 'Total'), "
     "'aggfunc' (suma/promedio/max/min, default 'suma').\n"
+    "  duplicar_filas      → duplica filas. "
+    "Opcional: 'n' (últimas N filas a duplicar, default 3), "
+    "'indices' [lista de índices 0-based de las filas concretas a duplicar]. "
+    "SIEMPRE incluye 'destino': 'final' si el usuario dice al final/abajo/debajo, "
+    "'principio' si dice al principio/arriba/inicio/encima, "
+    "'preguntar' si no lo especifica.\n"
     "  transponer          → intercambia filas y columnas. "
     "Opcional: 'col_cabecera' (columna que pasa a ser el nuevo encabezado de filas).\n"
+    "  analisis            → analiza el archivo: resumen de calidad de datos, estadísticas descriptivas "
+    "y/o correlaciones entre columnas numéricas. "
+    "Solo requiere: {\"op\": \"analisis\"}. El motor ejecutará el análisis completo.\n"
     "  grafico             → crea un gráfico. "
     "Solo requiere: {\"op\": \"grafico\"}. El motor extraerá los parámetros.\n"
     "  tabla_dinamica      → crea una tabla dinámica. "
@@ -128,15 +141,18 @@ EDITOR_DSL_SISTEMA = (
     "para que la consulta se haga sobre el dato ya modificado.\n\n"
     "Ejemplos de respuesta con varias operaciones:\n"
     '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"formato_condicional"}]\n'
+    '  [{"op":"analisis"},{"op":"grafico"}]\n'
     '  [{"op":"eliminar_duplicados"},{"op":"ordenar","col":"Importe","orden":"desc"},{"op":"grafico"}]\n'
     '  [{"op":"formula"}]\n'
     '  [{"op":"filtrar_exportar","filtros":[{"col":"Ventas","op":">","val":1000}]},{"op":"query","pregunta":"¿cuántas filas quedan y cuál es el total de Ventas?"}]\n'
     '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"query","pregunta":"¿cuál es la venta más reciente?"},{"op":"query","pregunta":"¿cuántos registros hay?"}]\n\n'
     "Si la petición NO contiene ninguna edición ni consulta sobre datos (es solo una pregunta teórica o explicación sobre Excel), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
-    "Si la petición ES una edición pero es AMBIGUA (falta columna clave, falta valor imprescindible, "
-    "podría interpretarse de formas incompatibles), responde con este JSON de aclaración "
-    "(NO un array, un objeto plano):\n"
+    "Si hay varios pasos, ejecútalos en el orden exacto en que el usuario los menciona. "
+    "NUNCA pidas aclaración sobre el orden de los pasos.\n\n"
+    "Si la petición ES una edición pero falta información imprescindible que no se puede inferir "
+    "(nombre exacto de columna que no existe, valor numérico necesario no mencionado), "
+    "responde con este JSON de aclaración (NO un array, un objeto plano):\n"
     '{"aclaracion_necesaria": true, '
     '"pregunta": "pregunta corta y directa al usuario", '
     '"opciones": ["opción concreta 1", "opción concreta 2", "opción concreta 3"]}\n'
@@ -173,8 +189,10 @@ QUERY_DSL_SISTEMA = (
     "Si la pregunta NO se puede expresar como una de estas operaciones (es conceptual, "
     "pide una explicación, una fórmula, un gráfico, una tabla dinámica, etc.), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
-    "Si la pregunta ES una consulta de datos pero es AMBIGUA (columna poco clara, "
-    "podría interpretarse de varias formas), responde con este JSON de aclaración:\n"
+    "Si la pregunta contiene varios pasos, ejecútalos en el orden en que el usuario los menciona. "
+    "NUNCA pidas aclaración sobre el orden.\n\n"
+    "Si la pregunta ES una consulta de datos pero falta información imprescindible "
+    "(columna mencionada que no existe en los datos), responde con este JSON de aclaración:\n"
     '{"aclaracion_necesaria": true, '
     '"pregunta": "pregunta corta y directa al usuario", '
     '"opciones": ["opción concreta 1", "opción concreta 2", "opción concreta 3"]}\n'

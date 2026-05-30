@@ -7,6 +7,8 @@ Asistente de inteligencia artificial para Microsoft Excel accesible desde dos ca
 
 Ambos canales comparten el mismo motor de IA y pueden instalarse juntos o por separado.
 
+> ✅ **Actualmente en producción**: Render (cloud 24/7). El Add-in y el bot de Telegram están operativos.
+
 ---
 
 ## Instalación rápida
@@ -150,6 +152,7 @@ Panel lateral dentro de Excel (Office.js + webpack) que comparte el mismo motor 
 - **Temas visuales** — Default (verde Excel), Oscuro, Empresa, y Zelda (Easter egg 🎮)
 - **Autenticación** — whitelist por dominio corporativo + correos individuales, verificada por el servidor
 - **📤 Enviar al bot** — envía el rango seleccionado como archivo `.xlsx` directamente a tu chat de Telegram (requiere `/vincular`)
+- **Feedback de respuestas** — botones 👍 Útil / 👎 Errónea; las respuestas útiles se inyectan como ejemplos en el LLM para adaptar su estilo al usuario
 
 Para instalar el Add-in en Windows: `scripts\instalar_addin.bat` (doble clic, auto-elevado).
 
@@ -249,7 +252,7 @@ Disponible en `/admin?key=ADMIN_KEY` cuando `ENABLE_ADDIN=true`.
 pytest
 ```
 
-352 tests que cubren: lectura de archivos, análisis de calidad, motor DSL, editor (15 operaciones), combinación y comparación de archivos, tendencias, creación de Excel, gráficos, undo, macros, preferencias, detección de intenciones por regex y lógica pura de handlers (preview, valores únicos, exportar CSV).
+403 tests que cubren: lectura de archivos, análisis de calidad, motor DSL, editor (15 operaciones), combinación y comparación de archivos, tendencias, creación de Excel, gráficos, undo, macros, preferencias, detección de intenciones por regex, lógica pura de handlers (preview, valores únicos, exportar CSV) y formato condicional (7 tipos).
 
 ---
 
@@ -279,7 +282,11 @@ pytest
 - [x] Add-in: botón "📤 Enviar al bot" — envía el rango seleccionado al chat de Telegram sin salir de Excel
 - [x] Vinculación Telegram ↔ Add-in con `/vincular email` y `/desvincular`
 - [x] Panel de administración: estadísticas de uso, gráfico de actividad, gestión de usuarios (`/admin`)
-- [x] Tests completos para todos los sprints (352/352 ✅)
+- [x] Tests completos para todos los sprints (403/403 ✅)
+- [x] Feedback de respuestas en el Add-in: 👍 Útil / 👎 Errónea — aprendizaje automático del estilo del usuario (RAG)
+- [x] Columnas calculadas como fórmulas Excel vivas (no valores estáticos)
+- [x] Ordenación correcta de fechas DD/MM/YYYY (dayfirst) y capitalización automática de nuevas columnas
+- [x] Fallback instantáneo al proveedor de IA secundario (sin espera de reintentos)
 - [ ] Autenticación SSO con Azure Active Directory
 - [ ] Despliegue en servidor de empresa con Cloudflare Tunnel
 - [x] Tablas dinámicas nativas con xlwings (auto-detect Windows/Linux; activa con `pip install xlwings` en servidor empresa)

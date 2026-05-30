@@ -152,6 +152,14 @@ async def _monitor_alertas_sistema() -> None:
 _errores_bot_vistos: dict[str, float] = {}
 _COOLDOWN_BOT_ERR = 300   # segundos entre alertas del mismo tipo de error
 
+# Detección de petición de análisis estadístico en /edit (fallback cuando el LLM devuelve RESPUESTA_LIBRE)
+_RE_ANALISIS = re.compile(
+    r"\b(analiza[r]?|análisis|calidad\s+de\s+datos|estadísticas?|estadisticas?|"
+    r"correlaciones?|resumen\s+estadístico|resumen\s+estadistico|describe\s+(?:el|los|la|las)\s+datos?)\b",
+    re.IGNORECASE,
+)
+_RE_GRAFICO_PEDIDO = re.compile(r"\bgráfico|grafico|chart|gr[aá]fica\b", re.IGNORECASE)
+
 async def _manejador_error_bot(update: object, context: object) -> None:
     """Handler de errores de python-telegram-bot — notifica al administrador."""
     from utils.alert_config import esta_activo as _alerta_activa
@@ -305,6 +313,7 @@ class PeticionFeedback(BaseModel):
     device_id: str | None = None
     pregunta: str
     respuesta: str
+    tipo: str = "positivo"
 
 
 class PeticionEnviarAlBot(BaseModel):
@@ -437,9 +446,12 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
                 for fila in datos_filas
             ]
             titulo = estructura.get("titulo", "Nueva tabla")
+            nueva_hoja = estructura.get("nueva_hoja", False)
             return {
                 "tipo": "datos",
                 "datos_modificados": matriz,
+                "nombre_hoja": titulo if nueva_hoja else None,
+                "nueva_hoja": nueva_hoja,
                 "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
             }
         return {"respuesta": obtener_respuesta(
@@ -494,13 +506,85 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
 
         # ── Ops visuales: no modifican df, usan df_actual hasta este punto ──────
         if nombre_op == "formato_condicional":
-            reglas = extraer_regla_formato(df_actual, instruccion)
-            if reglas:
-                pasos.append({
-                    "tipo": "formato",
-                    "reglas": reglas,
-                    "descripcion": _describir_reglas_formato(reglas),
-                })
+            _re_decimales = re.compile(r'\b(decimal|decimales|\d+\s*decimal)\b', re.IGNORECASE)
+            if _re_decimales.search(instruccion):
+                # El LLM usó formato_condicional para pedir formato numérico — corregir
+                m_decs = re.search(r'(\d+)\s*decimal', instruccion, re.IGNORECASE)
+                decimales = int(m_decs.group(1)) if m_decs else 2
+                col_fmt = op.get("col") or op.get("columna")
+                if not col_fmt:
+                    # Inferir del último añadir_columna del pipeline
+                    for prev_op in ops:
+                        if prev_op.get("op") == "añadir_columna":
+                            col_fmt = prev_op.get("nombre")
+                if col_fmt and col_fmt in df_actual.columns:
+                    col_idx = list(df_actual.columns).index(col_fmt)
+                    pasos.append({
+                        "tipo": "formato_numero",
+                        "col": col_fmt,
+                        "col_idx": col_idx,
+                        "decimales": decimales,
+                        "descripcion": f"Columna '{col_fmt}' formateada con {decimales} decimal{'es' if decimales != 1 else ''}",
+                    })
+            else:
+                reglas = extraer_regla_formato(df_actual, instruccion)
+                if reglas:
+                    pasos.append({
+                        "tipo": "formato",
+                        "reglas": reglas,
+                        "descripcion": _describir_reglas_formato(reglas),
+                    })
+
+        elif nombre_op == "analisis":
+            from excel.analyzer import analisis_estadistico_completo, analisis_correlaciones
+            texto = analisis_estadistico_completo(df_actual)
+            texto_corr, _ = analisis_correlaciones(df_actual)
+            if texto_corr:
+                texto += "\n\n" + texto_corr
+
+            # Construir matriz estructurada para la hoja Excel
+            cols_num = [c for c in df_actual.columns if pd.api.types.is_numeric_dtype(df_actual[c])]
+            hoja_datos: list[list] = []
+
+            hoja_datos.append(["CALIDAD DE DATOS", ""])
+            hoja_datos.append(["Total filas", len(df_actual)])
+            hoja_datos.append(["Total columnas", len(df_actual.columns)])
+            hoja_datos.append(["Filas duplicadas", int(df_actual.duplicated().sum())])
+            hoja_datos.append(["", ""])
+            hoja_datos.append(["Valores nulos por columna", ""])
+            for col in df_actual.columns:
+                hoja_datos.append([f"  {col}", int(df_actual[col].isnull().sum())])
+            hoja_datos.append(["", ""])
+
+            if cols_num:
+                hoja_datos.append(["ESTADÍSTICAS", "Media", "Mediana", "Mín", "Máx", "Desv. std"])
+                for col in cols_num:
+                    serie = df_actual[col].dropna()
+                    if not serie.empty:
+                        hoja_datos.append([
+                            col,
+                            round(float(serie.mean()), 2),
+                            round(float(serie.median()), 2),
+                            round(float(serie.min()), 2),
+                            round(float(serie.max()), 2),
+                            round(float(serie.std()), 2),
+                        ])
+                hoja_datos.append(["", "", "", "", "", ""])
+
+            if len(cols_num) >= 2:
+                corr = df_actual[cols_num].corr()
+                hoja_datos.append(["CORRELACIONES"] + cols_num)
+                for col in cols_num:
+                    hoja_datos.append(
+                        [col] + [round(float(corr.loc[col, c2]), 2) for c2 in cols_num]
+                    )
+
+            pasos.append({
+                "tipo": "analisis_hoja",
+                "texto": texto,
+                "hoja_datos": hoja_datos,
+                "descripcion": "Análisis estadístico completo",
+            })
 
         elif nombre_op == "grafico":
             params = extraer_peticion_grafico(df_actual, instruccion)
@@ -557,13 +641,41 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
         # ── Ops de datos: modifican df_actual ────────────────────────────────────
         else:
             try:
+                cols_antes = list(df_actual.columns)
                 df_actual, descripcion, _extras = aplicar_edicion(df_actual, op)
                 pasos.append({
                     "tipo": "edicion",
+                    "operacion": nombre_op,
+                    "destino": op.get("destino") or None,
                     "datos_modificados": _df_a_matriz(df_actual),
                     "descripcion": descripcion,
                 })
-            except EditorError as error:
+                # Para añadir_columna aritmética: excluir la columna de datos_modificados
+                # y emitir un paso formula_columna para que el frontend la escriba como
+                # fórmula Excel viva en lugar de valor calculado.
+                if nombre_op == "añadir_columna":
+                    col1     = op.get("col1")
+                    col2     = op.get("col2")
+                    operador = op.get("operador")
+                    cols_nuevas = [c for c in df_actual.columns if c not in cols_antes]
+                    if cols_nuevas and col1 and col2 and operador:
+                        col_nueva = cols_nuevas[0]
+                        cols_list = list(df_actual.columns)
+                        if col1 in cols_list and col2 in cols_list:
+                            # Quitar la columna fórmula de datos_modificados
+                            # para que escribirEnExcel no la pinte como valor.
+                            pasos[-1]["datos_modificados"] = _df_a_matriz(
+                                df_actual.drop(columns=[col_nueva])
+                            )
+                            pasos.append({
+                                "tipo": "formula_columna",
+                                "col": col_nueva,
+                                "col1_idx": cols_list.index(col1),
+                                "col2_idx": cols_list.index(col2),
+                                "operador": operador,
+                                "descripcion": f"{col_nueva} = {col1} {operador} {col2}",
+                            })
+            except (EditorError, Exception) as error:
                 logger.warning("Op '%s' falló en pipeline: %s", nombre_op, error)
 
     return pasos
@@ -581,6 +693,7 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
     nombres_macros = [m["nombre"] for m in _listar_macros_db(user_id)] if _macros_on else []
     resultado = extraer_operacion_edicion(df, peticion.instruccion,
                                           macros_disponibles=nombres_macros or None)
+    logger.info("DSL resultado: %s", resultado)
 
     # Aclaración → devolver al frontend antes de ejecutar nada
     if isinstance(resultado, dict) and resultado.get("aclaracion_necesaria"):
@@ -608,6 +721,7 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
                 ops_expandidas.append(op)
 
         pasos = _ejecutar_pipeline(df, ops_expandidas, peticion.instruccion)
+        logger.info("Pipeline pasos tipos: %s", [p.get("tipo") for p in pasos])
 
         if pasos:
             # Un solo paso → devolver directamente (retrocompatibilidad con frontend)
@@ -619,7 +733,27 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
                 "descripcion": "; ".join(p.get("descripcion", "") for p in pasos),
             }
 
-    # La petición no es una edición → intentar como consulta de datos
+    # Detección de análisis estadístico — tiene prioridad sobre query_dsl
+    if _RE_ANALISIS.search(peticion.instruccion):
+        ops_an: list[dict] = [{"op": "analisis"}]
+        if _RE_GRAFICO_PEDIDO.search(peticion.instruccion):
+            ops_an.append({"op": "grafico"})
+        try:
+            pasos_an = _ejecutar_pipeline(df, ops_an, peticion.instruccion)
+        except Exception as e_an:
+            logger.error("Error en pipeline analisis: %s", e_an, exc_info=True)
+            pasos_an = []
+        logger.info("Análisis por patrón — %d paso(s)", len(pasos_an))
+        if pasos_an:
+            if len(pasos_an) == 1:
+                return pasos_an[0]
+            return {
+                "tipo": "pipeline",
+                "pasos": pasos_an,
+                "descripcion": "; ".join(p.get("descripcion", "") for p in pasos_an),
+            }
+
+    # La petición no es análisis ni edición → intentar como consulta de datos
     query = extraer_query_dsl(df, peticion.instruccion)
     if query and not query.get("aclaracion_necesaria"):
         try:
@@ -633,6 +767,25 @@ def edit(peticion: PeticionEdicion, _: None = Depends(_verificar_clave),
             return {"tipo": "texto", "respuesta": _resultado_a_texto(resultado_q, descripcion)}
         except QueryError as error:
             logger.warning("Query DSL falló, usando LLM libre: %s", error)
+
+    # Último recurso: detectar si el usuario quiere crear una tabla nueva (aunque haya datos seleccionados)
+    estructura = extraer_estructura_excel(peticion.instruccion)
+    if estructura:
+        columnas_e = estructura.get("columnas", [])
+        datos_filas = estructura.get("datos", [])
+        matriz = [columnas_e] + [
+            [("" if v is None else v) for v in fila]
+            for fila in datos_filas
+        ]
+        titulo = estructura.get("titulo", "Nueva tabla")
+        nueva_hoja = estructura.get("nueva_hoja", False)
+        return {
+            "tipo": "datos",
+            "datos_modificados": matriz,
+            "nombre_hoja": titulo if nueva_hoja else None,
+            "nueva_hoja": nueva_hoja,
+            "descripcion": f"Tabla '{titulo}' creada ({len(datos_filas)} filas)",
+        }
 
     columnas = ", ".join(str(c) for c in df.columns)
     muestra  = df.head(5).to_string(index=False)
@@ -741,9 +894,10 @@ def feedback(peticion: PeticionFeedback, _: None = Depends(_verificar_clave),
     user_id = _usuario_addin(peticion.device_id)
     if not peticion.pregunta.strip() or not peticion.respuesta.strip():
         raise HTTPException(status_code=400, detail="pregunta y respuesta no pueden estar vacías")
+    tipo = peticion.tipo if peticion.tipo in ("positivo", "negativo") else "positivo"
     try:
         from utils.rag import guardar_ejemplo
-        guardar_ejemplo(user_id, peticion.pregunta, peticion.respuesta)
+        guardar_ejemplo(user_id, peticion.pregunta, peticion.respuesta, tipo=tipo)
     except Exception as exc:
         logger.warning("No se pudo guardar ejemplo RAG: %s", exc)
     return {"ok": True}
@@ -1892,6 +2046,14 @@ def _renderizar_admin_html(
 
 _DIST = os.path.join(os.path.dirname(__file__), "excel-addin", "dist")
 if os.path.isdir(_DIST):
+    # no-store en local para que WebView2 no cachee JS/CSS entre recargas
+    if not os.getenv("WEBHOOK_URL"):
+        @app.middleware("http")
+        async def _no_cache_static(request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path.endswith((".js", ".css", ".html")):
+                response.headers["Cache-Control"] = "no-store"
+            return response
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="addin")
     logger.info("Add-in estático servido desde %s", _DIST)
 

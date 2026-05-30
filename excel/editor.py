@@ -112,6 +112,10 @@ def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict
         df, desc = _añadir_fila_total(df, op)
         return df, desc, None
 
+    elif tipo == "duplicar_filas":
+        df, desc = _duplicar_filas(df, op)
+        return df, desc, None
+
     elif tipo == "transponer":
         df, desc = _transponer(df, op)
         return df, desc, None
@@ -122,10 +126,23 @@ def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict
 
 # ── Operaciones ───────────────────────────────────────────────────────────────
 
+def _normalizar_nombre_columna(nombre: str, df: pd.DataFrame) -> str:
+    """Ajusta la capitalización del nombre nuevo para que concuerde con el resto de columnas."""
+    cols = [str(c) for c in df.columns]
+    mayusculas = sum(1 for c in cols if c and c[0].isupper())
+    minusculas  = sum(1 for c in cols if c and c[0].islower())
+    if mayusculas >= minusculas and nombre:
+        return nombre[0].upper() + nombre[1:]
+    return nombre
+
+
 def _añadir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     nombre = op.get("nombre")
     if not nombre:
         raise EditorError("Falta el nombre de la columna nueva ('nombre').")
+
+    # Ajustar capitalización para que concuerde con las columnas existentes
+    nombre = _normalizar_nombre_columna(nombre, df)
 
     col1     = op.get("col1")
     col2     = op.get("col2")
@@ -138,11 +155,12 @@ def _añadir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     if operador not in _OPERADORES_ARITMETICOS:
         raise EditorError(f"Operador aritmético no permitido: '{operador}'. Usa: + - * /")
 
-    s1 = pd.to_numeric(df[col1], errors="coerce")
+    # fillna(0): nulos en operandos se tratan como 0, no propagan NaN al resultado
+    s1 = pd.to_numeric(df[col1], errors="coerce").fillna(0)
 
     if col2:
         _validar_col(df, col2)
-        s2 = pd.to_numeric(df[col2], errors="coerce")
+        s2 = pd.to_numeric(df[col2], errors="coerce").fillna(0)
     elif valor_fijo is not None:
         s2 = float(valor_fijo)
     else:
@@ -155,8 +173,7 @@ def _añadir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     elif operador == "*":
         df[nombre] = s1 * s2
     elif operador == "/":
-        divisor = s2 if isinstance(s2, pd.Series) else s2
-        df[nombre] = s1 / divisor
+        df[nombre] = s1 / s2
 
     ref = col2 if col2 else str(valor_fijo)
     return df, f"Columna '{nombre}' añadida ({col1} {operador} {ref})"
@@ -166,7 +183,15 @@ def _ordenar(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     col = op.get("col")
     _validar_col(df, col)
     asc = str(op.get("orden", "asc")).lower() == "asc"
-    df = df.sort_values(col, ascending=asc).reset_index(drop=True)
+    # Detectar columnas de fecha (DD/MM/YYYY u otros formatos) para ordenar correctamente
+    try:
+        temp = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
+        if temp.notna().sum() > len(df) * 0.5:
+            df = df.assign(_sort_key=temp).sort_values("_sort_key", ascending=asc).drop(columns=["_sort_key"]).reset_index(drop=True)
+        else:
+            df = df.sort_values(col, ascending=asc).reset_index(drop=True)
+    except Exception:
+        df = df.sort_values(col, ascending=asc).reset_index(drop=True)
     return df, f"Ordenado por '{col}' {'↑ ascendente' if asc else '↓ descendente'}"
 
 
@@ -186,7 +211,18 @@ def _filtrar_exportar(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     filtros = op.get("filtros", [])
     if not filtros:
         raise EditorError("Falta 'filtros' para filtrar_exportar.")
-    df = _aplicar_filtros(df, filtros).reset_index(drop=True)
+    # Validar que los valores de filtro numéricos no sean strings no-numéricos
+    for f in filtros:
+        val = f.get("val")
+        if isinstance(val, str) and not val.replace(".", "", 1).replace("-", "", 1).isdigit():
+            raise EditorError(
+                f"Valor de filtro no válido '{val}' para columna '{f.get('col')}'. "
+                "Usa un número, no una palabra."
+            )
+    try:
+        df = _aplicar_filtros(df, filtros).reset_index(drop=True)
+    except (TypeError, ValueError) as e:
+        raise EditorError(f"Error al aplicar filtro: {e}") from e
     return df, f"{len(df)} filas tras aplicar los filtros"
 
 
@@ -655,6 +691,20 @@ def _añadir_fila_total(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
 
     df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
     return df, f"Fila de {op.get('aggfunc', 'totales')} añadida (etiqueta: '{etiqueta}')"
+
+
+def _duplicar_filas(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
+    indices = op.get("indices")
+    if indices:
+        filas_a_dup = df.iloc[[i for i in indices if 0 <= i < len(df)]]
+    else:
+        n = max(1, int(op.get("n", 3)))
+        filas_a_dup = df.tail(n)
+    if filas_a_dup.empty:
+        raise EditorError("No hay filas para duplicar.")
+    df = pd.concat([df, filas_a_dup], ignore_index=True)
+    destino_txt = "al principio" if op.get("destino") == "principio" else "al final"
+    return df, f"{len(filas_a_dup)} fila(s) duplicada(s) {destino_txt}"
 
 
 def _transponer(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:

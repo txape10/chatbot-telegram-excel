@@ -1,8 +1,8 @@
-"""Almacén de ejemplos de respuestas valoradas positivamente (feedback RAG).
+"""Almacén de ejemplos de respuestas con feedback del usuario (feedback RAG).
 
-Tabla: feedback_rag(id, user_id, pregunta, respuesta, creado_en)
-Los ejemplos se inyectan como few-shot en _construir_mensajes() para adaptar
-el estilo y profundidad de las respuestas al usuario concreto.
+Tabla: feedback_rag(id, user_id, pregunta, respuesta, tipo, creado_en)
+  tipo = 'positivo' → el ejemplo se inyecta como few-shot en _construir_mensajes()
+  tipo = 'negativo' → se almacena para análisis; no se inyecta en el LLM
 """
 from utils.db import conectar as _db_conectar
 
@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS feedback_rag (
     user_id   INTEGER NOT NULL,
     pregunta  TEXT    NOT NULL,
     respuesta TEXT    NOT NULL,
+    tipo      TEXT    NOT NULL DEFAULT 'positivo',
     creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 """
@@ -21,14 +22,20 @@ CREATE TABLE IF NOT EXISTS feedback_rag (
 
 def _init(conn) -> None:
     conn.execute(_CREATE)
+    # Migración: añadir columna tipo si la tabla ya existía sin ella
+    try:
+        conn.execute("ALTER TABLE feedback_rag ADD COLUMN tipo TEXT NOT NULL DEFAULT 'positivo'")
+    except Exception:
+        pass  # La columna ya existe
 
 
-def guardar_ejemplo(user_id: int, pregunta: str, respuesta: str) -> None:
+def guardar_ejemplo(user_id: int, pregunta: str, respuesta: str,
+                    tipo: str = "positivo") -> None:
     with _db_conectar() as conn:
         _init(conn)
         conn.execute(
-            "INSERT INTO feedback_rag (user_id, pregunta, respuesta) VALUES (?, ?, ?)",
-            (user_id, pregunta[:2000], respuesta[:2000]),
+            "INSERT INTO feedback_rag (user_id, pregunta, respuesta, tipo) VALUES (?, ?, ?, ?)",
+            (user_id, pregunta[:2000], respuesta[:2000], tipo),
         )
         # Mantener solo los últimos _MAX_POR_USUARIO por usuario
         conn.execute(
@@ -41,12 +48,13 @@ def guardar_ejemplo(user_id: int, pregunta: str, respuesta: str) -> None:
 
 
 def obtener_ejemplos(user_id: int, limite: int = 3) -> list[dict]:
-    """Devuelve los últimos `limite` ejemplos valorados positivamente por el usuario."""
+    """Devuelve los últimos `limite` ejemplos valorados positivamente (few-shot)."""
     with _db_conectar() as conn:
         _init(conn)
         cur = conn.execute(
             """SELECT pregunta, respuesta FROM feedback_rag
-               WHERE user_id = ? ORDER BY creado_en DESC LIMIT ?""",
+               WHERE user_id = ? AND tipo = 'positivo'
+               ORDER BY creado_en DESC LIMIT ?""",
             (user_id, limite),
         )
         return [{"pregunta": r[0], "respuesta": r[1]} for r in cur.fetchall()]
