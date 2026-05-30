@@ -418,6 +418,11 @@ async function escribirEnExcel(destino) {
     await Excel.run(async (context) => {
       let targetRange;
       let sourceRange = null;
+      // sheet, anchorRow y anchorCol declarados aquí para ser accesibles
+      // en el bloque de creación de tabla (fuera del if/else)
+      let sheet     = null;
+      let anchorRow = 0;
+      let anchorCol = 0;
 
       if (destino === "nueva_hoja") {
         // Capturar el rango fuente antes de crear la nueva hoja
@@ -425,18 +430,19 @@ async function escribirEnExcel(destino) {
           const srcSheet = context.workbook.worksheets.getItem(_rangoHojaNombre);
           sourceRange = srcSheet.getRange(localAddress);
         }
-        const nuevaHoja = context.workbook.worksheets.add();
-        nuevaHoja.activate();
-        targetRange = nuevaHoja.getRangeByIndexes(0, 0, filas, cols);
+        sheet = context.workbook.worksheets.add();
+        sheet.activate();
+        targetRange = sheet.getRangeByIndexes(0, 0, filas, cols);
 
       } else {
-        const sheet    = context.workbook.worksheets.getActiveWorksheet();
-        const refRange = sheet.getRange(_rangoAddress);
+        sheet = context.workbook.worksheets.getActiveWorksheet();
+        // localAddress ya tiene el prefijo de hoja eliminado ("A1", no "Hoja1!A1")
+        const refRange = sheet.getRange(localAddress || "A1");
         refRange.load(["rowIndex", "columnIndex"]);
         await context.sync();
 
-        const anchorRow = refRange.rowIndex;
-        const anchorCol = refRange.columnIndex;
+        anchorRow = refRange.rowIndex;
+        anchorCol = refRange.columnIndex;
 
         if (_rangoFilas > 0 && _rangoCols > 0) {
           sourceRange = sheet.getRangeByIndexes(anchorRow, anchorCol, _rangoFilas, _rangoCols);
@@ -468,11 +474,13 @@ async function escribirEnExcel(destino) {
 
       await context.sync();
 
-      // Aplicar estilo de tabla Excel (cabecera + al menos 1 fila de datos).
-      // Si ya existe una tabla en ese rango se ignora el error silenciosamente.
-      if (filas >= 2) {
+      // Aplicar formato de Tabla Excel (cabecera + al menos 1 fila de datos).
+      // sheet está garantizado en scope. Se usa una referencia nueva tras el sync
+      // para evitar estado inconsistente del proxy anterior.
+      if (filas >= 2 && sheet) {
         try {
-          const tabla = sheet.tables.add(targetRange, true); // true = hasHeaders
+          const tableRange = sheet.getRangeByIndexes(anchorRow, anchorCol, filas, cols);
+          const tabla = sheet.tables.add(tableRange, true); // true = hasHeaders
           tabla.style = "TableStyleMedium2";
           await context.sync();
         } catch (_) {
