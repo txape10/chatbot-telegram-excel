@@ -131,11 +131,17 @@ EDITOR_DSL_SISTEMA = (
     "Solo requiere: {\"op\": \"tabla_dinamica\"}. El motor extraerá los parámetros.\n"
     "  formula             → inserta una nueva columna con una fórmula Excel (=SUMA, =SI, =D{row}-C{row}, etc.). "
     "Solo requiere: {\"op\": \"formula\"}. El motor extraerá la fórmula y el nombre de la columna.\n"
-    "  query               → realiza una consulta/cálculo sobre los datos actuales y devuelve el resultado como texto. "
+    "  query               → consulta de SOLO LECTURA: cuenta, suma, agrupa, calcula top N, etc. "
+    "Devuelve el resultado como TEXTO — NO modifica el archivo. "
+    "USA SIEMPRE query cuando el usuario PREGUNTA o quiere VER datos (¿cuántas?, ¿cuánto?, "
+    "¿cuál es el top?, ¿cuál es la media?, dame el ranking, agrúpame y dime...). "
+    "NUNCA uses ordenar/añadir_columna/pivotear para responder preguntas analíticas. "
     "Requiere: {\"op\": \"query\", \"pregunta\": \"la pregunta de consulta en lenguaje natural\"}.\n"
     "  macro               → ejecuta una macro guardada del usuario como parte del pipeline. "
     "Requiere: 'nombre' (nombre exacto en minúsculas de una macro del usuario). "
     "Solo úsalo si el usuario menciona una macro guardada por su nombre.\n\n"
+    "REGLA CRÍTICA: si la petición contiene palabras como '¿cuántas?', '¿cuánto?', '¿cuál es?', "
+    "'top N', 'ranking', 'agrúpame y dime', 'muéstrame el resultado', etc. → usa query, no edición.\n\n"
     "IMPORTANTE: si el usuario pide a la vez editar Y consultar datos, incluye AMBAS en el array. "
     "Los pasos se ejecutan en orden, así que pon las ediciones primero y las consultas después "
     "para que la consulta se haga sobre el dato ya modificado.\n\n"
@@ -145,7 +151,9 @@ EDITOR_DSL_SISTEMA = (
     '  [{"op":"eliminar_duplicados"},{"op":"ordenar","col":"Importe","orden":"desc"},{"op":"grafico"}]\n'
     '  [{"op":"formula"}]\n'
     '  [{"op":"filtrar_exportar","filtros":[{"col":"Ventas","op":">","val":1000}]},{"op":"query","pregunta":"¿cuántas filas quedan y cuál es el total de Ventas?"}]\n'
-    '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"query","pregunta":"¿cuál es la venta más reciente?"},{"op":"query","pregunta":"¿cuántos registros hay?"}]\n\n'
+    '  [{"op":"query","pregunta":"¿Cuántas filas tienen ventas por encima de la media? Agrúpame por región y dame el top 3 de cada una"}]\n'
+    '  [{"op":"query","pregunta":"¿cuál es el top 5 por importe y cuánto suman en total?"}]\n'
+    '  [{"op":"ordenar","col":"Fecha","orden":"desc"},{"op":"query","pregunta":"¿cuál es la venta más reciente?"}]\n\n'
     "Si la petición NO contiene ninguna edición ni consulta sobre datos (es solo una pregunta teórica o explicación sobre Excel), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"
     "Si hay varios pasos, ejecútalos en el orden exacto en que el usuario los menciona. "
@@ -180,12 +188,18 @@ QUERY_DSL_SISTEMA = (
     "  promedio  → promedio de 'col'. Opcional: 'por', 'filtros'.\n"
     "  max       → máximo de 'col'. Opcional: 'por', 'filtros'.\n"
     "  min       → mínimo de 'col'. Opcional: 'por', 'filtros'.\n"
-    "  top_n     → top N filas por 'col'. Requiere: 'col', 'n'. "
+    "  top_n     → top N filas globales por 'col'. Requiere: 'col', 'n'. "
     "Opcional: 'orden' (desc/asc), 'filtros'.\n"
+    "  top_n_por_grupo → top N filas dentro de cada grupo. Requiere: 'col', 'por', 'n'. "
+    "Opcional: 'orden' (desc/asc), 'filtros'. "
+    "Ejemplo: top 3 de Ventas por Región → {\"op\":\"top_n_por_grupo\",\"col\":\"Ventas\",\"por\":\"Región\",\"n\":3}\n"
     "  ordenar   → ordena todas las filas. Requiere: 'col'. Opcional: 'orden' (desc/asc).\n"
     "  agrupar   → agrupa por 'por' y agrega 'col' con "
     "'agg' (suma/promedio/contar/max/min). Requiere: 'por', 'agg'.\n\n"
-    "Operadores válidos para 'filtros': == != > >= < <= contiene no_contiene empieza_por\n\n"
+    "Operadores válidos para 'filtros': == != > >= < <= contiene no_contiene empieza_por\n"
+    "Valores especiales en filtros numéricos: 'media', 'mediana', 'max', 'min' "
+    "(se calculan sobre la columna real). Ejemplo: ventas > media → "
+    "{\"col\":\"Ventas\",\"op\":\">\",\"val\":\"media\"}\n\n"
     "Si la pregunta NO se puede expresar como una de estas operaciones (es conceptual, "
     "pide una explicación, una fórmula, un gráfico, una tabla dinámica, etc.), "
     "responde exactamente: RESPUESTA_LIBRE\n\n"

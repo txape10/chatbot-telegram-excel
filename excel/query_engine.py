@@ -8,6 +8,9 @@ from typing import Any
 
 _OPS_FILTRO = {"==", "!=", ">", ">=", "<", "<=", "contiene", "no_contiene", "empieza_por"}
 
+# Valores especiales en filtros numéricos: se calculan sobre la columna del df completo
+_VALS_ESTADISTICOS = {"media": "mean", "mediana": "median", "max": "max", "min": "min"}
+
 
 class QueryError(Exception):
     """Error controlado al ejecutar una query DSL."""
@@ -87,8 +90,33 @@ def ejecutar_query(df: pd.DataFrame, query: dict) -> tuple[Any, str]:
         label = "Últimos" if asc else "Top"
         return res, f"{label} {n} por '{col}'"
 
+    elif op == "top_n_por_grupo":
+        col = query.get("col")
+        por = query.get("por")
+        _validar_col(df_t, col)
+        _validar_col(df_t, por)
+        n = max(1, int(query.get("n", 3)))
+        asc = str(query.get("orden", "desc")).lower() == "asc"
+        serie_num = pd.to_numeric(df_t[col], errors="coerce")
+        res = (df_t.assign(**{col: serie_num})
+               .sort_values(col, ascending=asc)
+               .groupby(por, sort=False)
+               .head(n)
+               .reset_index(drop=True))
+        label = "Últimos" if asc else "Top"
+        return res, f"{label} {n} de '{col}' por grupo '{por}'"
+
     else:
         raise QueryError(f"Operación no reconocida: '{op}'")
+
+
+def _resolver_val_numerico(df: pd.DataFrame, col: str, val) -> float:
+    """Convierte val a float. Si es un alias estadístico ('media', 'mediana', etc.)
+    lo calcula sobre la columna del df completo."""
+    if isinstance(val, str) and val.lower() in _VALS_ESTADISTICOS:
+        fn = _VALS_ESTADISTICOS[val.lower()]
+        return float(getattr(pd.to_numeric(df[col], errors="coerce"), fn)())
+    return float(val)
 
 
 def _aplicar_filtros(df: pd.DataFrame, filtros: list[dict]) -> pd.DataFrame:
@@ -108,13 +136,13 @@ def _aplicar_filtros(df: pd.DataFrame, filtros: list[dict]) -> pd.DataFrame:
         elif op == "!=":
             mascara &= (serie != val)
         elif op == ">":
-            mascara &= (pd.to_numeric(serie, errors="coerce") > float(val))
+            mascara &= (pd.to_numeric(serie, errors="coerce") > _resolver_val_numerico(df, col, val))
         elif op == ">=":
-            mascara &= (pd.to_numeric(serie, errors="coerce") >= float(val))
+            mascara &= (pd.to_numeric(serie, errors="coerce") >= _resolver_val_numerico(df, col, val))
         elif op == "<":
-            mascara &= (pd.to_numeric(serie, errors="coerce") < float(val))
+            mascara &= (pd.to_numeric(serie, errors="coerce") < _resolver_val_numerico(df, col, val))
         elif op == "<=":
-            mascara &= (pd.to_numeric(serie, errors="coerce") <= float(val))
+            mascara &= (pd.to_numeric(serie, errors="coerce") <= _resolver_val_numerico(df, col, val))
         elif op == "contiene":
             mascara &= serie.astype(str).str.contains(str(val), case=False, na=False)
         elif op == "no_contiene":
