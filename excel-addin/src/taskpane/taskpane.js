@@ -368,35 +368,74 @@ async function llamarApi(endpoint, payload) {
  * Devuelve null si no hay ninguna columna numérica (nada que aplicar).
  */
 const _DATE_HEADER_KW = ["fecha", "date", "día", "dia", "vencim", "alta", "baja", "inicio", "fin"];
+// Reconoce "dd/mm/yyyy" y "yyyy-mm-dd"
+const _DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{4}$|^\d{4}-\d{2}-\d{2}$/;
 
-function _inferirFormatos(datos) {
-  if (!datos || datos.length < 2) return null;
+/**
+ * Convierte un string de fecha ("dd/mm/yyyy" o "yyyy-mm-dd") al número
+ * serial de Excel (días desde 30/12/1899). Devuelve el string original
+ * si no puede interpretarlo.
+ */
+function _dateStringToSerial(str) {
+  const p = str.includes("/") ? str.split("/").map(Number) : null;
+  const g = str.includes("-") ? str.split("-").map(Number) : null;
+  let d, m, y;
+  if (p && p.length === 3) { [d, m, y] = p; }
+  else if (g && g.length === 3) { [y, m, d] = g; }
+  else { return str; }
+  if (isNaN(d + m + y) || y < 1900 || m < 1 || m > 12 || d < 1 || d > 31) return str;
+  const ms = new Date(y, m - 1, d).getTime() - new Date(1899, 11, 30).getTime();
+  return Math.round(ms / 86400000);
+}
+
+/**
+ * Prepara la matriz de datos para escribir en Excel:
+ * - Convierte strings de fecha a seriales (para alineación y filtros correctos)
+ * - Devuelve también la matriz de formatos a aplicar con numberFormat
+ *
+ * Detecta columnas de fecha por nombre de cabecera O por patrón de valor.
+ * Detecta columnas numéricas para aplicar separador de miles.
+ */
+function _prepararDatos(datos) {
+  if (!datos || datos.length < 2) return { valores: datos, formatos: null };
+
   const filas   = datos.length;
   const cols    = datos[0].length;
   const headers = datos[0].map(h => String(h || "").toLowerCase());
-
-  const fmts = Array.from({ length: filas }, () => Array(cols).fill("General"));
+  const valores = datos.map(row => [...row]);   // copia profunda
+  const fmts    = Array.from({ length: filas }, () => Array(cols).fill("General"));
   let hayAlguno = false;
 
   for (let c = 0; c < cols; c++) {
-    // Detectar columna de fecha por nombre de cabecera
-    if (_DATE_HEADER_KW.some(kw => headers[c].includes(kw))) {
-      for (let r = 1; r < filas; r++) fmts[r][c] = "dd/mm/yyyy";
+    const colVals = datos.slice(1)
+      .map(row => row[c])
+      .filter(v => v !== null && v !== "" && v !== undefined);
+
+    // ── Columna de fecha (por cabecera o por patrón de valores) ──────────────
+    const esFechaHeader = _DATE_HEADER_KW.some(kw => headers[c].includes(kw));
+    const esFechaValor  = colVals.length > 0 &&
+      colVals.every(v => typeof v === "string" && _DATE_RE.test(v));
+
+    if (esFechaHeader || esFechaValor) {
+      for (let r = 1; r < filas; r++) {
+        const v = datos[r][c];
+        if (typeof v === "string" && _DATE_RE.test(v)) {
+          valores[r][c] = _dateStringToSerial(v);
+        }
+        fmts[r][c] = "dd/mm/yyyy";
+      }
       hayAlguno = true;
       continue;
     }
 
-    const vals = datos.slice(1)
-      .map(row => row[c])
-      .filter(v => v !== null && v !== "" && v !== undefined);
-    if (!vals.length || !vals.every(v => typeof v === "number")) continue;
-
-    const fmt = vals.some(v => v % 1 !== 0) ? "#,##0.00" : "#,##0";
+    // ── Columna numérica ─────────────────────────────────────────────────────
+    if (!colVals.length || !colVals.every(v => typeof v === "number")) continue;
+    const fmt = colVals.some(v => v % 1 !== 0) ? "#,##0.00" : "#,##0";
     for (let r = 1; r < filas; r++) fmts[r][c] = fmt;
     hayAlguno = true;
   }
 
-  return hayAlguno ? fmts : null;
+  return { valores, formatos: hayAlguno ? fmts : null };
 }
 
 async function escribirEnExcel(destino) {
@@ -463,13 +502,15 @@ async function escribirEnExcel(destino) {
         targetRange.copyFrom(sourceRange, Excel.RangeCopyType.formats, false, false);
       }
 
-      targetRange.values = datos;
+      // Convertir fechas a serial y preparar formatos antes de escribir.
+      // Los seriales se escriben siempre (sin ellos Excel los alinea como texto).
+      // El formato de celda solo se aplica cuando no hay rango fuente; si lo hay,
+      // se hereda de los formatos copiados en copyFrom.
+      const { valores: datosPrep, formatos: fmtsPrep } = _prepararDatos(datos);
+      targetRange.values = datosPrep;
 
-      // Opción B: si no hay rango fuente (tabla creada desde cero), inferir
-      // formato numérico por columna y aplicarlo automáticamente.
-      if (!sourceRange) {
-        const fmts = _inferirFormatos(datos);
-        if (fmts) targetRange.numberFormat = fmts;
+      if (!sourceRange && fmtsPrep) {
+        targetRange.numberFormat = fmtsPrep;
       }
 
       await context.sync();
