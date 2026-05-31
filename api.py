@@ -494,7 +494,7 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
     Devuelve la lista de pasos con sus resultados, lista para devolver al cliente.
     """
     pasos: list[dict] = []
-    df_actual = df
+    df_actual = df.copy()  # una sola copia defensiva para todo el pipeline
 
     for op in ops:
         # Normalizar nombre del campo op
@@ -627,14 +627,31 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
             if pregunta_q:
                 try:
                     dsl_q = extraer_query_dsl(df_actual, pregunta_q)
-                    if dsl_q and not dsl_q.get("aclaracion_necesaria"):
-                        resultado_q, descripcion_q = ejecutar_query(df_actual, dsl_q)
-                        pasos.append({
+                    es_aclaracion = isinstance(dsl_q, dict) and dsl_q.get("aclaracion_necesaria")
+                    if dsl_q and not es_aclaracion:
+                        ops_q = dsl_q if isinstance(dsl_q, list) else [dsl_q]
+                        partes_q: list[str] = []
+                        partes_escalares: list[str] = []   # solo resultados no-tabla
+                        ultimo_df_q: pd.DataFrame | None = None
+                        descripcion_q = ""
+                        for q in ops_q:
+                            resultado_q, descripcion_q = ejecutar_query(df_actual, q)
+                            texto_q = _resultado_a_texto(resultado_q, descripcion_q)
+                            partes_q.append(texto_q)
+                            if isinstance(resultado_q, pd.DataFrame) and not resultado_q.empty:
+                                ultimo_df_q = resultado_q
+                            else:
+                                partes_escalares.append(texto_q)
+                        paso_q: dict = {
                             "tipo": "query_resultado",
                             "pregunta": pregunta_q,
-                            "resultado": _resultado_a_texto(resultado_q, descripcion_q),
+                            "resultado": "\n\n".join(partes_q),
+                            "texto_resumen": "\n\n".join(partes_escalares),
                             "descripcion": descripcion_q,
-                        })
+                        }
+                        if ultimo_df_q is not None:
+                            paso_q["datos_tabla"] = _df_a_matriz(ultimo_df_q)
+                        pasos.append(paso_q)
                 except (QueryError, Exception) as e_q:
                     logger.warning("Query inline falló en pipeline: %s", e_q)
 
@@ -642,7 +659,7 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
         else:
             try:
                 cols_antes = list(df_actual.columns)
-                df_actual, descripcion, _extras = aplicar_edicion(df_actual, op)
+                df_actual, descripcion, _extras = aplicar_edicion(df_actual, op, copy_df=False)
                 pasos.append({
                     "tipo": "edicion",
                     "operacion": nombre_op,
@@ -659,7 +676,8 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                     operador   = op.get("operador")
                     valor_fijo = op.get("valor_fijo")
                     cols_nuevas = [c for c in df_actual.columns if c not in cols_antes]
-                    if cols_nuevas and col1 and operador:
+                    _ops_aritmeticas = {"+", "-", "*", "/"}
+                    if cols_nuevas and col1 and operador and operador in _ops_aritmeticas:
                         col_nueva = cols_nuevas[0]
                         cols_list = list(df_actual.columns)
                         if col2 and col1 in cols_list and col2 in cols_list:
@@ -688,6 +706,8 @@ def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) ->
                                 "operador": operador,
                                 "descripcion": f"{col_nueva} = {col1} {operador} {valor_fijo}",
                             })
+                    # Funciones (redondear, abs, raiz…): los valores ya están en
+                    # datos_modificados como estáticos — no se emite formula_columna.
             except (EditorError, Exception) as error:
                 logger.warning("Op '%s' falló en pipeline: %s", nombre_op, error)
 

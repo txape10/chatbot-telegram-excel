@@ -1,6 +1,7 @@
 import pytest
 import pandas as pd
-from excel.query_engine import ejecutar_query, formatear_resultado, QueryError
+from excel.query_engine import (ejecutar_query, formatear_resultado,
+                                 QueryError, _limpiar_filas_resumen)
 
 
 @pytest.fixture
@@ -9,6 +10,16 @@ def df_ventas():
         "Producto": ["A", "B", "A", "C", "B"],
         "Región":   ["Norte", "Sur", "Norte", "Sur", "Norte"],
         "Ventas":   [100, 200, 150, 300, 50],
+    })
+
+
+@pytest.fixture
+def df_por_region():
+    """DataFrame con 3 filas por región, para pruebas de top_n_por_grupo."""
+    return pd.DataFrame({
+        "Región":  ["Norte", "Norte", "Norte", "Sur", "Sur", "Sur"],
+        "Ventas":  [100, 300, 200, 50, 400, 150],
+        "Producto": ["A", "B", "C", "A", "B", "C"],
     })
 
 
@@ -103,6 +114,38 @@ def test_min(df_ventas):
     assert resultado == 50.0
 
 
+# ── _limpiar_filas_resumen ───────────────────────────────────────────────────
+
+def test_limpiar_fila_total_general(df_ventas):
+    df_con_total = pd.concat([
+        df_ventas,
+        pd.DataFrame({"Producto": ["Total general"], "Región": [""], "Ventas": [800]}),
+    ], ignore_index=True)
+    resultado = _limpiar_filas_resumen(df_con_total)
+    assert len(resultado) == 5
+    assert "Total general" not in resultado["Producto"].values
+
+
+def test_limpiar_fila_subtotal(df_ventas):
+    df_con_sub = pd.concat([
+        df_ventas,
+        pd.DataFrame({"Producto": ["Subtotal"], "Región": [""], "Ventas": [250]}),
+    ], ignore_index=True)
+    resultado = _limpiar_filas_resumen(df_con_sub)
+    assert len(resultado) == 5
+
+
+def test_limpiar_no_elimina_filas_normales(df_ventas):
+    resultado = _limpiar_filas_resumen(df_ventas)
+    assert len(resultado) == 5
+
+
+def test_limpiar_df_vacio():
+    df_vacio = pd.DataFrame({"Col": []})
+    resultado = _limpiar_filas_resumen(df_vacio)
+    assert resultado.empty
+
+
 # ── top_n ────────────────────────────────────────────────────────────────────
 
 def test_top_n_desc(df_ventas):
@@ -119,6 +162,57 @@ def test_top_n_asc(df_ventas):
     })
     assert resultado.iloc[0]["Ventas"] == 50    # el menor
     assert "ltimos" in desc                     # "Últimos"
+
+
+# ── top_n_por_grupo ──────────────────────────────────────────────────────────
+
+def test_top_n_por_grupo_devuelve_n_por_region(df_por_region):
+    resultado, desc = ejecutar_query(df_por_region, {
+        "op": "top_n_por_grupo", "col": "Ventas", "por": "Región", "n": 2,
+    })
+    assert len(resultado) == 4          # 2 por cada una de las 2 regiones
+    assert "Top" in desc
+
+
+def test_top_n_por_grupo_ordenado_por_region(df_por_region):
+    resultado, _ = ejecutar_query(df_por_region, {
+        "op": "top_n_por_grupo", "col": "Ventas", "por": "Región", "n": 2,
+    })
+    regiones = resultado["Región"].tolist()
+    # Todas las filas de Norte deben aparecer antes que las de Sur
+    assert regiones.index("Norte") < regiones.index("Sur")
+
+
+def test_top_n_por_grupo_top_correcto_por_grupo(df_por_region):
+    resultado, _ = ejecutar_query(df_por_region, {
+        "op": "top_n_por_grupo", "col": "Ventas", "por": "Región", "n": 1,
+    })
+    norte = resultado[resultado["Región"] == "Norte"]["Ventas"].iloc[0]
+    sur   = resultado[resultado["Región"] == "Sur"]["Ventas"].iloc[0]
+    assert norte == 300    # máximo de Norte
+    assert sur   == 400    # máximo de Sur
+
+
+def test_top_n_por_grupo_excluye_grupo_vacio():
+    df = pd.DataFrame({
+        "Región":  ["Norte", "Norte", "", None],
+        "Ventas":  [100, 200, 999, 888],
+    })
+    resultado, _ = ejecutar_query(df, {
+        "op": "top_n_por_grupo", "col": "Ventas", "por": "Región", "n": 2,
+    })
+    regiones = resultado["Región"].tolist()
+    assert "" not in regiones
+    assert None not in regiones
+
+
+def test_top_n_por_grupo_asc(df_por_region):
+    resultado, desc = ejecutar_query(df_por_region, {
+        "op": "top_n_por_grupo", "col": "Ventas", "por": "Región", "n": 1, "orden": "asc",
+    })
+    norte = resultado[resultado["Región"] == "Norte"]["Ventas"].iloc[0]
+    assert norte == 100    # mínimo de Norte
+    assert "ltimos" in desc
 
 
 # ── ordenar ──────────────────────────────────────────────────────────────────

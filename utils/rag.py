@@ -19,14 +19,24 @@ CREATE TABLE IF NOT EXISTS feedback_rag (
 )
 """
 
+_INIT_HECHO = False
+
 
 def _init(conn) -> None:
+    global _INIT_HECHO
+    if _INIT_HECHO:
+        return
     conn.execute(_CREATE)
+    # Índice para consultas por user_id y tipo (evita full scan)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rag_user ON feedback_rag(user_id, tipo)"
+    )
     # Migración: añadir columna tipo si la tabla ya existía sin ella
     try:
         conn.execute("ALTER TABLE feedback_rag ADD COLUMN tipo TEXT NOT NULL DEFAULT 'positivo'")
     except Exception:
         pass  # La columna ya existe
+    _INIT_HECHO = True
 
 
 def guardar_ejemplo(user_id: int, pregunta: str, respuesta: str,

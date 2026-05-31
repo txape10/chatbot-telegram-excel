@@ -19,9 +19,8 @@ let _rangoFilas       = 0;
 let _rangoCols        = 0;
 let _operacionActual  = null;
 
-// Feedback RAG: última pregunta+respuesta de texto para el botón 👍
-let _feedbackPregunta  = "";
-let _feedbackRespuesta = "";
+// Feedback RAG: pregunta+respuesta se almacenan como data-* en zona-feedback
+// para que cada respuesta conserve sus propios datos aunque llegue otra petición.
 
 // Aclaración pendiente: instrucción original guardada hasta que el usuario responda
 let _instruccionPreAclaracion = null;
@@ -104,16 +103,6 @@ function toggleTelegram() {
 
 // ── Formato condicional ───────────────────────────────────────────────────────
 
-const _FORMATO_KEYWORDS = [
-  "formato condicional", "colorea", "colorear", "resalta", "resaltar",
-  "escala de color", "barra de datos", "iconos de", "conjunto de iconos",
-  "semáforo", "semaforo", "flechas", "banderas", "estrellas", "clasificacion",
-  "top 10", "top 5", "top 3", "10 superiores", "5 superiores", "inferiores",
-  "superiores", "heatmap", "gradiente", "pinta", "colorar", "marca en rojo",
-  "marca en verde", "marca en amarillo", "destaca", "destacar",
-  "conditional format",
-];
-
 const _COLORES_CF = {
   rojo: "#FF0000", verde: "#00B050", amarillo: "#FFFF00",
   naranja: "#FF8C00", azul: "#4472C4", morado: "#7030A0",
@@ -150,11 +139,6 @@ const _ICONOS_CF = {
 
 function _colorCf(nombre) {
   return _COLORES_CF[nombre] || nombre;
-}
-
-function _esFormatoCondicional(texto) {
-  const t = texto.toLowerCase();
-  return _FORMATO_KEYWORDS.some((kw) => t.includes(kw));
 }
 
 // ── Preguntar ─────────────────────────────────────────────────────────────────
@@ -346,6 +330,21 @@ async function preguntar() {
         document.getElementById("respuesta").innerHTML = html;
         document.getElementById("bloque-respuesta").style.display = "block";
         mostrarEstado("Se necesita aclaración");
+      } else if (respuesta.tipo === "query_resultado") {
+        const msg = respuesta.resultado || respuesta.descripcion || "Sin resultado";
+        if (respuesta.datos_tabla && respuesta.datos_tabla.length > 1) {
+          mostrarEstado("Escribiendo resultado en hoja...");
+          await _escribirTablaEnHoja(respuesta.datos_tabla, "Consulta");
+          const resumen = respuesta.texto_resumen ? respuesta.texto_resumen + "\n\n" : "";
+          mostrarRespuesta("📊 " + resumen + "Resultado escrito en hoja **Consulta**.");
+          mostrarEstado("Listo · hoja Consulta");
+        } else {
+          mostrarRespuesta("📊 " + msg);
+          mostrarEstado("Listo · " + direccion);
+        }
+        _agregarAlHistorial(instruccion, msg);
+        _actualizarHistorialLLM(instruccion, msg);
+        _mostrarFeedback(instruccion, msg);
       } else {
         const msg = respuesta.respuesta || respuesta.mensaje || "Sin respuesta";
         mostrarRespuesta(msg);
@@ -942,12 +941,58 @@ async function _aplicarPaso(paso, chartIndex = 0) {
       return { hojaAnalisis: nombre };
     }
     case "query_resultado":
-      // Solo se muestra en texto — no modifica la hoja
+      if (paso.datos_tabla && paso.datos_tabla.length > 1) {
+        await _escribirTablaEnHoja(paso.datos_tabla, "Consulta");
+      }
       break;
     default:
       break;
   }
   return null;
+}
+
+async function _escribirTablaEnHoja(matriz, nombre) {
+  await Excel.run(async (context) => {
+    const wb = context.workbook;
+    let hoja = wb.worksheets.getItemOrNullObject(nombre);
+    await context.sync();
+    if (hoja.isNullObject) {
+      hoja = wb.worksheets.add(nombre);
+    } else {
+      hoja.getUsedRange().clear();
+    }
+    const nFilas = matriz.length;
+    const nCols  = matriz[0].length;
+    const rango  = hoja.getRange("A1").getResizedRange(nFilas - 1, nCols - 1);
+    rango.values = matriz;
+
+    // Cabecera negrita con fondo gris claro
+    const cabecera = hoja.getRange("A1").getResizedRange(0, nCols - 1);
+    cabecera.format.font.bold = true;
+    cabecera.format.fill.color = "#D9D9D9";
+
+    // Formato por columna según tipo de dato (detectado en la primera fila de datos)
+    if (nFilas > 1) {
+      const headers = matriz[0];
+      for (let c = 0; c < nCols; c++) {
+        const val = matriz[1][c];
+        const colRng = hoja.getRange("A1").getOffsetRange(1, c).getResizedRange(nFilas - 2, 0);
+        const headerLower = String(headers[c]).toLowerCase();
+        if (headerLower.includes("fecha") || headerLower.includes("date")) {
+          // Seriales de fecha de Excel → formato DD/MM/YYYY
+          colRng.numberFormat = [["DD/MM/YYYY"]];
+        } else if (typeof val === "number" && !Number.isInteger(val)) {
+          colRng.numberFormat = [["#,##0.00"]];
+        } else if (typeof val === "number") {
+          colRng.numberFormat = [["#,##0"]];
+        }
+      }
+    }
+
+    hoja.getUsedRange().format.autofitColumns();
+    hoja.activate();
+    await context.sync();
+  });
 }
 
 async function _insertarHojaAnalisis(datos, nombre) {
@@ -1331,10 +1376,10 @@ function elegirAclaracion(opcion) {
 }
 
 function _mostrarFeedback(pregunta, respuesta) {
-  _feedbackPregunta  = pregunta;
-  _feedbackRespuesta = respuesta;
   const zona = document.getElementById("zona-feedback");
   if (!zona) return;
+  zona.dataset.pregunta  = pregunta;
+  zona.dataset.respuesta = respuesta;
   zona.style.display = "flex";
   // Resetear a estado inicial: ambos botones visibles, icono oculto
   const btnPos = document.getElementById("btn-feedback-pos");
@@ -1351,7 +1396,12 @@ function _ocultarFeedback() {
 }
 
 async function enviarFeedback(tipo) {
-  if (!_feedbackPregunta || !_feedbackRespuesta) return;
+  const zona = document.getElementById("zona-feedback");
+  if (!zona) return;
+  const pregunta  = zona.dataset.pregunta  || "";
+  const respuesta = zona.dataset.respuesta || "";
+  if (!pregunta || !respuesta) return;
+
   const btnPos = document.getElementById("btn-feedback-pos");
   const btnNeg = document.getElementById("btn-feedback-neg");
   const icon   = document.getElementById("feedback-icon");
@@ -1368,9 +1418,9 @@ async function enviarFeedback(tipo) {
   try {
     await llamarApi("/feedback", {
       device_id: _obtenerOCrearDeviceId(),
-      pregunta:  _feedbackPregunta,
-      respuesta: _feedbackRespuesta,
-      tipo:      tipo || "positivo",
+      pregunta,
+      respuesta,
+      tipo: tipo || "positivo",
     });
   } catch (_e) {
     // silencioso — el feedback es opcional

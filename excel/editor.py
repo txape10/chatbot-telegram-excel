@@ -23,6 +23,21 @@ _COLORES_HEX = {
 
 _OPERADORES_ARITMETICOS = {"+", "-", "*", "/"}
 
+# Funciones numéricas que el LLM puede generar como operador de añadir_columna.
+# Cada función recibe (serie_pandas, valor_fijo_o_None) y devuelve una serie.
+_FUNCIONES_COLUMNA: dict[str, object] = {
+    "redondear": lambda s, v: s.round(int(v) if v is not None else 0),
+    "round":     lambda s, v: s.round(int(v) if v is not None else 0),
+    "abs":       lambda s, _: s.abs(),
+    "absoluto":  lambda s, _: s.abs(),
+    "raiz":      lambda s, _: s.pow(0.5),
+    "sqrt":      lambda s, _: s.pow(0.5),
+    "potencia":  lambda s, v: s.pow(float(v) if v is not None else 2),
+    "pow":       lambda s, v: s.pow(float(v) if v is not None else 2),
+    "entero":    lambda s, _: s.apply(lambda x: int(x) if pd.notna(x) else x),
+    "truncar":   lambda s, _: s.apply(lambda x: int(x) if pd.notna(x) else x),
+}
+
 _COMPARADORES = {
     "<":  lambda a, b: a < b,
     ">":  lambda a, b: a > b,
@@ -39,14 +54,18 @@ class EditorError(Exception):
 
 # ── Dispatcher principal ──────────────────────────────────────────────────────
 
-def aplicar_edicion(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str, dict | None]:
+def aplicar_edicion(df: pd.DataFrame, op: dict,
+                    copy_df: bool = True) -> tuple[pd.DataFrame, str, dict | None]:
     """Aplica una operación de edición al DataFrame.
 
     Devuelve (df_modificado, descripcion, extras).
     extras puede contener instrucciones de formato condicional para exportar_xlsx.
+
+    copy_df=False: el llamador ya hizo la copia defensiva (evita N copias en pipelines).
     """
     tipo = str(op.get("op", "")).lower().strip()
-    df = df.copy()
+    if copy_df:
+        df = df.copy()
 
     if tipo == "añadir_columna":
         df, desc = _añadir_columna(df, op)
@@ -152,11 +171,23 @@ def _añadir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     if not col1 or not operador:
         raise EditorError("Faltan 'col1' y 'operador' para añadir_columna.")
     _validar_col(df, col1)
-    if operador not in _OPERADORES_ARITMETICOS:
-        raise EditorError(f"Operador aritmético no permitido: '{operador}'. Usa: + - * /")
 
-    # fillna(0): nulos en operandos se tratan como 0, no propagan NaN al resultado
     s1 = pd.to_numeric(df[col1], errors="coerce").fillna(0)
+    op_lower = operador.lower()
+
+    # ── Funciones numéricas (redondear, abs, raiz, …) ────────────────────────
+    if op_lower in _FUNCIONES_COLUMNA:
+        fn = _FUNCIONES_COLUMNA[op_lower]
+        df[nombre] = fn(s1, valor_fijo)
+        arg = f", {valor_fijo}" if valor_fijo is not None else ""
+        return df, f"Columna '{nombre}' añadida ({operador}({col1}{arg}))"
+
+    # ── Operadores aritméticos (+, -, *, /) ──────────────────────────────────
+    if operador not in _OPERADORES_ARITMETICOS:
+        raise EditorError(
+            f"Operador no permitido: '{operador}'. "
+            f"Usa aritmético (+, -, *, /) o función ({', '.join(_FUNCIONES_COLUMNA)})"
+        )
 
     if col2:
         _validar_col(df, col2)
@@ -211,14 +242,6 @@ def _filtrar_exportar(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     filtros = op.get("filtros", [])
     if not filtros:
         raise EditorError("Falta 'filtros' para filtrar_exportar.")
-    # Validar que los valores de filtro numéricos no sean strings no-numéricos
-    for f in filtros:
-        val = f.get("val")
-        if isinstance(val, str) and not val.replace(".", "", 1).replace("-", "", 1).isdigit():
-            raise EditorError(
-                f"Valor de filtro no válido '{val}' para columna '{f.get('col')}'. "
-                "Usa un número, no una palabra."
-            )
     try:
         df = _aplicar_filtros(df, filtros).reset_index(drop=True)
     except (TypeError, ValueError) as e:

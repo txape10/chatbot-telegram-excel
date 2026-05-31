@@ -52,6 +52,45 @@ def test_añadir_columna_operador_invalido(df_ventas):
         })
 
 
+def test_añadir_columna_redondear(df_ventas):
+    df, desc, _ = aplicar_edicion(df_ventas, {
+        "op": "añadir_columna", "nombre": "PrecioRed",
+        "col1": "Precio", "operador": "redondear", "valor_fijo": 0,
+    })
+    assert "PrecioRed" in df.columns
+    assert all(df["PrecioRed"] == df["Precio"].round(0))
+    assert "redondear" in desc.lower()
+
+
+def test_añadir_columna_abs(df_ventas):
+    df_neg = df_ventas.copy()
+    df_neg["Precio"] = [-10, -20, 30, -5, 15]
+    df, desc, _ = aplicar_edicion(df_neg, {
+        "op": "añadir_columna", "nombre": "PrecioAbs",
+        "col1": "Precio", "operador": "abs",
+    })
+    assert "PrecioAbs" in df.columns
+    assert all(df["PrecioAbs"] >= 0)
+
+
+def test_añadir_columna_raiz(df_ventas):
+    df, desc, _ = aplicar_edicion(df_ventas, {
+        "op": "añadir_columna", "nombre": "RaizPrecio",
+        "col1": "Precio", "operador": "raiz",
+    })
+    assert "RaizPrecio" in df.columns
+    import math
+    assert abs(float(df["RaizPrecio"].iloc[0]) - math.sqrt(10.0)) < 0.001
+
+
+def test_añadir_columna_funcion_desconocida_lanza_error(df_ventas):
+    with pytest.raises(EditorError):
+        aplicar_edicion(df_ventas, {
+            "op": "añadir_columna", "nombre": "X",
+            "col1": "Precio", "operador": "INVENTADA",
+        })
+
+
 def test_añadir_columna_sin_nombre(df_ventas):
     with pytest.raises(EditorError):
         aplicar_edicion(df_ventas, {

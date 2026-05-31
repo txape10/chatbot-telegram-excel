@@ -6,10 +6,26 @@ No ejecuta código arbitrario — solo un conjunto cerrado de operaciones segura
 import pandas as pd
 from typing import Any
 
+import re
+
 _OPS_FILTRO = {"==", "!=", ">", ">=", "<", "<=", "contiene", "no_contiene", "empieza_por"}
 
 # Valores especiales en filtros numéricos: se calculan sobre la columna del df completo
 _VALS_ESTADISTICOS = {"media": "mean", "mediana": "median", "max": "max", "min": "min"}
+
+# Filas de resumen que genera añadir_fila_total u otras fuentes externas
+_RE_FILA_RESUMEN = re.compile(
+    r"^\s*(total|subtotal|grand\s+total|total\s+general)\b", re.IGNORECASE
+)
+
+
+def _limpiar_filas_resumen(df: pd.DataFrame) -> pd.DataFrame:
+    """Elimina filas de resumen/total de la primera columna para no contaminar estadísticas."""
+    if df.empty:
+        return df
+    primera = df.columns[0]
+    mask = df[primera].astype(str).str.match(_RE_FILA_RESUMEN, na=False)
+    return df[~mask].copy() if mask.any() else df
 
 
 class QueryError(Exception):
@@ -24,6 +40,7 @@ def ejecutar_query(df: pd.DataFrame, query: dict) -> tuple[Any, str]:
     """
     op = str(query.get("op", "")).strip().lower()
     filtros = query.get("filtros", [])
+    df = _limpiar_filas_resumen(df)   # excluir filas Total/Subtotal antes de calcular
     df_t = _aplicar_filtros(df, filtros)
 
     if op == "filtrar":
@@ -36,7 +53,7 @@ def ejecutar_query(df: pd.DataFrame, query: dict) -> tuple[Any, str]:
             res = df_t.groupby(por).size().reset_index(name="Recuento")
             res = res.sort_values("Recuento", ascending=False).reset_index(drop=True)
             return res, f"Recuento por '{por}'"
-        return int(len(df_t)), f"Total de filas: {len(df_t)}"
+        return int(len(df_t)), "Total de filas"
 
     elif op in ("suma", "promedio", "max", "min"):
         col = query.get("col")
@@ -97,11 +114,14 @@ def ejecutar_query(df: pd.DataFrame, query: dict) -> tuple[Any, str]:
         _validar_col(df_t, por)
         n = max(1, int(query.get("n", 3)))
         asc = str(query.get("orden", "desc")).lower() == "asc"
+        # Excluir filas donde la columna de grupo es nula o vacía
+        df_t = df_t[df_t[por].notna() & (df_t[por].astype(str).str.strip() != "")]
         serie_num = pd.to_numeric(df_t[col], errors="coerce")
         res = (df_t.assign(**{col: serie_num})
                .sort_values(col, ascending=asc)
                .groupby(por, sort=False)
                .head(n)
+               .sort_values([por, col], ascending=[True, asc])
                .reset_index(drop=True))
         label = "Últimos" if asc else "Top"
         return res, f"{label} {n} de '{col}' por grupo '{por}'"

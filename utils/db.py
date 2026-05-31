@@ -19,6 +19,15 @@ _TURSO_TOKEN = os.getenv("TURSO_AUTH_TOKEN",   "").strip()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "historial.db")
 
+# Verificar disponibilidad de libsql una sola vez al arrancar
+_LIBSQL_DISPONIBLE = False
+if _TURSO_URL and _TURSO_TOKEN:
+    try:
+        import libsql_experimental as _libsql_mod  # noqa: F401
+        _LIBSQL_DISPONIBLE = True
+    except ImportError as _exc:
+        logger.warning("libsql_experimental no disponible — usando SQLite local (%s)", _exc)
+
 
 class _ConnWrapper:
     """Envuelve una conexión libsql_experimental añadiendo el protocolo de contexto.
@@ -64,14 +73,14 @@ def conectar() -> sqlite3.Connection:
     """
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-    if _TURSO_URL and _TURSO_TOKEN:
+    if _TURSO_URL and _TURSO_TOKEN and _LIBSQL_DISPONIBLE:
         try:
-            import libsql_experimental as libsql      # solo en cloud
+            import libsql_experimental as libsql      # ya verificado disponible al arrancar
             conn = libsql.connect(DB_PATH, sync_url=_TURSO_URL, auth_token=_TURSO_TOKEN)
             conn.sync()
             return _ConnWrapper(conn)  # type: ignore[return-value]
         except Exception as exc:
-            logger.error("Turso no disponible (%s) — usando SQLite local como fallback", exc)
+            logger.error("Turso conexión falló: %s — usando SQLite local", exc)
 
     return sqlite3.connect(DB_PATH)
 

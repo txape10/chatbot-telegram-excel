@@ -6,7 +6,7 @@ No requiere Telegram ni LLM.
 """
 import pytest
 import re
-from handlers.messages import (
+from handlers.intent_patterns import (
     _RE_PREVIEW,
     _RE_VALORES_UNICOS,
     _RE_EXPLICAR_ARCHIVO,
@@ -22,8 +22,8 @@ from handlers.messages import (
     _RE_EJECUTAR_MACRO,
     _RE_LISTAR_MACROS,
     _RE_BORRAR_MACRO,
-    _OPS_DESTRUCTIVAS,
 )
+from handlers.excel_edit import _OPS_DESTRUCTIVAS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

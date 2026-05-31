@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import re
 import time
 import pandas as pd
 
@@ -62,7 +63,9 @@ def _construir_mensajes(historial: list[dict], pregunta: str,
     presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
 
     historial_valido = list(historial)
-    while historial_valido and _estimar_tokens(str(historial_valido)) > presupuesto_historial:
+    tokens_hist = _estimar_tokens(str(historial_valido))
+    while historial_valido and tokens_hist > presupuesto_historial:
+        tokens_hist -= _estimar_tokens(str(historial_valido[:2]))
         historial_valido = historial_valido[2:]
         logger.debug("Historial recortado a %d mensajes por límite de tokens", len(historial_valido))
 
@@ -122,6 +125,37 @@ def extraer_estructura_excel(pregunta: str) -> dict | None:
         return None
 
 
+# El usuario pidió explícitamente ordenar (edición real, no solo "agrupar y mostrar")
+_RE_ORDENAR_EXPLICITO = re.compile(
+    r"\b(?:ordena|reordena|sort|clasifica)\b",
+    re.IGNORECASE,
+)
+
+
+def _limpiar_ops_espurias(ops: list[dict], pregunta: str) -> list[dict]:
+    """Elimina ops de edición que el LLM añadió como 'preparación' cuando la intención
+    real del usuario era solo una consulta de lectura.
+
+    Caso habitual: "Agrúpame por X y dame el top 3" → el LLM devuelve
+    [{"op":"ordenar",...}, {"op":"query",...}]. El ordenar es espurio — el usuario
+    nunca pidió modificar el archivo, solo ver el resultado agrupado.
+    """
+    tiene_query = any(op.get("op") == "query" for op in ops)
+    if not tiene_query:
+        return ops  # Sin query → no hay ambigüedad, dejar pasar
+
+    # Si hay query Y ops de edición que el LLM suele mezclar por confusión, filtrar los espurios
+    _OPS_CONFUNDIBLES = {"ordenar", "pivotear"}
+    ordenar_explicito = bool(_RE_ORDENAR_EXPLICITO.search(pregunta))
+
+    limpias = [
+        op for op in ops
+        if op.get("op") not in _OPS_CONFUNDIBLES or ordenar_explicito
+    ]
+    # Asegurar que queda al menos la query
+    return limpias if limpias else ops
+
+
 def extraer_operacion_edicion(
     df: pd.DataFrame,
     pregunta: str,
@@ -137,7 +171,7 @@ def extraer_operacion_edicion(
     from prompts.excel import EDITOR_DSL_SISTEMA, EDITOR_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
-    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {t}" for c, t in df.dtypes.items())
     muestra  = df.head(3).to_string(index=False)
 
     if macros_disponibles:
@@ -154,7 +188,7 @@ def extraer_operacion_edicion(
                 macros_info=macros_info, pregunta=pregunta,
             )},
         ], temperature=0, max_tokens=600)
-        logger.info("Respuesta editor DSL del LLM: %s", texto)
+        logger.debug("Respuesta editor DSL del LLM: %s", texto)
         texto = texto.strip()
         if texto == "RESPUESTA_LIBRE":
             return None
@@ -164,9 +198,9 @@ def extraer_operacion_edicion(
             return parsed
         # Pipeline → siempre lista; normalizar dict suelto por si el LLM no siguió el formato
         if isinstance(parsed, dict):
-            return [parsed]
+            parsed = [parsed]
         if isinstance(parsed, list):
-            return parsed
+            return _limpiar_ops_espurias(parsed, pregunta)
         return None
     except Exception as error:
         logger.warning("Error extrayendo operación de edición: %s | respuesta LLM: %r", error, texto)
@@ -184,7 +218,7 @@ def extraer_query_dsl(df: pd.DataFrame, pregunta: str) -> dict | None:
     from prompts.excel import QUERY_DSL_SISTEMA, QUERY_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
-    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {t}" for c, t in df.dtypes.items())
     muestra  = df.head(3).to_string(index=False)
 
     texto = None
@@ -236,7 +270,7 @@ def extraer_peticion_grafico(df: pd.DataFrame, pregunta: str) -> dict | None:
     from prompts.excel import GRAFICO_DSL_SISTEMA, GRAFICO_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
-    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {t}" for c, t in df.dtypes.items())
 
     texto = None
     try:
@@ -258,7 +292,7 @@ def extraer_params_pivote(df: pd.DataFrame, pregunta: str) -> dict | None:
     from prompts.excel import PIVOTE_DSL_SISTEMA, PIVOTE_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
-    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {t}" for c, t in df.dtypes.items())
     muestra  = df.head(3).to_string(index=False)
 
     texto = None
@@ -302,7 +336,7 @@ def extraer_regla_formato(df: pd.DataFrame, instruccion: str) -> list[dict] | No
     from prompts.excel import FORMATO_DSL_SISTEMA, FORMATO_DSL_USUARIO
 
     columnas = ", ".join(f"'{c}'" for c in df.columns)
-    tipos    = ", ".join(f"{c}: {df[c].dtype}" for c in df.columns)
+    tipos    = ", ".join(f"{c}: {t}" for c, t in df.dtypes.items())
     muestra  = df.head(3).to_string(index=False)
 
     texto = None
