@@ -16,6 +16,7 @@ Modos de ejecución (se detectan automáticamente por las variables de entorno):
     → Usa bot.py directamente en lugar de api.py
 """
 import asyncio
+import html as _html_mod
 import logging
 import os
 import re
@@ -52,7 +53,7 @@ configurar_logging()
 logger = logging.getLogger(__name__)
 
 _API_KEY     = os.getenv("API_KEY", "")
-_ADMIN_KEY   = os.getenv("ADMIN_KEY", "") or _API_KEY   # fallback a API_KEY si no hay ADMIN_KEY
+_ADMIN_KEY   = os.getenv("ADMIN_KEY", "")
 _WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
 _BOT_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 
@@ -1104,7 +1105,7 @@ async def enviar_al_bot(peticion: PeticionEnviarAlBot,
 
 def _verificar_admin(key: str = Query(..., alias="key")) -> None:
     if not _ADMIN_KEY:
-        raise HTTPException(status_code=500, detail="ADMIN_KEY no configurada")
+        raise HTTPException(status_code=503, detail="Panel admin no disponible: ADMIN_KEY no configurada")
     if key != _ADMIN_KEY:
         raise HTTPException(status_code=403, detail="Clave de administrador inválida")
 
@@ -1397,8 +1398,8 @@ def _renderizar_admin_html(
     def _usuario_celda(uid):
         """Devuelve (identidad_html, tipo_badge) para tablas de usuarios."""
         u_data = next((u for u in stats["usuarios"] if u["user_id"] == uid), {})
-        email  = u_data.get("email") or email_por_uid.get(uid, "")
-        nombre = u_data.get("display_name") or ""
+        email  = _html_mod.escape(u_data.get("email") or email_por_uid.get(uid, ""))
+        nombre = _html_mod.escape(u_data.get("display_name") or "")
         if uid <= 0:  # Add-in: uid negativo (propio) o 0 (legacy anónimo)
             if nombre and email and not email.startswith("("):
                 identidad = (
@@ -1883,7 +1884,7 @@ def _renderizar_admin_html(
           <div class="metric-row"><span class="mk">Base de datos</span><span class="mv">{db_modo_label}</span></div>
           <div class="metric-row"><span class="mk">Estado BD</span><span class="mv">{db_estado_badge}</span></div>
           <div class="metric-row"><span class="mk">URL BD</span>
-            <span class="mv"><code style="font-size:.68rem;word-break:break-all">{db_inf['url']}</code></span>
+            <span class="mv"><code style="font-size:.68rem;word-break:break-all">{db_inf['url'].split('?')[0] + ('?authToken=***' if '?' in db_inf['url'] else '')}</code></span>
           </div>
         </div>
       </div>

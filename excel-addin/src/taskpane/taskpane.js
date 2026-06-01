@@ -1467,8 +1467,8 @@ async function enviarFeedback(tipo) {
 }
 
 function mostrarRespuesta(texto) {
-  /* global marked */
-  document.getElementById("respuesta").innerHTML = marked.parse(texto);
+  /* global marked, DOMPurify */
+  document.getElementById("respuesta").innerHTML = DOMPurify.sanitize(marked.parse(texto));
   document.getElementById("bloque-respuesta").style.display = "block";
 }
 
@@ -1492,6 +1492,7 @@ function mostrarDialogo(descripcion) {
   if (lblDebajo) lblDebajo.textContent = restringido ? "Al final" : "Debajo";
 
   document.getElementById("dialogo-destino").style.display = "block";
+  document.getElementById("btn-debajo").focus();
 }
 
 function ocultarDialogo() {

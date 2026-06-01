@@ -12,6 +12,9 @@ venv/
 dist/
 build/
 
+# El dist/ del Add-in SÍ sube al repo (Render no ejecuta npm)
+!excel-addin/dist/
+
 # Proyecto
 data/
 logs/

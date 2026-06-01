@@ -207,6 +207,8 @@ ADDIN_URL=
 | `max_retries=0` en Groq client | Evita la espera interna de ~17 s cuando hay rate-limit; falla rápido y el código salta al proveedor de respaldo |
 | Columnas calculadas como fórmulas Excel (no valores) | Las fórmulas son editables y recalculan al cambiar datos fuente; `_aplicarFormulaColumna()` en taskpane.js usa `getUsedRange()` para escribir las referencias correctas |
 | `tipo` en `feedback_rag` ('positivo'/'negativo') | Solo los ejemplos positivos se inyectan como few-shot; los negativos se almacenan para análisis futuro sin contaminar el contexto del LLM |
+| `ADMIN_KEY` obligatoria e independiente de `API_KEY` | Sin fallback entre claves: si `ADMIN_KEY` no está en `.env`, el panel admin devuelve 503. Evita que alguien con `API_KEY` (extraíble del bundle JS) acceda al panel de administración |
+| DOMPurify sobre `marked.parse()` | Las respuestas del LLM se sanitizan con DOMPurify antes de insertar en `innerHTML`; evita XSS si el LLM o el backend devuelven HTML inesperado |
 
 ---
 
@@ -252,6 +254,8 @@ ADDIN_URL=
 - **Feedback UI mejorado (2026-05-30)**: zona-feedback con 👍 Útil + 👎 Errónea; al pulsar cualquiera los botones desaparecen y aparece ✅; `tipo` añadido a `feedback_rag` (migración automática vía `ALTER TABLE`); feedback negativo se almacena para análisis pero no se inyecta en el LLM; feedback positivo sigue como few-shot
 - **Fix /ask → edit routing (2026-06-01)**: `/ask` detecta intención de edición cuando recibe `datos >= 2 filas` y redirige internamente a la lógica de `/edit`; frontend captura `_usedRangeCapturado` y maneja respuestas `tipo: edicion/pipeline`; `QUERY_DSL_SISTEMA` incluye regla anti-confusión para verbos imperativos de edición → `RESPUESTA_LIBRE` (fix commit `45edf3d`)
 - **UptimeRobot configurado (2026-06-01)**: ping cada 5 min a `/health`; servicio Render siempre activo (nunca duerme); alertas por email a roberto.chapado@gmail.com
+- **Optimizaciones y UX (2026-06-01)**: recorte de historial LLM reescrito de O(n²) a O(n) pre-calculando tokens por par; `logger.info` de timing y tokens movidos a `logger.debug` (logs de producción más limpios); `btn-debajo.focus()` al mostrar el diálogo de destino (teclado-friendly)
+- **Auditoría de seguridad + fixes (2026-06-01)**: 5 vulnerabilidades corregidas — XSS en panel admin (`html.escape()` en `display_name`/`email`); `ADMIN_KEY` desacoplada de `API_KEY` (ya no hay fallback; 503 si no configurada); token Turso oculto en panel admin (`?authToken=***`); XSS en respuestas LLM mitigado con DOMPurify (`DOMPurify.sanitize(marked.parse(texto))`)
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 

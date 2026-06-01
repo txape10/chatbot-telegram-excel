@@ -27,7 +27,7 @@ def _chat_timed(nombre: str, messages: list, temperature: float = 0,
     resultado = obtener_proveedor().chat(messages=messages, temperature=temperature,
                                          max_tokens=max_tokens)
     ms = (time.perf_counter() - t0) * 1000
-    logger.info("LLM %-25s → %6.0f ms", nombre, ms)
+    logger.debug("LLM %-25s → %6.0f ms", nombre, ms)
     return resultado
 
 
@@ -63,10 +63,18 @@ def _construir_mensajes(historial: list[dict], pregunta: str,
     presupuesto_historial = proveedor.max_tokens_peticion - tokens_fijos
 
     historial_valido = list(historial)
-    tokens_hist = _estimar_tokens(str(historial_valido))
-    while historial_valido and tokens_hist > presupuesto_historial:
-        tokens_hist -= _estimar_tokens(str(historial_valido[:2]))
-        historial_valido = historial_valido[2:]
+    # Calcular coste de cada par (usuario+modelo) una sola vez → O(n) en lugar de O(n²)
+    tokens_por_par = [
+        _estimar_tokens(str(historial_valido[i:i + 2]))
+        for i in range(0, len(historial_valido), 2)
+    ]
+    tokens_hist = sum(tokens_por_par)
+    pares_eliminados = 0
+    while tokens_hist > presupuesto_historial and pares_eliminados < len(tokens_por_par):
+        tokens_hist -= tokens_por_par[pares_eliminados]
+        pares_eliminados += 1
+    if pares_eliminados:
+        historial_valido = historial_valido[pares_eliminados * 2:]
         logger.debug("Historial recortado a %d mensajes por límite de tokens", len(historial_valido))
 
     mensajes_historial = []
@@ -91,7 +99,7 @@ def obtener_respuesta(historial: list[dict], pregunta: str,
     proveedor_activo = proveedor or obtener_proveedor()
     mensajes = _construir_mensajes(historial, pregunta, proveedor_activo, system_override, user_id)
     tokens_estimados = _estimar_tokens(str(mensajes))
-    logger.info("Petición LLM — tokens estimados: %d", tokens_estimados)
+    logger.debug("Petición LLM — tokens estimados: %d", tokens_estimados)
     return proveedor_activo.chat(mensajes)
 
 
