@@ -23,6 +23,7 @@ def _conectar() -> sqlite3.Connection:
         "ALTER TABLE user_prefs ADD COLUMN modo_respuesta  TEXT    DEFAULT 'texto'",
         "ALTER TABLE user_prefs ADD COLUMN preguntado_modo INTEGER DEFAULT 0",
         "ALTER TABLE user_prefs ADD COLUMN modo_privado    INTEGER DEFAULT 0",
+        "ALTER TABLE user_prefs ADD COLUMN display_name    TEXT",
     ]:
         try:
             conn.execute(sql)
@@ -126,6 +127,21 @@ def get_modo_privado(user_id: int) -> bool:
             "SELECT modo_privado FROM user_prefs WHERE user_id = ?", (user_id,)
         ).fetchone()
     return bool(fila and fila[0])
+
+
+def set_display_name(user_id: int, display_name: str) -> None:
+    """Guarda el nombre visible del usuario de Telegram (first_name [+ last_name])."""
+    nombre = (display_name or "").strip()
+    if not nombre:
+        return
+    with _conectar() as conn:
+        conn.execute("""
+            INSERT INTO user_prefs (user_id, display_name)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE
+            SET display_name = excluded.display_name
+        """, (user_id, nombre))
+        conn.commit()
 
 
 def toggle_modo_privado(user_id: int) -> bool:

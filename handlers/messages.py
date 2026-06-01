@@ -8,7 +8,7 @@ from services.llm import LLMError, obtener_respuesta, obtener_proveedor_privado
 from utils.history import obtener_historial, agregar_mensaje
 from utils.excel_context import obtener_contexto
 from utils.df_context import obtener_df, obtener_df_secundario
-from utils.user_prefs import get_version, get_modo_privado, ya_fue_preguntado, marcar_preguntado, VERSIONES
+from utils.user_prefs import get_version, get_modo_privado, ya_fue_preguntado, marcar_preguntado, VERSIONES, set_display_name
 from utils.feature_config import esta_activo as _feature_activa
 from utils.auth import solo_autorizados
 from prompts.excel import PREGUNTA_CON_VERSION, PREGUNTA_CON_CONTEXTO
@@ -83,7 +83,13 @@ async def procesar_pregunta(update: Update, context: ContextTypes.DEFAULT_TYPE,
     Reutilizable desde cualquier handler (texto, voz, etc.) una vez que
     el texto ya ha sido extraído o transcrito.
     """
-    user_id = update.effective_user.id
+    tg_user = update.effective_user
+    user_id = tg_user.id
+
+    # Guardar nombre visible para el panel de administración
+    _nombre_tg = " ".join(filter(None, [tg_user.first_name, tg_user.last_name]))
+    if _nombre_tg:
+        set_display_name(user_id, _nombre_tg)
 
     # ── Explicador automático de fórmulas ─────────────────────────────────────
     if pregunta.startswith("="):

@@ -1367,6 +1367,21 @@ def _fmt_min(m: float) -> str:
     return f"{h}h {rest}m" if rest else f"{h}h"
 
 
+def _obtener_groq_rate_limits() -> dict:
+    """Devuelve los rate limits de Groq del proveedor activo (en memoria, última llamada)."""
+    try:
+        from services.llm_provider import obtener_proveedor
+        prov = obtener_proveedor()
+        if hasattr(prov, "get_rate_limits"):
+            return prov.get_rate_limits()
+        # FallbackProvider: intentar con el primario
+        if hasattr(prov, "_primario") and hasattr(prov._primario, "get_rate_limits"):
+            return prov._primario.get_rate_limits()
+    except Exception:
+        pass
+    return {}
+
+
 def _renderizar_admin_html(
     stats: dict,
     stats_ia: dict,
@@ -1418,7 +1433,18 @@ def _renderizar_admin_html(
                 identidad = "<em style='color:#999;font-size:.85rem'>Add-in anónimo</em>"
             tipo = "<span class='badge-addin'>Add-in</span>"
         else:  # Telegram
-            if email:
+            nombre = _html_mod.escape(u_data.get("display_name") or "")
+            if nombre and email:
+                identidad = (
+                    f"<span style='font-size:.85rem'>{nombre}</span>"
+                    f"<br><small style='color:#aaa'>{email}</small>"
+                )
+            elif nombre:
+                identidad = (
+                    f"<span style='font-size:.85rem'>{nombre}</span>"
+                    f"<br><small style='color:#aaa'>{uid}</small>"
+                )
+            elif email:
                 identidad = (
                     f"<span style='font-size:.85rem'>{email}</span>"
                     f"<br><small style='color:#aaa'>{uid}</small>"
@@ -1711,6 +1737,50 @@ def _renderizar_admin_html(
     _col_ia = "#27ae60" if stats_ia["tasa_exito"] >= 95 else "#e67e22" if stats_ia["tasa_exito"] >= 80 else "#e74c3c"
     _err_badge = f'<span class="log-count-err">{n_errores} errores</span>' if n_errores else ""
 
+    # ── Rate limits Groq ─────────────────────────────────────────────────────
+    _rl = _obtener_groq_rate_limits()
+    def _rl_val(v):
+        return str(v) if v is not None else "—"
+    def _rl_color(restantes, limite):
+        if restantes is None or limite is None:
+            return "#888"
+        try:
+            pct = int(restantes) / int(limite)
+            return "#27ae60" if pct > 0.5 else "#e67e22" if pct > 0.1 else "#e74c3c"
+        except Exception:
+            return "#888"
+    if _rl:
+        _rl_rpm_color = _rl_color(_rl.get("restantes_rpm"), _rl.get("limite_rpm"))
+        _rl_tpm_color = _rl_color(_rl.get("restantes_tpm"), _rl.get("limite_tpm"))
+        html_groq_rl = f"""
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:12px 16px 6px">
+          <div class="card" style="padding:10px 8px">
+            <div class="val" style="font-size:1.15rem">{_rl_val(_rl.get("limite_rpm"))}</div>
+            <div class="lbl">Límite RPM</div>
+          </div>
+          <div class="card" style="padding:10px 8px">
+            <div class="val" style="font-size:1.15rem;color:{_rl_rpm_color}">{_rl_val(_rl.get("restantes_rpm"))}</div>
+            <div class="lbl">Restantes RPM</div>
+          </div>
+          <div class="card" style="padding:10px 8px">
+            <div class="val" style="font-size:1.15rem">{_rl_val(_rl.get("limite_tpm"))}</div>
+            <div class="lbl">Límite TPM</div>
+          </div>
+          <div class="card" style="padding:10px 8px">
+            <div class="val" style="font-size:1.15rem;color:{_rl_tpm_color}">{_rl_val(_rl.get("restantes_tpm"))}</div>
+            <div class="lbl">Restantes TPM</div>
+          </div>
+          <div class="card" style="padding:10px 8px">
+            <div class="val" style="font-size:.85rem;color:#888">{_rl_val(_rl.get("reset_tpm"))}</div>
+            <div class="lbl">Reset tokens en</div>
+          </div>
+        </div>
+        <div style="padding:4px 16px 12px;font-size:.72rem;color:#aaa">
+          Capturados de la última llamada exitosa a Groq. RPM = peticiones/min · TPM = tokens/min
+        </div>"""
+    else:
+        html_groq_rl = '<div style="padding:16px;color:#999;text-align:center;font-size:.85rem">Sin datos de rate limit todavía — aparecen tras la primera llamada a Groq.</div>'
+
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1974,6 +2044,11 @@ def _renderizar_admin_html(
         f'<table><thead><tr><th>Tipo</th><th>Veces</th></tr></thead><tbody>{filas_errores_ia}</tbody></table>'
         '</div></div>'
         if not ia_sin_datos else ""}
+    </div>
+
+    <div class="section">
+      <div class="section-head">⚡ Groq — Límites de tasa actuales</div>
+      {html_groq_rl}
     </div>
   </div>
 

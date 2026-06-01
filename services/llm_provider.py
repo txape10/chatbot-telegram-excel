@@ -144,13 +144,34 @@ class GroqProvider(LLMProvider):
         self.modelo         = os.getenv("LLM_MODEL",        "llama-3.3-70b-versatile")
         self.modelo_vision  = os.getenv("LLM_MODEL_VISION", "meta-llama/llama-4-scout-17b-16e-instruct")
         self.modelo_audio   = os.getenv("LLM_MODEL_AUDIO",  "whisper-large-v3-turbo")
+        self._last_rl: dict = {}  # cabeceras de rate limit de la última llamada
+
+    def _capturar_rate_limits(self, headers) -> None:
+        """Almacena en memoria los headers de rate limit de la última respuesta."""
+        try:
+            self._last_rl = {
+                "limite_rpm":    headers.get("x-ratelimit-limit-requests"),
+                "restantes_rpm": headers.get("x-ratelimit-remaining-requests"),
+                "reset_rpm":     headers.get("x-ratelimit-reset-requests"),
+                "limite_tpm":    headers.get("x-ratelimit-limit-tokens"),
+                "restantes_tpm": headers.get("x-ratelimit-remaining-tokens"),
+                "reset_tpm":     headers.get("x-ratelimit-reset-tokens"),
+            }
+        except Exception:
+            pass
+
+    def get_rate_limits(self) -> dict:
+        """Devuelve los rate limits capturados de la última llamada exitosa."""
+        return self._last_rl.copy()
 
     def chat(self, messages, temperature=0.7, max_tokens=None):
         try:
             kwargs = {"model": self.modelo, "messages": messages, "temperature": temperature}
             if max_tokens:
                 kwargs["max_tokens"] = max_tokens
-            respuesta = self._cliente.chat.completions.create(**kwargs)
+            raw = self._cliente.with_raw_response.chat.completions.create(**kwargs)
+            self._capturar_rate_limits(raw.headers)
+            respuesta = raw.parse()
             return respuesta.choices[0].message.content
         except LLMError:
             raise

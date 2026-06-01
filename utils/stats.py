@@ -106,7 +106,8 @@ def obtener_estadisticas() -> dict:
                     p.version_excel,
                     COALESCE(p.modo_respuesta, 'texto') AS modo_respuesta,
                     COALESCE(p.modo_privado, 0) AS modo_privado,
-                    l.email
+                    l.email,
+                    p.display_name
                 FROM historial h
                 LEFT JOIN user_prefs p ON h.user_id = p.user_id
                 LEFT JOIN {fuente_links} l ON h.user_id = l.telegram_id
@@ -123,7 +124,8 @@ def obtener_estadisticas() -> dict:
                     p.version_excel,
                     COALESCE(p.modo_respuesta, 'texto') AS modo_respuesta,
                     COALESCE(p.modo_privado, 0) AS modo_privado,
-                    NULL AS email
+                    NULL AS email,
+                    p.display_name
                 FROM historial h
                 LEFT JOIN user_prefs p ON h.user_id = p.user_id
                 GROUP BY h.user_id
@@ -139,7 +141,8 @@ def obtener_estadisticas() -> dict:
                     NULL AS version_excel,
                     'texto' AS modo_respuesta,
                     0 AS modo_privado,
-                    NULL AS email
+                    NULL AS email,
+                    NULL AS display_name
                 FROM historial
                 GROUP BY user_id
                 ORDER BY ultima_actividad DESC
@@ -168,6 +171,7 @@ def obtener_estadisticas() -> dict:
             "modo_respuesta":   fila["modo_respuesta"],
             "modo_privado":     bool(fila["modo_privado"]),
             "email":            fila["email"],
+            "display_name":     fila.get("display_name"),
         }
         for fila in filas_usuarios
     ]
