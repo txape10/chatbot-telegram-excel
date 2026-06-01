@@ -163,6 +163,14 @@ def _añadir_columna(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, str]:
     # Ajustar capitalización para que concuerde con las columnas existentes
     nombre = _normalizar_nombre_columna(nombre, df)
 
+    expresion = op.get("expresion")
+    if expresion:
+        try:
+            df[nombre] = df.eval(expresion)
+            return df, f"Columna '{nombre}' añadida ({expresion})"
+        except Exception as exc:
+            raise EditorError(f"Expresión no válida '{expresion}': {exc}") from exc
+
     col1     = op.get("col1")
     col2     = op.get("col2")
     operador = op.get("operador")

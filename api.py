@@ -40,7 +40,7 @@ from services.llm import (extraer_operacion_edicion, extraer_query_dsl,
                           extraer_estructura_excel, extraer_regla_formato,
                           extraer_peticion_grafico, extraer_params_pivote,
                           extraer_formula, _col_letra,
-                          obtener_respuesta)
+                          obtener_respuesta, LLMError)
 from config import SYSTEM_PROMPT_ADDIN, ENABLE_TELEGRAM as _ENABLE_TELEGRAM, ENABLE_ADDIN as _ENABLE_ADDIN
 from utils.macros import listar_macros as _listar_macros_db, obtener_macro as _obtener_macro_db
 from utils.feature_config import (obtener_config as _obtener_feature_config,
@@ -463,38 +463,42 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
 
     df = _a_dataframe(peticion.datos)
 
-    query = extraer_query_dsl(df, peticion.pregunta)
-    if query:
-        try:
-            resultado, descripcion = ejecutar_query(df, query)
-            return {"respuesta": _resultado_a_texto(resultado, descripcion)}
-        except QueryError as error:
-            logger.warning("DSL falló, usando LLM libre: %s", error)
+    try:
+        query = extraer_query_dsl(df, peticion.pregunta)
+        if query:
+            try:
+                resultado, descripcion = ejecutar_query(df, query)
+                return {"respuesta": _resultado_a_texto(resultado, descripcion)}
+            except QueryError as error:
+                logger.warning("DSL falló, usando LLM libre: %s", error)
 
-    # Detectar intención de edición — redirigir internamente a la lógica de /edit
-    ops = extraer_operacion_edicion(df, peticion.pregunta)
-    if isinstance(ops, list) and ops:
-        pasos = _ejecutar_pipeline(df, ops, peticion.pregunta)
-        if len(pasos) == 1:
-            return pasos[0]
-        return {
-            "tipo": "pipeline",
-            "pasos": pasos,
-            "descripcion": "; ".join(p.get("descripcion", "") for p in pasos if p.get("descripcion")),
-        }
+        # Detectar intención de edición — redirigir internamente a la lógica de /edit
+        ops = extraer_operacion_edicion(df, peticion.pregunta)
+        if isinstance(ops, list) and ops:
+            pasos = _ejecutar_pipeline(df, ops, peticion.pregunta)
+            if len(pasos) == 1:
+                return pasos[0]
+            return {
+                "tipo": "pipeline",
+                "pasos": pasos,
+                "descripcion": "; ".join(p.get("descripcion", "") for p in pasos if p.get("descripcion")),
+            }
 
-    columnas = ", ".join(str(c) for c in df.columns)
-    muestra  = df.head(5).to_string(index=False)
-    contexto = (
-        f"El usuario tiene una tabla con columnas: {columnas}.\n"
-        f"Primeras filas:\n{muestra}\n\n"
-        f"Pregunta: {peticion.pregunta}"
-    )
-    return {"respuesta": obtener_respuesta(
-        peticion.historial, contexto,
-        system_override=SYSTEM_PROMPT_ADDIN,
-        user_id=_uid_ask,
-    )}
+        columnas = ", ".join(str(c) for c in df.columns)
+        muestra  = df.head(5).to_string(index=False)
+        contexto = (
+            f"El usuario tiene una tabla con columnas: {columnas}.\n"
+            f"Primeras filas:\n{muestra}\n\n"
+            f"Pregunta: {peticion.pregunta}"
+        )
+        return {"respuesta": obtener_respuesta(
+            peticion.historial, contexto,
+            system_override=SYSTEM_PROMPT_ADDIN,
+            user_id=_uid_ask,
+        )}
+    except LLMError as exc:
+        logger.warning("LLMError en /ask: %s", exc)
+        return {"respuesta": str(exc)}
 
 
 def _ejecutar_pipeline(df: "pd.DataFrame", ops: list[dict], instruccion: str) -> list[dict]:

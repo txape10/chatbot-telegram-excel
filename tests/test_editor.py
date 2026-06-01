@@ -99,6 +99,33 @@ def test_añadir_columna_sin_nombre(df_ventas):
         })
 
 
+def test_añadir_columna_expresion_tres_operandos(df_ventas):
+    df, desc, _ = aplicar_edicion(df_ventas, {
+        "op": "añadir_columna", "nombre": "Total",
+        "expresion": "Precio * Cantidad",
+    })
+    assert "Total" in df.columns
+    assert df.loc[0, "Total"] == pytest.approx(10 * 5)
+    assert "Total" in desc
+
+
+def test_añadir_columna_expresion_con_valor_fijo(df_ventas):
+    df, desc, _ = aplicar_edicion(df_ventas, {
+        "op": "añadir_columna", "nombre": "PrecioIVA",
+        "expresion": "Precio * 1.21",
+    })
+    assert "PrecioIVA" in df.columns
+    assert df.loc[0, "PrecioIVA"] == pytest.approx(10 * 1.21)
+
+
+def test_añadir_columna_expresion_invalida_lanza_error(df_ventas):
+    with pytest.raises(EditorError):
+        aplicar_edicion(df_ventas, {
+            "op": "añadir_columna", "nombre": "X",
+            "expresion": "ColumnaInexistente * 2",
+        })
+
+
 # ── ordenar ───────────────────────────────────────────────────────────────────
 
 def test_ordenar_desc(df_ventas):
