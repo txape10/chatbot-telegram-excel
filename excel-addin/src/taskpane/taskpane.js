@@ -177,6 +177,7 @@ async function preguntar() {
     let valores     = _valoresSel;
     let direccion   = _direccionSel;
     let hojaNombre  = _hojaNombreSel;
+    let _usedRangeCapturado = null;  // para pasar a /ask si no hay suficientes datos
 
     if (!tienesDatos) {
       // Sin selección — intentar con el rango usado de la hoja activa
@@ -189,6 +190,7 @@ async function preguntar() {
           direccion   = usedRange.direccion;
           hojaNombre  = usedRange.hojaNombre;
         }
+        _usedRangeCapturado = usedRange;  // capturar para fallback en /ask
       } catch (_e) { /* hoja vacía — continuar con /ask */ }
     }
 
@@ -356,14 +358,17 @@ async function preguntar() {
 
     } else {
       // ── Flujo sin datos: pregunta general o creación desde cero ──
-      // Guardamos la dirección actual como ancla por si el LLM devuelve datos para escribir
-      _rangoAddress    = direccion;
-      _rangoHojaNombre = hojaNombre;
+      // Si tenemos datos de la hoja (pero no suficientes para /edit), los pasamos
+      // para que el backend pueda detectar intención de edición y redirigir.
+      _rangoAddress    = _usedRangeCapturado?.direccion  || direccion;
+      _rangoHojaNombre = _usedRangeCapturado?.hojaNombre || hojaNombre;
       _rangoFilas      = 0;
       _rangoCols       = 0;
       mostrarEstado("Consultando al asistente...");
       const respuesta = await llamarApi("/ask", {
-        pregunta: instruccion, historial: _historialLLM,
+        pregunta: instruccion,
+        datos:    _usedRangeCapturado?.valores || null,
+        historial: _historialLLM,
         device_id:    _obtenerOCrearDeviceId(),
         user_email:   obtenerEmailUsuario(),
         display_name: obtenerNombreUsuario(),
@@ -387,6 +392,40 @@ async function preguntar() {
           _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
           _actualizarHistorialLLM(instruccion, respuesta.descripcion);
         }
+      } else if (respuesta.tipo === "edicion" && respuesta.datos_modificados) {
+        // El backend detectó intención de edición desde /ask — procesar igual que /edit
+        _datosModificados = respuesta.datos_modificados;
+        _operacionActual  = respuesta.operacion || null;
+        const _dest = { final: "debajo", principio: "principio" }[respuesta.destino] ?? null;
+        if (_dest) {
+          mostrarRespuesta("✏️ " + respuesta.descripcion);
+          mostrarEstado("Escribiendo...");
+          await escribirEnExcel(_dest);
+        } else {
+          mostrarRespuesta("✏️ " + respuesta.descripcion + "\n\n*Elige dónde escribir el resultado:*");
+          mostrarDialogo(respuesta.descripcion);
+          mostrarEstado("Edición lista");
+        }
+        _agregarAlHistorial(instruccion, "✏️ " + respuesta.descripcion);
+        _actualizarHistorialLLM(instruccion, respuesta.descripcion);
+      } else if (respuesta.tipo === "pipeline" && respuesta.pasos) {
+        // Pipeline de edición detectado desde /ask
+        mostrarEstado("Ejecutando...");
+        let _ultEdit = null;
+        for (const paso of respuesta.pasos) {
+          await _aplicarPaso(paso);
+          if (paso.tipo === "edicion") _ultEdit = paso;
+        }
+        if (_ultEdit) {
+          _datosModificados = _ultEdit.datos_modificados;
+          _operacionActual  = _ultEdit.operacion || null;
+          await escribirEnExcel("sustituir");
+        }
+        const _desc = respuesta.descripcion || (_ultEdit?.descripcion ?? "Listo");
+        mostrarRespuesta("✅ " + _desc);
+        mostrarEstado("Listo");
+        _agregarAlHistorial(instruccion, "✅ " + _desc);
+        _actualizarHistorialLLM(instruccion, _desc);
       } else {
         mostrarRespuesta(respuesta.respuesta);
         mostrarEstado("Listo");

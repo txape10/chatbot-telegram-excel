@@ -470,6 +470,18 @@ def ask(peticion: PeticionPregunta, _: None = Depends(_verificar_clave),
         except QueryError as error:
             logger.warning("DSL falló, usando LLM libre: %s", error)
 
+    # Detectar intención de edición — redirigir internamente a la lógica de /edit
+    ops = extraer_operacion_edicion(df, peticion.pregunta)
+    if isinstance(ops, list) and ops:
+        pasos = _ejecutar_pipeline(df, ops, peticion.pregunta)
+        if len(pasos) == 1:
+            return pasos[0]
+        return {
+            "tipo": "pipeline",
+            "pasos": pasos,
+            "descripcion": "; ".join(p.get("descripcion", "") for p in pasos if p.get("descripcion")),
+        }
+
     columnas = ", ".join(str(c) for c in df.columns)
     muestra  = df.head(5).to_string(index=False)
     contexto = (
