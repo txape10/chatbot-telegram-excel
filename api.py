@@ -1368,15 +1368,41 @@ def _fmt_min(m: float) -> str:
 
 
 def _obtener_groq_rate_limits() -> dict:
-    """Devuelve los rate limits de Groq del proveedor activo (en memoria, última llamada)."""
+    """Devuelve los rate limits de Groq.
+
+    Primero busca datos en memoria (última llamada del proceso actual).
+    Si no hay, hace una llamada mínima de sondeo para obtener los headers.
+    """
     try:
         from services.llm_provider import obtener_proveedor
         prov = obtener_proveedor()
+
+        # Localizar el GroqProvider subyacente (3 capas posibles)
+        groq_prov = None
         if hasattr(prov, "get_rate_limits"):
-            return prov.get_rate_limits()
-        # FallbackProvider: intentar con el primario
-        if hasattr(prov, "_primario") and hasattr(prov._primario, "get_rate_limits"):
-            return prov._primario.get_rate_limits()
+            # Improbable: el propio singleton tiene el método
+            groq_prov = prov
+        elif hasattr(prov, "_inner") and hasattr(prov._inner, "get_rate_limits"):
+            # _ProveedorInstrumentado (sin fallback) → ._inner es GroqProvider
+            groq_prov = prov._inner
+        elif hasattr(prov, "_primario") and hasattr(prov._primario, "get_rate_limits"):
+            # FallbackProvider → ._primario es GroqProvider
+            groq_prov = prov._primario
+
+        if groq_prov is None:
+            return {}
+
+        rl = groq_prov.get_rate_limits()
+        if rl:
+            return rl
+
+        # Sin datos en memoria (proceso recién arrancado) → sondeo mínimo
+        groq_prov.chat(
+            messages=[{"role": "user", "content": "1"}],
+            max_tokens=1,
+            temperature=0.0,
+        )
+        return groq_prov.get_rate_limits()
     except Exception:
         pass
     return {}
