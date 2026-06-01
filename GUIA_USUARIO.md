@@ -144,10 +144,13 @@ Con un archivo activo, puedes hacer preguntas directamente sobre los datos:
 | Lo que escribes | Lo que hace el bot |
 |---|---|
 | "¿Cuánto suma Ventas por Región?" | Agrupa y suma |
-| "Muéstrame el top 5 por Importe" | Ordena y muestra los 5 primeros |
+| "Muéstrame el top 5 por Importe" | Top 5 global |
+| "Dame el top 3 de Ventas por Región" | Top 3 dentro de cada región |
 | "¿Cuántos pedidos hay con estado Pendiente?" | Filtra y cuenta |
 | "¿Cuál es el promedio de Precio por Categoría?" | Agrupa y promedia |
 | "¿Cuál es el máximo de Ventas en enero?" | Filtra por mes y calcula máximo |
+| "¿Cuántas filas tienen Ventas por encima de la media?" | Filtra con umbral estadístico |
+| "Muéstrame los registros con Importe por encima de la mediana" | Filtra con mediana como umbral |
 
 El bot usa un motor interno estructurado, **no ejecuta código libre**, lo que garantiza que no se modifica nada sin tu permiso.
 
@@ -279,6 +282,43 @@ Transforma las columnas Enero, Febrero, Marzo en filas con columnas Mes y Valor
 ```
 Crea una tabla con Vendedor en filas, Mes en columnas y suma de Ventas como valores
 ```
+
+#### Duplicar filas
+```
+Duplica las últimas 3 filas al final
+```
+```
+Copia las filas 2 y 5 al principio de la tabla
+```
+
+#### Transponer (intercambiar filas y columnas)
+```
+Transpón la tabla
+```
+```
+Intercambia filas y columnas usando la columna Mes como nuevo encabezado
+```
+
+#### Añadir fila de totales
+```
+Añade una fila de totales al final
+```
+```
+Añade una fila con la suma de cada columna numérica
+```
+```
+Añade una fila con el promedio de cada columna
+```
+
+#### Fórmulas Excel nativas
+```
+Añade una columna que calcule =SI(Ventas>1000,"Alta","Baja")
+```
+```
+Inserta una columna Resultado con la fórmula =C{fila}*D{fila}
+```
+
+> 💡 Usa esta opción cuando quieras que la columna resultante sea una fórmula de Excel editable y que recalcule al cambiar los datos fuente, en lugar de valores estáticos.
 
 #### Eliminar duplicados ⚠️
 ```
@@ -674,7 +714,7 @@ El bot tiene límites de seguridad (por defecto: 100.000 filas, 100 columnas, 10
 No. Todas las operaciones sobre datos usan un lenguaje de instrucciones estructurado (DSL). El LLM extrae la intención y la convierte en una operación concreta, pero nunca se ejecuta código arbitrario.
 
 **¿Funciona si el PC está apagado?**
-Sí. El bot está desplegado en la nube y funciona 24/7 sin necesidad de tener ningún PC encendido. La primera respuesta del día puede tardar unos segundos mientras el servicio se activa.
+Sí. El bot está desplegado en la nube y funciona 24/7 sin necesidad de tener ningún PC encendido. El servicio está monitorizado para mantenerse siempre activo — las respuestas son inmediatas en cualquier momento del día.
 
 **¿El bot solo habla español?**
 No. Detecta automáticamente el idioma en que escribe el usuario y responde en ese mismo idioma. Si escribes en inglés, responde en inglés; si escribes en alemán, responde en alemán. Los comandos del sistema siguen siendo los mismos independientemente del idioma.

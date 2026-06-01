@@ -250,6 +250,8 @@ ADDIN_URL=
 - **Tablas dinámicas nativas con xlwings (2026-05-28)**: `PIVOT_NATIVO_DISPONIBLE` en `config.py`; `_detectar_columnas()` + `_crear_tabla_dinamica_nativa()` en `excel/exporter.py`; `crear_tabla_dinamica()` devuelve 3-tupla `(buf, nombre, es_nativa)`; `/pivote` muestra caption diferenciado; fallback automático a openpyxl si xlwings no está disponible o falla
 - **Fixes pipeline Add-in (2026-05-30)**: columnas calculadas se escriben como fórmulas Excel vivas (no valores estáticos) via `_aplicarFormulaColumna()`; ordenación de fechas DD/MM/YYYY corregida con `dayfirst=True`; capitalización de nuevas columnas en consonancia con el resto de columnas (`_normalizar_nombre_columna()`); nulos en columnas numéricas tratados como 0 en cálculos; fallback instantáneo al proveedor IA secundario (`max_retries=0` en Groq); clarificación innecesaria sobre orden de pasos eliminada
 - **Feedback UI mejorado (2026-05-30)**: zona-feedback con 👍 Útil + 👎 Errónea; al pulsar cualquiera los botones desaparecen y aparece ✅; `tipo` añadido a `feedback_rag` (migración automática vía `ALTER TABLE`); feedback negativo se almacena para análisis pero no se inyecta en el LLM; feedback positivo sigue como few-shot
+- **Fix /ask → edit routing (2026-06-01)**: `/ask` detecta intención de edición cuando recibe `datos >= 2 filas` y redirige internamente a la lógica de `/edit`; frontend captura `_usedRangeCapturado` y maneja respuestas `tipo: edicion/pipeline`; `QUERY_DSL_SISTEMA` incluye regla anti-confusión para verbos imperativos de edición → `RESPUESTA_LIBRE` (fix commit `45edf3d`)
+- **UptimeRobot configurado (2026-06-01)**: ping cada 5 min a `/health`; servicio Render siempre activo (nunca duerme); alertas por email a roberto.chapado@gmail.com
 
 ### ⏳ Pendiente (bloqueado por reunión con admin)
 
@@ -258,7 +260,6 @@ ADDIN_URL=
 
 ### 🔮 Futuro
 
-- **UptimeRobot** (o similar): monitorizar que la URL de Render responde cada 5 min y avisar por Telegram/email si cae. Configuración de 2 min en uptimerobot.com — free tier ilimitado.
 - Autenticación SSO con Azure Active Directory (`auth.sso.js` ya preparado)
 - **xlwings**: código ya implementado y desplegado. Solo requiere `pip install xlwings` en el servidor Windows de empresa para activarse automáticamente.
 
