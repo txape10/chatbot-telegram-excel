@@ -26,6 +26,11 @@ def _tabla_existe(conn: sqlite3.Connection, nombre: str) -> bool:
     ).fetchone() is not None
 
 
+def _columna_existe(conn: sqlite3.Connection, tabla: str, columna: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({tabla})").fetchall()
+    return any(r[1] == columna for r in rows)
+
+
 def obtener_estadisticas() -> dict:
     """Devuelve un diccionario con estadísticas de uso del servicio.
 
@@ -80,7 +85,9 @@ def obtener_estadisticas() -> dict:
         tiene_prefs = _tabla_existe(conn, "user_prefs")
         tiene_links = _tabla_existe(conn, "user_links")
 
-        tiene_device_links = _tabla_existe(conn, "device_links")
+        tiene_device_links   = _tabla_existe(conn, "device_links")
+        tiene_display_name   = tiene_prefs and _columna_existe(conn, "user_prefs", "display_name")
+        _sel_display_name    = "p.display_name" if tiene_display_name else "NULL AS display_name"
 
         if tiene_prefs and tiene_links:
             # Unimos user_links y device_links para no perder usuarios que solo
@@ -107,7 +114,7 @@ def obtener_estadisticas() -> dict:
                     COALESCE(p.modo_respuesta, 'texto') AS modo_respuesta,
                     COALESCE(p.modo_privado, 0) AS modo_privado,
                     l.email,
-                    p.display_name
+                    {_sel_display_name}
                 FROM historial h
                 LEFT JOIN user_prefs p ON h.user_id = p.user_id
                 LEFT JOIN {fuente_links} l ON h.user_id = l.telegram_id
@@ -115,7 +122,7 @@ def obtener_estadisticas() -> dict:
                 ORDER BY ultima_actividad DESC
             """
         elif tiene_prefs:
-            query_usuarios = """
+            query_usuarios = f"""
                 SELECT
                     h.user_id,
                     COUNT(*) AS total_mensajes,
@@ -125,7 +132,7 @@ def obtener_estadisticas() -> dict:
                     COALESCE(p.modo_respuesta, 'texto') AS modo_respuesta,
                     COALESCE(p.modo_privado, 0) AS modo_privado,
                     NULL AS email,
-                    p.display_name
+                    {_sel_display_name}
                 FROM historial h
                 LEFT JOIN user_prefs p ON h.user_id = p.user_id
                 GROUP BY h.user_id
